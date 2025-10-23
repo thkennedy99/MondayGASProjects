@@ -1,0 +1,334 @@
+/**
+ * SessionManager.gs - Session and Authentication Management
+ * Handles user sessions, permissions, and activity tracking
+ */
+
+class SessionManager {
+  constructor() {
+    this.cache = CacheService.getUserCache();
+    this.properties = PropertiesService.getUserProperties();
+    this.sessionTimeout = CONFIG.SESSION_TIMEOUT || 1800; // 30 minutes
+  }
+  
+  /**
+   * Create new session
+   */
+  createSession(userEmail) {
+    const sessionId = Utilities.getUuid();
+    const session = {
+      id: sessionId,
+      user: userEmail,
+      created: new Date().toISOString(),
+      lastActivity: new Date().toISOString(),
+      permissions: this.getUserPermissions(userEmail),
+      metadata: {
+        userAgent: this.getUserAgent(),
+        ipAddress: this.getIpAddress()
+      }
+    };
+    
+    // Store session
+    const key = `session_${sessionId}`;
+    this.cache.put(key, JSON.stringify(session), this.sessionTimeout);
+    
+    // Store user's current session ID
+    this.properties.setProperty('current_session', sessionId);
+    
+    // Log session creation
+    this.logActivity('session_created', { sessionId, user: userEmail });
+    
+    return session;
+  }
+  
+  /**
+   * Get current session
+   */
+  getCurrentSession() {
+    const sessionId = this.properties.getProperty('current_session');
+    if (!sessionId) return null;
+    
+    return this.getSession(sessionId);
+  }
+  
+  /**
+   * Get session by ID
+   */
+  getSession(sessionId) {
+    const key = `session_${sessionId}`;
+    const sessionData = this.cache.get(key);
+    
+    if (!sessionData) return null;
+    
+    try {
+      const session = JSON.parse(sessionData);
+      
+      // Check if session is expired
+      const lastActivity = new Date(session.lastActivity);
+      const now = new Date();
+      const inactiveTime = (now - lastActivity) / 1000;
+      
+      if (inactiveTime > this.sessionTimeout) {
+        this.destroySession(sessionId);
+        return null;
+      }
+      
+      // Update last activity
+      session.lastActivity = now.toISOString();
+      this.cache.put(key, JSON.stringify(session), this.sessionTimeout);
+      
+      return session;
+    } catch (error) {
+      console.error('Session parse error:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Destroy session
+   */
+  destroySession(sessionId) {
+    const key = `session_${sessionId}`;
+    this.cache.remove(key);
+    
+    // Clear current session if it matches
+    const currentSessionId = this.properties.getProperty('current_session');
+    if (currentSessionId === sessionId) {
+      this.properties.deleteProperty('current_session');
+    }
+    
+    // Log session destruction
+    this.logActivity('session_destroyed', { sessionId });
+  }
+  
+  /**
+   * Validate session
+   */
+  validateSession(sessionId) {
+    const session = this.getSession(sessionId);
+    return session !== null;
+  }
+  
+  /**
+   * Get user permissions
+   */
+  getUserPermissions(userEmail) {
+    const permissions = {
+      canView: false,
+      canEdit: false,
+      canDelete: false,
+      canAdmin: false,
+      canExport: false,
+      canSync: false
+    };
+    
+    // Check domain
+    const domain = userEmail.split('@')[1];
+    if (domain !== 'guidewire.com') {
+      return permissions;
+    }
+    
+    // Basic permissions for all Guidewire users
+    permissions.canView = true;
+    permissions.canExport = true;
+    
+    // Check if user is a manager
+    const managers = getManagerList();
+    if (managers.includes(userEmail)) {
+      permissions.canEdit = true;
+      permissions.canSync = true;
+    }
+    
+    // Check if user is admin
+    const admins = this.getAdminList();
+    if (admins.includes(userEmail)) {
+      permissions.canEdit = true;
+      permissions.canDelete = true;
+      permissions.canAdmin = true;
+      permissions.canSync = true;
+    }
+    
+    return permissions;
+  }
+  
+  /**
+   * Get admin list
+   */
+  getAdminList() {
+    // This could be stored in a sheet or properties
+    const adminsProp = PropertiesService.getScriptProperties().getProperty('admins');
+    if (adminsProp) {
+      return JSON.parse(adminsProp);
+    }
+    
+    // Default admins
+    return [
+      'admin@guidewire.com',
+      'alliance.admin@guidewire.com'
+    ];
+  }
+  
+  /**
+   * Check permission
+   */
+  checkPermission(sessionId, permission) {
+    const session = this.getSession(sessionId);
+    if (!session) return false;
+    
+    return session.permissions[permission] === true;
+  }
+  
+  /**
+   * Log activity
+   */
+  logActivity(action, data = {}) {
+    try {
+      const log = {
+        timestamp: new Date().toISOString(),
+        action: action,
+        user: Session.getActiveUser().getEmail(),
+        data: data
+      };
+      
+      // Store in cache for recent activity
+      const recentKey = 'recent_activity';
+      let recent = this.cache.get(recentKey);
+      recent = recent ? JSON.parse(recent) : [];
+      
+      recent.unshift(log);
+      recent = recent.slice(0, 100); // Keep last 100 activities
+      
+      this.cache.put(recentKey, JSON.stringify(recent), 3600);
+      
+      // Also log to console for debugging
+      console.log('Activity:', log);
+      
+    } catch (error) {
+      console.error('Activity logging error:', error);
+    }
+  }
+  
+  /**
+   * Get recent activity
+   */
+  getRecentActivity(limit = 50) {
+    const recentKey = 'recent_activity';
+    const recent = this.cache.get(recentKey);
+    
+    if (!recent) return [];
+    
+    try {
+      const activities = JSON.parse(recent);
+      return activities.slice(0, limit);
+    } catch (error) {
+      console.error('Get activity error:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Get user agent (placeholder - would need client-side info)
+   */
+  getUserAgent() {
+    return 'Google Apps Script Web App';
+  }
+  
+  /**
+   * Get IP address (placeholder - would need client-side info)
+   */
+  getIpAddress() {
+    return 'Unknown';
+  }
+  
+  /**
+   * Cleanup expired sessions
+   */
+  cleanupSessions() {
+    // This would be called by a time-based trigger
+    const activities = this.getRecentActivity(1000);
+    const now = new Date();
+    
+    activities.forEach(activity => {
+      if (activity.action === 'session_created') {
+        const sessionId = activity.data.sessionId;
+        const session = this.getSession(sessionId);
+        
+        if (!session) {
+          // Session already expired or destroyed
+          return;
+        }
+        
+        const lastActivity = new Date(session.lastActivity);
+        const inactiveTime = (now - lastActivity) / 1000;
+        
+        if (inactiveTime > this.sessionTimeout) {
+          this.destroySession(sessionId);
+        }
+      }
+    });
+  }
+}
+
+// Global session manager instance
+const sessionManager = new SessionManager();
+
+/**
+ * Get current user info
+ */
+function getCurrentUser() {
+  const email = Session.getActiveUser().getEmail();
+  const session = sessionManager.getCurrentSession() || sessionManager.createSession(email);
+  
+  return {
+    email: email,
+    sessionId: session.id,
+    permissions: session.permissions,
+    created: session.created,
+    lastActivity: session.lastActivity
+  };
+}
+
+/**
+ * Check user permission
+ */
+function checkUserPermission(permission) {
+  const session = sessionManager.getCurrentSession();
+  if (!session) return false;
+  
+  return sessionManager.checkPermission(session.id, permission);
+}
+
+/**
+ * Get activity log
+ */
+function getActivityLog(limit = 50) {
+  if (!checkUserPermission('canAdmin')) {
+    throw new Error('Unauthorized: Admin permission required');
+  }
+  
+  return sessionManager.getRecentActivity(limit);
+}
+
+/**
+ * Logout current user
+ */
+function logout() {
+  const session = sessionManager.getCurrentSession();
+  if (session) {
+    sessionManager.destroySession(session.id);
+  }
+  
+  return { success: true, message: 'Logged out successfully' };
+}
+
+/**
+ * Refresh session
+ */
+function refreshSession() {
+  const session = sessionManager.getCurrentSession();
+  if (!session) {
+    const email = Session.getActiveUser().getEmail();
+    return sessionManager.createSession(email);
+  }
+  
+  return sessionManager.getSession(session.id);
+}
