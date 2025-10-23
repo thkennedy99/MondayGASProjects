@@ -1,0 +1,2086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Alliance Manager Portal</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    
+    <!-- Custom Styles -->
+    <style>
+        :root {
+            /* Guidewire Brand Colors */
+            --gw-guidewire-blue: #00739d;
+            --gw-nautical-navy: #034e6a;
+            --gw-bright-blue: #1eb7df;
+            --gw-light-blue: #e7f1f5;
+            --gw-dark-gray: #333333;
+            --gw-medium-gray: #666666;
+            --gw-light-gray: #cccccc;
+            --gw-off-white: #f5f5f5;
+            
+            /* Theme variables */
+            --bg-primary: #f5f5f5;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #e7f1f5;
+            --text-primary: #333333;
+            --text-secondary: #666666;
+            --text-muted: #999999;
+            --border-color: #cccccc;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
+            --shadow-md: 0 2px 6px rgba(0,0,0,0.15);
+            --shadow-lg: 0 4px 12px rgba(0,0,0,0.2);
+            --header-gradient-start: #00739d;
+            --header-gradient-end: #034e6a;
+        }
+
+        [data-bs-theme="dark"] {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2d2d2d;
+            --bg-tertiary: #3a3a3a;
+            --text-primary: #e4e4e4;
+            --text-secondary: #b0b0b0;
+            --text-muted: #808080;
+            --border-color: #404040;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+            --shadow-md: 0 2px 6px rgba(0,0,0,0.4);
+            --shadow-lg: 0 4px 12px rgba(0,0,0,0.5);
+            --header-gradient-start: #005570;
+            --header-gradient-end: #023547;
+            --gw-light-blue: #2a3f47;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        
+        .app-container {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .navbar-custom {
+            background: linear-gradient(135deg, var(--header-gradient-start) 0%, var(--header-gradient-end) 100%);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .navbar-custom .navbar-brand {
+            color: white !important;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .main-content {
+            flex: 1;
+            padding: 1.5rem;
+            background: var(--bg-primary);
+        }
+        
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+            transition: all 0.3s ease;
+        }
+        
+        .card-header {
+            background: var(--bg-tertiary);
+            border-bottom: 2px solid var(--border-color);
+            font-weight: 600;
+        }
+        
+        .data-table {
+            font-size: 0.875rem;
+        }
+        
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .spin {
+          animation: spin 1s linear infinite;
+        }
+        
+        .data-table thead th {
+            background: var(--bg-tertiary);
+            border-bottom: 2px solid var(--border-color);
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .data-table tbody tr:hover {
+            background: var(--bg-tertiary);
+            cursor: pointer;
+        }
+        
+        .badge.status-working {
+            background-color: #fdab3d;
+            color: #000;
+        }
+        
+        .badge.status-done {
+            background-color: #00c875;
+            color: #fff;
+        }
+        
+        .badge.status-stuck {
+            background-color: #e2445c;
+            color: #fff;
+        }
+        
+        .badge.status-not-started {
+            background-color: #c4c4c4;
+            color: #000;
+        }
+        
+        .badge.status-high {
+            background-color: #ff6b6b;
+            color: #fff;
+        }
+        
+        .badge.status-medium {
+            background-color: #ffcc33;
+            color: #000;
+        }
+        
+        .badge.status-low {
+            background-color: #00cc66;
+            color: #fff;
+        }
+        
+        .heatmap-green {
+            background-color: rgba(0, 200, 117, 0.1);
+        }
+        
+        .heatmap-yellow {
+            background-color: rgba(255, 193, 7, 0.1);
+        }
+        
+        .heatmap-red {
+            background-color: rgba(220, 53, 69, 0.1);
+        }
+        
+        [data-bs-theme="dark"] .heatmap-green {
+            background-color: rgba(0, 200, 117, 0.2);
+        }
+        
+        [data-bs-theme="dark"] .heatmap-yellow {
+            background-color: rgba(255, 193, 7, 0.2);
+        }
+        
+        [data-bs-theme="dark"] .heatmap-red {
+            background-color: rgba(220, 53, 69, 0.2);
+        }
+        
+        .theme-toggle {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 0.5rem 0.75rem;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .theme-toggle:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.05);
+        }
+        
+        .spinning {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .filter-panel {
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem;
+        }
+        
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 3rem;
+        }
+        
+        @media (max-width: 768px) {
+            .main-content {
+                padding: 1rem;
+            }
+            
+            .data-table {
+                font-size: 0.75rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <!-- Bootstrap Bundle with Popper -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- React and ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel Standalone for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Application Configuration -->
+    <script>
+        window.appConfig = <?!= appConfig ?>;
+    </script>
+    
+    <!-- Main React Application -->
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
+        const { createRoot } = ReactDOM;
+        
+        // Google Script API wrapper
+        const api = {
+            call: (functionName, ...args) => {
+                return new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                        [functionName](...args);
+                });
+            }
+        };
+        
+        // App Context
+        const AppContext = createContext();
+        
+        // Status Badge Component
+        const StatusBadge = ({ status, type = 'activity' }) => {
+            const getStatusClass = () => {
+                const statusLower = status?.toLowerCase() || '';
+                if (statusLower.includes('done') || statusLower.includes('complete')) return 'status-done';
+                if (statusLower.includes('working') || statusLower.includes('progress')) return 'status-working';
+                if (statusLower.includes('stuck') || statusLower.includes('blocked')) return 'status-stuck';
+                if (statusLower.includes('not started')) return 'status-not-started';
+                if (statusLower.includes('high')) return 'status-high';
+                if (statusLower.includes('medium')) return 'status-medium';
+                if (statusLower.includes('low')) return 'status-low';
+                return 'secondary';
+            };
+            
+            return (
+                <span className={`badge ${getStatusClass()}`}>
+                    {status}
+                </span>
+            );
+        };
+        
+        // Data Table Component
+        const DataTable = ({ data, columns, onRowClick, loading }) => {
+            if (loading) {
+                return (
+                    <div className="loading-spinner">
+                        <div className="spinner-border text-primary" role="status">
+                            <span className="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                );
+            }
+            
+            if (!data || data.length === 0) {
+                return (
+                    <div className="text-center p-4 text-muted">
+                        No data available
+                    </div>
+                );
+            }
+            
+            return (
+                <div className="table-responsive">
+                    <table className="table table-hover data-table mb-0">
+                        <thead>
+                            <tr>
+                                {columns.map(col => (
+                                    <th key={col.field} style={{ width: col.width }}>
+                                        {col.name}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {data.map((row, index) => (
+                                <tr key={index} onClick={() => onRowClick && onRowClick(row)}>
+                                    {columns.map(col => (
+                                        <td key={col.field}>
+                                            {col.type === 'status' ? (
+                                                <StatusBadge status={row[col.field]} />
+                                            ) : col.type === 'date' ? (
+                                                row[col.field] ? new Date(row[col.field]).toLocaleDateString() : '-'
+                                            ) : (
+                                                row[col.field] || '-'
+                                            )}
+                                        </td>
+                                    ))}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            );
+        };
+        
+       
+
+        // Reusable ScrollableDataTable component
+            function ScrollableDataTable({ 
+              data, 
+              columns, 
+              renderRow, 
+              title, 
+              emptyMessage = "No data available",
+              maxHeight = "400px",
+              itemsPerPage = 10,
+              searchable = true,
+              searchFields = []
+            }) {
+              const [displayData, setDisplayData] = React.useState([]);
+              const [currentPage, setCurrentPage] = React.useState(1);
+              const [searchTerm, setSearchTerm] = React.useState('');
+              const [sortConfig, setSortConfig] = React.useState({ key: null, direction: 'asc' });
+              
+              // Filter data based on search term
+              const filteredData = React.useMemo(() => {
+                if (!searchTerm) return data;
+                
+                return data.filter(item => {
+                  const searchLower = searchTerm.toLowerCase();
+                  // Search in specified fields or all string fields
+                  if (searchFields.length > 0) {
+                    return searchFields.some(field => 
+                      String(item[field] || '').toLowerCase().includes(searchLower)
+                    );
+                  }
+                  // Search in all string values
+                  return Object.values(item).some(value => 
+                    String(value || '').toLowerCase().includes(searchLower)
+                  );
+                });
+              }, [data, searchTerm, searchFields]);
+              
+              // Sort data
+              const sortedData = React.useMemo(() => {
+                if (!sortConfig.key) return filteredData;
+                
+                return [...filteredData].sort((a, b) => {
+                  const aVal = a[sortConfig.key] || '';
+                  const bVal = b[sortConfig.key] || '';
+                  
+                  if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+                  if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+                  return 0;
+                });
+              }, [filteredData, sortConfig]);
+              
+              // Paginate data
+              React.useEffect(() => {
+                const startIndex = (currentPage - 1) * itemsPerPage;
+                const endIndex = startIndex + itemsPerPage;
+                setDisplayData(sortedData.slice(startIndex, endIndex));
+              }, [sortedData, currentPage, itemsPerPage]);
+              
+              const totalPages = Math.ceil(sortedData.length / itemsPerPage);
+              
+              const handleSort = (key) => {
+                setSortConfig(prev => ({
+                  key,
+                  direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+                }));
+              };
+              
+              const getSortIcon = (columnKey) => {
+                if (sortConfig.key !== columnKey) {
+                  return <i className="bi bi-arrow-down-up text-muted"></i>;
+                }
+                return sortConfig.direction === 'asc' 
+                  ? <i className="bi bi-sort-up"></i>
+                  : <i className="bi bi-sort-down"></i>;
+              };
+              
+              return (
+                <div className="scrollable-data-container">
+                  {/* Header with search and info */}
+                  <div className="d-flex justify-content-between align-items-center mb-3">
+                    <div className="d-flex align-items-center gap-2">
+                      <h6 className="mb-0">{title}</h6>
+                      <span className="badge bg-primary">{sortedData.length}</span>
+                    </div>
+                    
+                    {searchable && (
+                      <div className="input-group input-group-sm" style={{ width: '250px' }}>
+                        <span className="input-group-text">
+                          <i className="bi bi-search"></i>
+                        </span>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Search..."
+                          value={searchTerm}
+                          onChange={(e) => {
+                            setSearchTerm(e.target.value);
+                            setCurrentPage(1); // Reset to first page on search
+                          }}
+                        />
+                        {searchTerm && (
+                          <button 
+                            className="btn btn-outline-secondary"
+                            onClick={() => {
+                              setSearchTerm('');
+                              setCurrentPage(1);
+                            }}
+                          >
+                            <i className="bi bi-x"></i>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Scrollable table container */}
+                  <div 
+                    className="table-container border rounded" 
+                    style={{ 
+                      maxHeight: maxHeight, 
+                      overflowY: 'auto',
+                      overflowX: 'auto'
+                    }}
+                  >
+                    {displayData.length === 0 ? (
+                      <div className="text-center text-muted py-4">
+                        {searchTerm ? `No results found for "${searchTerm}"` : emptyMessage}
+                      </div>
+                    ) : (
+                      <table className="table table-hover table-sm mb-0">
+                        <thead className="sticky-top bg-light">
+                          <tr>
+                            {columns.map((column, index) => (
+                              <th 
+                                key={index} 
+                                className="cursor-pointer user-select-none"
+                                onClick={() => handleSort(column.key)}
+                              >
+                                <div className="d-flex align-items-center gap-1">
+                                  {column.label}
+                                  {getSortIcon(column.key)}
+                                </div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {displayData.map((item, index) => renderRow(item, index))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                  
+                  {/* Pagination controls */}
+                  {totalPages > 1 && (
+                    <div className="d-flex justify-content-between align-items-center mt-3">
+                      <div className="text-muted small">
+                        Showing {((currentPage - 1) * itemsPerPage) + 1} - {Math.min(currentPage * itemsPerPage, sortedData.length)} of {sortedData.length}
+                      </div>
+                      
+                      <div className="btn-group btn-group-sm">
+                        <button 
+                          className="btn btn-outline-secondary"
+                          onClick={() => setCurrentPage(1)}
+                          disabled={currentPage === 1}
+                        >
+                          <i className="bi bi-chevron-double-left"></i>
+                        </button>
+                        <button 
+                          className="btn btn-outline-secondary"
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1}
+                        >
+                          <i className="bi bi-chevron-left"></i>
+                        </button>
+                        
+                        {/* Page numbers */}
+                        {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                          let pageNum;
+                          if (totalPages <= 5) {
+                            pageNum = i + 1;
+                          } else if (currentPage <= 3) {
+                            pageNum = i + 1;
+                          } else if (currentPage >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i;
+                          } else {
+                            pageNum = currentPage - 2 + i;
+                          }
+                          
+                          return (
+                            <button
+                              key={i}
+                              className={`btn ${pageNum === currentPage ? 'btn-primary' : 'btn-outline-secondary'}`}
+                              onClick={() => setCurrentPage(pageNum)}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        })}
+                        
+                        <button 
+                          className="btn btn-outline-secondary"
+                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                          disabled={currentPage === totalPages}
+                        >
+                          <i className="bi bi-chevron-right"></i>
+                        </button>
+                        <button 
+                          className="btn btn-outline-secondary"
+                          onClick={() => setCurrentPage(totalPages)}
+                          disabled={currentPage === totalPages}
+                        >
+                          <i className="bi bi-chevron-double-right"></i>
+                        </button>
+                      </div>
+                      
+                      <div className="d-flex align-items-center gap-2">
+                        <label className="small text-muted mb-0">Items per page:</label>
+                        <select 
+                          className="form-select form-select-sm" 
+                          style={{ width: 'auto' }}
+                          value={itemsPerPage}
+                          onChange={(e) => {
+                            setCurrentPage(1);
+                            // This would need to be passed down as a prop setter
+                          }}
+                        >
+                          <option value="5">5</option>
+                          <option value="10">10</option>
+                          <option value="25">25</option>
+                          <option value="50">50</option>
+                          <option value="100">100</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <style jsx>{`
+                    .cursor-pointer {
+                      cursor: pointer;
+                    }
+                    .table-container::-webkit-scrollbar {
+                      width: 8px;
+                      height: 8px;
+                    }
+                    .table-container::-webkit-scrollbar-track {
+                      background: #f1f1f1;
+                    }
+                    .table-container::-webkit-scrollbar-thumb {
+                      background: #888;
+                      border-radius: 4px;
+                    }
+                    .table-container::-webkit-scrollbar-thumb:hover {
+                      background: #555;
+                    }
+                    thead th {
+                      background-color: #f8f9fa;
+                      font-weight: 600;
+                      font-size: 0.875rem;
+                      white-space: nowrap;
+                    }
+                    tbody td {
+                      font-size: 0.875rem;
+                    }
+                  `}</style>
+                </div>
+              );
+            }
+
+            function GeneralApprovals({ manager }) {
+              const [approvals, setApprovals] = React.useState([]);
+              const [loading, setLoading] = React.useState(false);
+              const [error, setError] = React.useState(null);
+              const [itemsPerPage, setItemsPerPage] = React.useState(10);
+
+              React.useEffect(() => {
+                loadApprovals();
+              }, [manager]);
+
+              const loadApprovals = async () => {
+                if (!manager) return;
+                
+                setLoading(true);
+                setError(null);
+                
+                try {
+                  const data = await window.google.script.run
+                    .withSuccessHandler(response => {
+                      console.log('General approvals response:', response);
+                      setApprovals(response || []);
+                      setLoading(false);
+                    })
+                    .withFailureHandler(error => {
+                      console.error('Error loading general approvals:', error);
+                      setError(error.message);
+                      setLoading(false);
+                    })
+                    .getGeneralApprovals(manager);
+                } catch (error) {
+                  console.error('Error loading general approvals:', error);
+                  setError(error.message);
+                  setLoading(false);
+                }
+              };
+
+              const columns = [
+                { key: 'Item Name', label: 'Item' },
+                { key: 'type', label: 'Type' },
+                { key: 'Activity Status', label: 'Status' },
+                { key: 'Owner', label: 'Owner' },
+                { key: 'Date Created', label: 'Created' },
+                { key: 'daysWaiting', label: 'Days Waiting' }
+              ];
+
+              const renderRow = (approval, index) => {
+                const daysWaiting = parseInt(approval.daysWaiting) || 0;
+                const isUrgent = daysWaiting > 5;
+                
+                return (
+                  <tr key={index} className={isUrgent ? 'table-warning' : ''}>
+                    <td>
+                      <div className="text-truncate" style={{ maxWidth: '250px' }}>
+                        <div className="fw-semibold" title={approval['Item Name']}>
+                          {approval['Item Name'] || 'Unnamed Item'}
+                        </div>
+                        {approval['Board Name'] && (
+                          <small className="text-muted d-block">
+                            Board: {approval['Board Name']}
+                          </small>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`badge bg-${approval.type === 'Partner Activity' ? 'primary' : 'info'}`}>
+                        {approval.type}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="badge bg-warning">
+                        {approval['Activity Status'] || 'Approval Required'}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="text-truncate" style={{ maxWidth: '120px' }} 
+                          title={approval['Owner']}>
+                        {approval['Owner'] || 'Unassigned'}
+                      </div>
+                    </td>
+                    <td>
+                      {formatDate(approval['Date Created'])}
+                    </td>
+                    <td>
+                      <span className={`badge ${isUrgent ? 'bg-danger' : 'bg-secondary'}`}>
+                        {daysWaiting} days
+                      </span>
+                    </td>
+                  </tr>
+                );
+              };
+
+              const formatDate = (dateStr) => {
+                if (!dateStr) return '-';
+                try {
+                  const date = new Date(dateStr);
+                  return date.toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric', 
+                    year: 'numeric' 
+                  });
+                } catch (e) {
+                  return dateStr;
+                }
+              };
+
+              if (loading) {
+                return (
+                  <div className="card h-100">
+                    <div className="card-header bg-info bg-opacity-10">
+                      <h5 className="mb-0">✅ General Approvals</h5>
+                    </div>
+                    <div className="card-body">
+                      <div className="text-center">
+                        <div className="spinner-border text-info" role="status">
+                          <span className="visually-hidden">Loading...</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (error) {
+                return (
+                  <div className="card h-100">
+                    <div className="card-header bg-info bg-opacity-10">
+                      <h5 className="mb-0">✅ General Approvals</h5>
+                    </div>
+                    <div className="card-body">
+                      <div className="alert alert-danger">
+                        Error loading approvals: {error}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="card h-100">
+                  <div className="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
+                    <h5 className="mb-0">✅ General Approvals</h5>
+                    <div className="d-flex gap-2 align-items-center">
+                      <span className="badge bg-info">
+                        {approvals.length} Pending
+                      </span>
+                      <button 
+                        className="btn btn-sm btn-outline-info" 
+                        onClick={loadApprovals}
+                        title="Refresh"
+                      >
+                        <i className="bi bi-arrow-clockwise"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="card-body">
+                    <ScrollableDataTable
+                      data={approvals}
+                      columns={columns}
+                      renderRow={renderRow}
+                      title=""
+                      emptyMessage="No pending general approvals"
+                      maxHeight="400px"
+                      itemsPerPage={itemsPerPage}
+                      searchable={true}
+                      searchFields={['Item Name', 'type', 'Owner']}
+                    />
+                  </div>
+                </div>
+              );
+            }
+
+          function PartnerActivities({ manager }) {
+            console.log('PartnerActivities component rendered with manager:', manager);
+            
+            const [activities, setActivities] = React.useState([]);
+            const [loading, setLoading] = React.useState(false);
+            const [error, setError] = React.useState(null);
+            const [itemsPerPage, setItemsPerPage] = React.useState(10);
+            
+            // Filter states
+            const [filterOptions, setFilterOptions] = React.useState({
+              partners: [],
+              statuses: [],
+              owners: []
+            });
+            const [filters, setFilters] = React.useState({
+              partner: 'all',
+              status: 'all',
+              owner: 'all'
+            });
+            const [filtersLoading, setFiltersLoading] = React.useState(false);
+
+            // Load filter options when component mounts or manager changes
+            React.useEffect(() => {
+              console.log('useEffect triggered for filter options, manager:', manager);
+              if (manager) {
+                loadFilterOptions();
+              }
+            }, [manager]);
+
+            // Load activities when filters change
+            React.useEffect(() => {
+              console.log('useEffect triggered for activities, filters:', filters);
+              if (manager) {
+                loadActivities();
+              }
+            }, [manager, filters.partner, filters.status, filters.owner]);
+
+            const loadFilterOptions = () => {
+              console.log('loadFilterOptions called for manager:', manager);
+              if (!manager) {
+                console.log('No manager, skipping filter options load');
+                return;
+              }
+              
+              setFiltersLoading(true);
+              
+              google.script.run
+                .withSuccessHandler((options) => {
+                  console.log('Filter options received:', options);
+                  setFilterOptions(options || { partners: [], statuses: [], owners: [] });
+                  setFiltersLoading(false);
+                })
+                .withFailureHandler((error) => {
+                  console.error('Failed to load filter options:', error);
+                  setError('Failed to load filter options: ' + error.message);
+                  setFiltersLoading(false);
+                })
+                .getPartnerActivityFilterOptions(manager);
+            };
+
+            const loadActivities = () => {
+              console.log('loadActivities called with filters:', filters);
+              if (!manager) {
+                console.log('No manager, skipping activities load');
+                return;
+              }
+              
+              setLoading(true);
+              setError(null);
+              
+              google.script.run
+                .withSuccessHandler((response) => {
+                  console.log('Activities received:', response ? response.length : 0);
+                  setActivities(response || []);
+                  setLoading(false);
+                })
+                .withFailureHandler((error) => {
+                  console.error('Error loading partner activities:', error);
+                  setError('Failed to load activities: ' + error.message);
+                  setLoading(false);
+                })
+                .getFilteredPartnerActivities(manager, filters);
+            };
+
+            const handleFilterChange = (filterType, value) => {
+              console.log('Filter changed:', filterType, '=', value);
+              setFilters(prev => ({
+                ...prev,
+                [filterType]: value
+              }));
+            };
+
+            const clearFilters = () => {
+              console.log('Clearing all filters');
+              setFilters({
+                partner: 'all',
+                status: 'all',
+                owner: 'all'
+              });
+            };
+
+            const hasActiveFilters = filters.partner !== 'all' || 
+                                    filters.status !== 'all' || 
+                                    filters.owner !== 'all';
+
+            // Rest of your component code (columns, renderRow, etc.)
+            const columns = [
+              { key: 'Item Name', label: 'Name' },
+              { key: 'Partner Name', label: 'Partner' },
+              { key: 'Activity Status', label: 'Status' },
+              { key: 'Owner', label: 'Owner' },
+              { key: 'Importance', label: 'Priority' },
+              { key: 'Date Due', label: 'Due Date' },
+              { key: 'Date Created', label: 'Created' }
+            ];
+
+            const renderRow = (activity, index) => {
+              // ... your existing renderRow code ...
+              const formatDate = (dateStr) => {
+                if (!dateStr) return '-';
+                try {
+                  const date = new Date(dateStr);
+                  return date.toLocaleDateString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric' 
+                  });
+                } catch (e) {
+                  return dateStr;
+                }
+              };
+
+              const getStatusBadge = (status) => {
+                const statusMap = {
+                  'Done': 'bg-success',
+                  'Working on it': 'bg-warning',
+                  'Stuck': 'bg-danger',
+                  'Open': 'bg-info',
+                  'Not Started': 'bg-secondary'
+                };
+                const badgeClass = statusMap[status] || 'bg-secondary';
+                return React.createElement('span', { 
+                  className: `badge ${badgeClass}` 
+                }, status || 'Unknown');
+              };
+
+              const getPriorityBadge = (priority) => {
+                const priorityMap = {
+                  'Critical': { class: 'bg-danger', icon: '🔴' },
+                  'High': { class: 'bg-warning', icon: '🟡' },
+                  'Medium': { class: 'bg-info', icon: '🔵' },
+                  'Low': { class: 'bg-success', icon: '🟢' }
+                };
+                const config = priorityMap[priority] || { class: 'bg-secondary', icon: '⚫' };
+                return React.createElement('span', { 
+                  className: `badge ${config.class}` 
+                }, config.icon + ' ' + (priority || 'Normal'));
+              };
+
+              const isOverdue = activity['Date Due'] && 
+                              new Date(activity['Date Due']) < new Date() && 
+                              activity['Activity Status'] !== 'Done';
+
+              return React.createElement('tr', { key: index },
+                React.createElement('td', null, activity['Item Name'] || activity['Name']),
+                React.createElement('td', null, activity['Partner Name']),
+                React.createElement('td', null, getStatusBadge(activity['Activity Status'])),
+                React.createElement('td', null, activity['Owner']),
+                React.createElement('td', null, getPriorityBadge(activity['Importance'])),
+                React.createElement('td', { 
+                  className: isOverdue ? 'text-danger fw-bold' : '' 
+                }, formatDate(activity['Date Due'])),
+                React.createElement('td', null, formatDate(activity['Date Created']))
+              );
+            };
+
+            // Debug info
+            console.log('Current state - Activities:', activities.length, 
+                        'Loading:', loading, 'FiltersLoading:', filtersLoading);
+
+            if (!manager) {
+              return React.createElement('div', { className: 'alert alert-info' },
+                'Please select a manager to view activities'
+              );
+            }
+
+            if (loading && activities.length === 0) {
+              return React.createElement('div', { className: 'text-center py-4' },
+                React.createElement('div', { 
+                  className: 'spinner-border text-primary', 
+                  role: 'status' 
+                },
+                  React.createElement('span', { className: 'visually-hidden' }, 'Loading...')
+                )
+              );
+            }
+
+            if (error) {
+              return React.createElement('div', { className: 'alert alert-danger' },
+                'Error: ', error,
+                React.createElement('button', {
+                  className: 'btn btn-sm btn-outline-danger ms-3',
+                  onClick: () => {
+                    setError(null);
+                    loadFilterOptions();
+                    loadActivities();
+                  }
+                }, 'Retry')
+              );
+            }
+
+            return React.createElement('div', null,
+              // Filter Bar
+              React.createElement('div', { className: 'card mb-3' },
+                React.createElement('div', { className: 'card-body' },
+                  React.createElement('div', { className: 'd-flex gap-2 align-items-center flex-wrap' },
+                    // Partner Filter
+                    React.createElement('div', { className: 'd-flex align-items-center' },
+                      React.createElement('label', { 
+                        className: 'me-2 text-nowrap',
+                        style: { minWidth: '60px' }
+                      }, 'Partner:'),
+                      React.createElement('select', {
+                        className: 'form-select form-select-sm',
+                        value: filters.partner,
+                        onChange: (e) => handleFilterChange('partner', e.target.value),
+                        style: { width: '200px' },
+                        disabled: filtersLoading
+                      },
+                        React.createElement('option', { value: 'all' }, 'All Partners'),
+                        filterOptions.partners.map(partner => 
+                          React.createElement('option', { 
+                            key: partner, 
+                            value: partner 
+                          }, partner)
+                        )
+                      )
+                    ),
+                    
+                    // Status Filter
+                    React.createElement('div', { className: 'd-flex align-items-center' },
+                      React.createElement('label', { 
+                        className: 'me-2 text-nowrap',
+                        style: { minWidth: '50px' }
+                      }, 'Status:'),
+                      React.createElement('select', {
+                        className: 'form-select form-select-sm',
+                        value: filters.status,
+                        onChange: (e) => handleFilterChange('status', e.target.value),
+                        style: { width: '150px' },
+                        disabled: filtersLoading
+                      },
+                        React.createElement('option', { value: 'all' }, 'All Statuses'),
+                        filterOptions.statuses.map(status => 
+                          React.createElement('option', { 
+                            key: status, 
+                            value: status 
+                          }, status)
+                        )
+                      )
+                    ),
+                    
+                    // Owner Filter
+                    React.createElement('div', { className: 'd-flex align-items-center' },
+                      React.createElement('label', { 
+                        className: 'me-2 text-nowrap',
+                        style: { minWidth: '50px' }
+                      }, 'Owner:'),
+                      React.createElement('select', {
+                        className: 'form-select form-select-sm',
+                        value: filters.owner,
+                        onChange: (e) => handleFilterChange('owner', e.target.value),
+                        style: { width: '200px' },
+                        disabled: filtersLoading
+                      },
+                        React.createElement('option', { value: 'all' }, 'All Owners'),
+                        filterOptions.owners.map(owner => 
+                          React.createElement('option', { 
+                            key: owner, 
+                            value: owner 
+                          }, owner)
+                        )
+                      )
+                    ),
+                    
+                    // Filter Actions
+                    React.createElement('div', { className: 'ms-auto d-flex gap-2' },
+                      hasActiveFilters && React.createElement('button', {
+                        className: 'btn btn-sm btn-outline-secondary',
+                        onClick: clearFilters
+                      }, 
+                        React.createElement('i', { className: 'bi bi-x-circle me-1' }),
+                        'Clear Filters'
+                      ),
+                      React.createElement('button', {
+                        className: 'btn btn-sm btn-outline-primary',
+                        onClick: () => {
+                          loadFilterOptions();
+                          loadActivities();
+                        },
+                        disabled: loading || filtersLoading
+                      }, 
+                        React.createElement('i', { 
+                          className: `bi bi-arrow-clockwise me-1 ${loading ? 'spin' : ''}` 
+                        }),
+                        'Refresh'
+                      ),
+                      React.createElement('span', { 
+                        className: 'badge bg-primary align-self-center' 
+                      }, `${activities.length} Activities`)
+                    )
+                  )
+                )
+              ),
+              
+              // Data Table
+              React.createElement(ScrollableDataTable, {
+                data: activities,
+                columns: columns,
+                renderRow: renderRow,
+                title: '',
+                emptyMessage: hasActiveFilters ? 
+                  'No partner activities found matching the selected filters' : 
+                  'No partner activities found',
+                maxHeight: '500px',
+                itemsPerPage: itemsPerPage,
+                searchable: true,
+                searchFields: ['Item Name', 'Partner Name', 'Owner', 'Activity Status']
+              })
+            );
+          }
+              function InternalActivities({ manager }) {
+                const [activities, setActivities] = React.useState([]);
+                const [loading, setLoading] = React.useState(false);
+                const [error, setError] = React.useState(null);
+                const [itemsPerPage, setItemsPerPage] = React.useState(10);
+
+                React.useEffect(() => {
+                  loadActivities();
+                }, [manager]);
+
+                const loadActivities = () => {
+                  if (!manager) return;
+                  
+                  setLoading(true);
+                  setError(null);
+                  
+                  google.script.run
+                    .withSuccessHandler(data => {
+                      console.log('Internal activities response:', data);
+                      setActivities(data?.data || []);
+                      setLoading(false);
+                    })
+                    .withFailureHandler(error => {
+                      console.error('Error loading internal activities:', error);
+                      setError(error.message);
+                      setLoading(false);
+                    })
+                    .getInternalActivities(manager, {}, {}, { page: 1, pageSize: 200 });
+                };
+
+                const getStatusBadge = (status) => {
+                  const statusStr = String(status).toLowerCase();
+                  let variant = 'secondary';
+                  
+                  if (statusStr.includes('complete')) variant = 'success';
+                  else if (statusStr.includes('progress')) variant = 'primary';
+                  else if (statusStr.includes('blocked')) variant = 'danger';
+                  else if (statusStr.includes('not started')) variant = 'warning';
+                  else if (statusStr.includes('approval')) variant = 'info';
+                  
+                  return React.createElement('span', { className: `badge bg-${variant}` }, status || 'Unknown');
+                };
+
+                const getPriorityBadge = (priority) => {
+                  const priorityStr = String(priority).toLowerCase();
+                  let text = 'Low';
+                  let variant = 'info';
+                  
+                  if (priorityStr.includes('high') || priorityStr.includes('critical')) {
+                    text = 'High';
+                    variant = 'danger';
+                  } else if (priorityStr.includes('medium')) {
+                    text = 'Medium';
+                    variant = 'warning';
+                  }
+                  
+                  return React.createElement('span', { className: `badge bg-${variant}` }, text);
+                };
+
+                const formatDate = (dateStr) => {
+                  if (!dateStr) return '-';
+                  try {
+                    const date = new Date(dateStr);
+                    return date.toLocaleDateString('en-US', { 
+                      month: 'short', 
+                      day: 'numeric', 
+                      year: 'numeric' 
+                    });
+                  } catch (e) {
+                    return dateStr;
+                  }
+                };
+
+                const columns = [
+                  { key: 'Name', label: 'Activity Name' },
+                  { key: 'Board Name', label: 'Board' },
+                  { key: 'Activity Status', label: 'Status' },
+                  { key: 'Owner', label: 'Owner' },
+                  { key: 'Assigned By', label: 'Assigned By' },
+                  { key: 'Date Due', label: 'Due Date' },
+                  { key: 'Importance', label: 'Priority' }
+                ];
+
+                const renderRow = (activity, index) => {
+                  const isOverdue = activity['Date Due'] && new Date(activity['Date Due']) < new Date();
+                  
+                  return React.createElement('tr', { 
+                    key: index, 
+                    className: isOverdue ? 'table-danger' : '' 
+                  },
+                    React.createElement('td', null,
+                      React.createElement('div', { 
+                        className: 'text-truncate', 
+                        style: { maxWidth: '250px' } 
+                      },
+                        React.createElement('div', { 
+                          className: 'fw-semibold', 
+                          title: activity['Name'] || activity['Item Name'] 
+                        },
+                          activity['Name'] || activity['Item Name'] || 'Unnamed Activity'
+                        ),
+                        activity['Comments/Notes'] && React.createElement('small', { 
+                          className: 'text-muted d-block text-truncate' 
+                        }, activity['Comments/Notes'])
+                      )
+                    ),
+                    React.createElement('td', null,
+                      React.createElement('span', { className: 'badge bg-secondary' },
+                        activity['Board Name'] || 'GW Board'
+                      )
+                    ),
+                    React.createElement('td', null, getStatusBadge(activity['Activity Status'])),
+                    React.createElement('td', null,
+                      React.createElement('div', { 
+                        className: 'text-truncate', 
+                        style: { maxWidth: '120px' },
+                        title: activity['Owner']
+                      }, activity['Owner'] || 'Unassigned')
+                    ),
+                    React.createElement('td', null,
+                      React.createElement('div', { 
+                        className: 'text-truncate', 
+                        style: { maxWidth: '120px' },
+                        title: activity['Assigned By']
+                      }, activity['Assigned By'] || '-')
+                    ),
+                    React.createElement('td', null,
+                      React.createElement('span', { 
+                        className: isOverdue ? 'text-danger fw-bold' : '' 
+                      }, formatDate(activity['Date Due']))
+                    ),
+                    React.createElement('td', null, getPriorityBadge(activity['Importance']))
+                  );
+                };
+
+                if (loading) {
+                  return React.createElement('div', { className: 'text-center py-4' },
+                    React.createElement('div', { 
+                      className: 'spinner-border text-primary', 
+                      role: 'status' 
+                    },
+                      React.createElement('span', { className: 'visually-hidden' }, 'Loading...')
+                    )
+                  );
+                }
+
+                if (error) {
+                  return React.createElement('div', { className: 'alert alert-danger' },
+                    'Error loading activities: ', error
+                  );
+                }
+
+                return React.createElement(ScrollableDataTable, {
+                  data: activities,
+                  columns: columns,
+                  renderRow: renderRow,
+                  title: 'Internal Activities',
+                  emptyMessage: 'No internal activities found',
+                  maxHeight: '600px',
+                  itemsPerPage: itemsPerPage,
+                  searchable: true,
+                  searchFields: ['Name', 'Item Name', 'Board Name', 'Owner', 'Activity Status']
+                });
+              }
+
+
+
+            function ActivityTracker({ manager }) {
+              const [activeTab, setActiveTab] = React.useState('partner');
+
+              return React.createElement('div', { className: 'card h-100' },
+                React.createElement('div', { className: 'card-header' },
+                  React.createElement('ul', { 
+                    className: 'nav nav-tabs card-header-tabs',
+                    role: 'tablist'
+                  },
+                    React.createElement('li', { className: 'nav-item' },
+                      React.createElement('button', {
+                        className: `nav-link ${activeTab === 'partner' ? 'active' : ''}`,
+                        onClick: () => setActiveTab('partner'),
+                        type: 'button',
+                        role: 'tab'
+                      }, '🤝 Partner Activities')
+                    ),
+                    React.createElement('li', { className: 'nav-item' },
+                      React.createElement('button', {
+                        className: `nav-link ${activeTab === 'internal' ? 'active' : ''}`,
+                        onClick: () => setActiveTab('internal'),
+                        type: 'button',
+                        role: 'tab'
+                      }, '🏢 Internal Activities')
+                    )
+                  )
+                ),
+                React.createElement('div', { className: 'card-body' },
+                  React.createElement('div', { className: 'tab-content' },
+                    activeTab === 'partner' 
+                      ? React.createElement(PartnerActivities, { manager: manager })
+                      : React.createElement(InternalActivities, { manager: manager })
+                  )
+                )
+              );
+            }
+
+        function MarketingCalendar({ manager }) {
+          const [calendarData, setCalendarData] = React.useState([]);
+          const [loading, setLoading] = React.useState(false);
+          const [error, setError] = React.useState(null);
+          const [itemsPerPage, setItemsPerPage] = React.useState(15);
+          const [filterMonth, setFilterMonth] = React.useState('all');
+          const [filterType, setFilterType] = React.useState('all');
+
+          React.useEffect(() => {
+            loadCalendarData();
+          }, [manager]);
+
+          const loadCalendarData = async () => {
+            if (!manager) return;
+            
+            setLoading(true);
+            setError(null);
+            
+            try {
+              await window.google.script.run
+                .withSuccessHandler(response => {
+                  console.log('Marketing calendar response:', response);
+                  setCalendarData(response || []);
+                  setLoading(false);
+                })
+                .withFailureHandler(error => {
+                  console.error('Error loading marketing calendar:', error);
+                  setError(error.message);
+                  setLoading(false);
+                })
+                .getMarketingCalendar(manager);
+            } catch (error) {
+              console.error('Error loading marketing calendar:', error);
+              setError(error.message);
+              setLoading(false);
+            }
+          };
+
+          // Filter data based on selected filters
+          const filteredData = React.useMemo(() => {
+            let filtered = [...calendarData];
+            
+            if (filterMonth !== 'all') {
+              filtered = filtered.filter(item => item['Month'] === filterMonth);
+            }
+            
+            if (filterType !== 'all') {
+              filtered = filtered.filter(item => item['Activity Type'] === filterType);
+            }
+            
+            // Sort by date (most recent first)
+            filtered.sort((a, b) => {
+              const dateA = a['Date'] ? new Date(a['Date']) : new Date('9999-12-31');
+              const dateB = b['Date'] ? new Date(b['Date']) : new Date('9999-12-31');
+              return dateA - dateB;
+            });
+            
+            return filtered;
+          }, [calendarData, filterMonth, filterType]);
+
+          // Get unique months and activity types for filters
+          const months = React.useMemo(() => {
+            const uniqueMonths = [...new Set(calendarData.map(item => item['Month']))];
+            return uniqueMonths.filter(m => m).sort();
+          }, [calendarData]);
+
+          const activityTypes = React.useMemo(() => {
+            const types = [...new Set(calendarData.map(item => item['Activity Type']))];
+            return types.filter(t => t).sort();
+          }, [calendarData]);
+
+          const columns = [
+            { key: 'Item Name', label: 'Activity Name' },
+            { key: 'Partner', label: 'Partner' },
+            { key: 'Activity Type', label: 'Type' },
+            { key: 'Owner', label: 'Owner' },
+            { key: 'Month', label: 'Month' },
+            { key: 'Week', label: 'Week' },
+            { key: 'Date', label: 'Activity Date' },
+            { key: 'Event Date', label: 'Event Date' }
+          ];
+
+          const renderRow = (item, index) => {
+            const status = item.status;
+            const dateStr = item['Date'];
+            const eventDateStr = item['Event Date'];
+            
+            // Format dates for display
+            const formatDate = (dateStr) => {
+              if (!dateStr) return '-';
+              try {
+                const date = new Date(dateStr);
+                return date.toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric', 
+                  year: 'numeric' 
+                });
+              } catch (e) {
+                return dateStr;
+              }
+            };
+            
+            // Activity type badge colors
+            const getTypeBadgeClass = (type) => {
+              const typeMap = {
+                'Social Promo': 'bg-info',
+                'Newsletters + Email Campaigns': 'bg-primary',
+                'Press Release': 'bg-danger',
+                'Live Event': 'bg-success',
+                'Webinar': 'bg-warning',
+                'Blogs': 'bg-secondary',
+                'Sales Enablement Pitch Pkgs': 'bg-dark',
+                'Videos/Vlogs': 'bg-purple',
+                'GW.com or MP.com Promo': 'bg-guidewire',
+                'Other': 'bg-light text-dark'
+              };
+              return typeMap[type] || 'bg-secondary';
+            };
+            
+            // Status badge for timing
+            const getStatusBadge = () => {
+              if (status === 'past') {
+                return <span className="badge bg-secondary ms-2">Past</span>;
+              } else if (status === 'upcoming') {
+                return <span className="badge bg-danger ms-2">This Week</span>;
+              } else if (status === 'thisMonth') {
+                return <span className="badge bg-warning ms-2">This Month</span>;
+              }
+              return null;
+            };
+            
+            return (
+              <tr key={index} className={status === 'upcoming' ? 'table-warning' : ''}>
+                <td>
+                  <div className="d-flex align-items-center">
+                    {item['Item Name']}
+                    {getStatusBadge()}
+                  </div>
+                </td>
+                <td>{item['Partner'] || '-'}</td>
+                <td>
+                  <span className={`badge ${getTypeBadgeClass(item['Activity Type'])}`}>
+                    {item['Activity Type'] || '-'}
+                  </span>
+                </td>
+                <td>{item['Owner'] || '-'}</td>
+                <td>{item['Month'] || '-'}</td>
+                <td>{item['Week'] || '-'}</td>
+                <td>{formatDate(dateStr)}</td>
+                <td>{formatDate(eventDateStr)}</td>
+              </tr>
+            );
+          };
+
+          if (loading) {
+            return (
+              <div className="card h-100">
+                <div className="card-header bg-purple bg-opacity-10">
+                  <h5 className="mb-0">📅 Marketing Calendar</h5>
+                </div>
+                <div className="card-body">
+                  <div className="text-center">
+                    <div className="spinner-border text-purple" role="status">
+                      <span className="visually-hidden">Loading...</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          if (error) {
+            return (
+              <div className="card h-100">
+                <div className="card-header bg-purple bg-opacity-10">
+                  <h5 className="mb-0">📅 Marketing Calendar</h5>
+                </div>
+                <div className="card-body">
+                  <div className="alert alert-danger">
+                    Error loading calendar: {error}
+                  </div>
+                  <button className="btn btn-primary" onClick={loadCalendarData}>
+                    Retry
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="card h-100">
+              <div className="card-header bg-purple bg-opacity-10 d-flex justify-content-between align-items-center">
+                <h5 className="mb-0">📅 Marketing Calendar</h5>
+                <div className="d-flex gap-2 align-items-center">
+                  <select 
+                    className="form-select form-select-sm" 
+                    value={filterMonth}
+                    onChange={(e) => setFilterMonth(e.target.value)}
+                    style={{ width: 'auto' }}
+                  >
+                    <option value="all">All Months</option>
+                    {months.map(month => (
+                      <option key={month} value={month}>{month}</option>
+                    ))}
+                  </select>
+                  <select 
+                    className="form-select form-select-sm" 
+                    value={filterType}
+                    onChange={(e) => setFilterType(e.target.value)}
+                    style={{ width: 'auto' }}
+                  >
+                    <option value="all">All Types</option>
+                    {activityTypes.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                  <span className="badge bg-purple">
+                    {filteredData.length} Activities
+                  </span>
+                  <button 
+                    className="btn btn-sm btn-outline-purple" 
+                    onClick={loadCalendarData}
+                    title="Refresh"
+                  >
+                    <i className="bi bi-arrow-clockwise"></i>
+                  </button>
+                </div>
+              </div>
+              <div className="card-body">
+                <ScrollableDataTable
+                  data={filteredData}
+                  columns={columns}
+                  renderRow={renderRow}
+                  title=""
+                  emptyMessage="No marketing activities found"
+                  maxHeight="600px"
+                  itemsPerPage={itemsPerPage}
+                  searchable={true}
+                  searchFields={['Item Name', 'Partner', 'Activity Type', 'Owner', 'Month']}
+                />
+              </div>
+            </div>
+          );
+        }
+        
+       function PartnerHeatmap({ manager }) {
+          const [heatmapData, setHeatmapData] = React.useState([]);
+          const [loading, setLoading] = React.useState(false);
+          const [error, setError] = React.useState(null);
+          const [itemsPerPage, setItemsPerPage] = React.useState(15);
+
+          React.useEffect(() => {
+            loadHeatmapData();
+          }, [manager]);
+
+          const loadHeatmapData = async () => {
+            if (!manager) return;
+            
+            setLoading(true);
+            setError(null);
+            
+            try {
+              const data = await window.google.script.run
+                .withSuccessHandler(response => {
+                  console.log('Heatmap response:', response);
+                  setHeatmapData(response || []);
+                  setLoading(false);
+                })
+                .withFailureHandler(error => {
+                  console.error('Error loading heatmap:', error);
+                  setError(error.message);
+                  setLoading(false);
+                })
+                .getPartnerHeatmap(manager);
+            } catch (error) {
+              console.error('Error loading heatmap:', error);
+              setError(error.message);
+              setLoading(false);
+            }
+          };
+
+          const columns = [
+            { key: 'Partner Name', label: 'Partner' },
+            { key: 'Temperature', label: 'Temperature' },
+            { key: 'Engagement', label: 'Engagement' },
+            { key: 'Summary of Partner Activities', label: 'Activities' },
+            { key: 'Partner Description', label: 'Description' },
+          ];
+
+          const getRowClass = (temperature) => {
+            const temp = String(temperature).toLowerCase();
+            
+            if (temp.includes('green') || temp.includes('hot')) {
+              return 'table-success';
+            }
+            if (temp.includes('yellow') || temp.includes('warm')) {
+              return 'table-warning';
+            }
+            if (temp.includes('red') || temp.includes('cold') || temp.includes('cool')) {
+              return 'table-danger';
+            }
+            
+            return '';
+          };
+
+          const renderRow = (partner, index) => {
+            const healthScore = parseInt(partner.healthScore) || 0;
+            const rowClass = getRowClass(partner['Temperature']);
+            
+            return (
+              <tr key={index} className={rowClass}>
+                <td>
+                  <div className="fw-semibold">
+                    {partner['Partner Name'] || partner['Item'] || 'Unknown Partner'}
+                  </div>
+                  {partner['PartnerBoard'] && (
+                    <small className="text-muted d-block">
+                      Board: {partner['PartnerBoard']}
+                    </small>
+                  )}
+                </td>
+                <td>
+                  {getTemperatureDisplay(partner['Temperature'])}
+                </td>
+                <td>
+                  {partner['Engagement'] || 'N/A'}
+                </td>
+                <td>
+                 <div className="text-truncate" style={{ maxWidth: '200px' }}
+                      title={partner['Summary of Partner Activities'] || ''}>
+                    {partner['Summary of Partner Activities'] || 'No activities'}
+                  </div>
+                </td>
+                <td>
+                 <div className="text-truncate" style={{ maxWidth: '200px' }} 
+                      title={partner['Partner Description'] || ''}>
+                    {partner['Partner Description'] || 'No description'}
+                  </div>
+                </td>
+               
+              </tr>
+            );
+          };
+
+          const getTemperatureDisplay = (temperature) => {
+            const temp = String(temperature).toLowerCase();
+            
+            let icon = '🌡️';
+            let text = temperature || 'N/A';
+            
+            if (temp.includes('green') || temp.includes('hot')) {
+              icon = '🟢';
+              text = 'Hot';
+            } else if (temp.includes('yellow') || temp.includes('warm')) {
+              icon = '🟡';
+              text = 'Warm';
+            } else if (temp.includes('red') || temp.includes('cold') || temp.includes('cool')) {
+              icon = '🔴';
+              text = temp.includes('cool') ? 'Cool' : 'Cold';
+            }
+            
+            return (
+              <span className="d-flex align-items-center gap-1">
+                {icon} {text}
+              </span>
+            );
+          };
+
+          const getHealthColor = (score) => {
+            const numScore = parseInt(score) || 0;
+            if (numScore >= 70) return 'success';
+            if (numScore >= 40) return 'warning';
+            return 'danger';
+          };
+
+          if (loading) {
+            return (
+              <div className="card h-100">
+                <div className="card-header">
+                  <h5 className="mb-0">Partner Health Heatmap</h5>
+                </div>
+                <div className="card-body">
+                  <div className="text-center">
+                    <div className="spinner-border text-primary" role="status">
+                      <span className="visually-hidden">Loading...</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          if (error) {
+            return (
+              <div className="card h-100">
+                <div className="card-header">
+                  <h5 className="mb-0">Partner Health Heatmap</h5>
+                </div>
+                <div className="card-body">
+                  <div className="alert alert-danger">
+                    Error loading heatmap data: {error}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="card h-100">
+              <div className="card-header d-flex justify-content-between align-items-center">
+                <h5 className="mb-0">Partner Health Heatmap</h5>
+                <button 
+                  className="btn btn-sm btn-outline-primary" 
+                  onClick={loadHeatmapData}
+                  title="Refresh"
+                >
+                  <i className="bi bi-arrow-clockwise"></i>
+                </button>
+              </div>
+              <div className="card-body">
+                <ScrollableDataTable
+                  data={heatmapData}
+                  columns={columns}
+                  renderRow={renderRow}
+                  title=""
+                  emptyMessage="No partner data available"
+                  maxHeight="500px"
+                  itemsPerPage={itemsPerPage}
+                  searchable={true}
+                  searchFields={['Partner Name', 'Item', 'Temperature', 'Engagement']}
+                />
+                
+                <div className="mt-3 d-flex justify-content-center">
+                  <div className="d-flex gap-2 align-items-center">
+                    <small className="text-muted">Temperature Legend:</small>
+                    <span className="badge bg-success">🟢 Hot/Green</span>
+                    <span className="badge bg-warning">🟡 Warm/Yellow</span>
+                    <span className="badge bg-danger">🔴 Cool/Cold/Red</span>
+                  </div>
+                </div>
+              </div>
+              
+              <style jsx>{`
+                .table-success {
+                  background-color: rgba(25, 135, 84, 0.15) !important;
+                }
+                .table-warning {
+                  background-color: rgba(255, 193, 7, 0.15) !important;
+                }
+                .table-danger {
+                  background-color: rgba(220, 53, 69, 0.15) !important;
+                }
+              `}</style>
+            </div>
+          );
+        }
+
+
+        
+        function MarketingApprovals({ manager }) {
+          const [approvals, setApprovals] = React.useState([]);
+          const [loading, setLoading] = React.useState(false);
+          const [error, setError] = React.useState(null);
+          const [itemsPerPage, setItemsPerPage] = React.useState(10);
+
+          React.useEffect(() => {
+            loadApprovals();
+          }, [manager]);
+
+          const loadApprovals = async () => {
+            if (!manager) return;
+            
+            setLoading(true);
+            setError(null);
+            
+            try {
+              const data = await window.google.script.run
+                .withSuccessHandler(response => {
+                  console.log('Marketing approvals response:', response);
+                  setApprovals(response || []);
+                  setLoading(false);
+                })
+                .withFailureHandler(error => {
+                  console.error('Error loading marketing approvals:', error);
+                  setError(error.message);
+                  setLoading(false);
+                })
+                .getMarketingApprovals(manager);
+            } catch (error) {
+              console.error('Error loading marketing approvals:', error);
+              setError(error.message);
+              setLoading(false);
+            }
+          };
+
+          const columns = [
+            { key: 'Item Name', label: 'Event' },
+            { key: 'Partner Name', label: 'Owner' },
+            { key: 'Overall Status', label: 'Status' },
+            { key: 'Priority', label: 'Priority' },
+            { key: 'Start Date', label: 'Start Date' },
+            { key: 'daysWaiting', label: 'Days Waiting' },
+            { key: 'Cost', label: 'Cost' }
+          ];
+
+          const renderRow = (approval, index) => {
+            const daysWaiting = parseInt(approval.daysWaiting) || 0;
+            const isUrgent = daysWaiting > 7;
+            
+            return (
+              <tr key={index} className={isUrgent ? 'table-warning' : ''}>
+                <td>
+                  <div className="text-truncate" style={{ maxWidth: '200px' }}>
+                    <div className="fw-semibold" title={approval['Item Name']}>
+                      {approval['Item Name'] || 'Unnamed Event'}
+                    </div>
+                    {approval['Date and Location'] && (
+                      <small className="text-muted">
+                        📍 {approval['Date and Location']}
+                      </small>
+                    )}
+                  </div>
+                </td>
+                <td>
+                  <div className="text-truncate" style={{ maxWidth: '150px' }} title={approval['Partner Name']}>
+                    {approval['Partner Name'] || 'N/A'}
+                  </div>
+                </td>
+                <td>
+                  <span className={`badge bg-${getStatusColor(approval['Overall Status'])}`}>
+                    {approval['Overall Status'] || 'Pending'}
+                  </span>
+                </td>
+                <td>
+                  {getPriorityBadge(approval['Priority'])}
+                </td>
+                <td>
+                  {formatDate(approval['Start Date'])}
+                </td>
+                <td>
+                  <span className={`badge ${isUrgent ? 'bg-danger' : 'bg-secondary'}`}>
+                    {daysWaiting} days
+                  </span>
+                </td>
+                <td>
+                  {approval['Cost'] ? (
+                    <span className="fw-semibold">
+                      ${parseFloat(approval['Cost']).toLocaleString()}
+                    </span>
+                  ) : (
+                    <span className="text-muted">N/A</span>
+                  )}
+                </td>
+              </tr>
+            );
+          };
+
+          const getStatusColor = (status) => {
+            const statusStr = String(status).toLowerCase();
+            if (statusStr.includes('approved')) return 'success';
+            if (statusStr.includes('rejected')) return 'danger';
+            if (statusStr.includes('pending')) return 'warning';
+            return 'secondary';
+          };
+
+          const getPriorityBadge = (priority) => {
+            const priorityStr = String(priority).toLowerCase();
+            if (priorityStr.includes('1') || priorityStr.includes('high')) {
+              return <span className="badge bg-danger">High</span>;
+            } else if (priorityStr.includes('2') || priorityStr.includes('medium')) {
+              return <span className="badge bg-warning">Medium</span>;
+            }
+            return <span className="badge bg-info">Low</span>;
+          };
+
+          const formatDate = (dateStr) => {
+            if (!dateStr) return 'N/A';
+            try {
+              const date = new Date(dateStr);
+              return date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric', 
+                year: 'numeric' 
+              });
+            } catch (e) {
+              return dateStr;
+            }
+          };
+
+          if (loading) {
+            return (
+              <div className="card h-100">
+                <div className="card-header bg-warning bg-opacity-10">
+                  <h5 className="mb-0">📋 Marketing Approvals</h5>
+                </div>
+                <div className="card-body">
+                  <div className="text-center">
+                    <div className="spinner-border text-warning" role="status">
+                      <span className="visually-hidden">Loading...</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          if (error) {
+            return (
+              <div className="card h-100">
+                <div className="card-header bg-warning bg-opacity-10">
+                  <h5 className="mb-0">📋 Marketing Approvals</h5>
+                </div>
+                <div className="card-body">
+                  <div className="alert alert-danger">
+                    Error loading approvals: {error}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="card h-100">
+              <div className="card-header bg-warning bg-opacity-10 d-flex justify-content-between align-items-center">
+                <h5 className="mb-0">📋 Marketing Approvals</h5>
+                <button 
+                  className="btn btn-sm btn-outline-warning" 
+                  onClick={loadApprovals}
+                  title="Refresh"
+                >
+                  <i className="bi bi-arrow-clockwise"></i>
+                </button>
+              </div>
+              <div className="card-body">
+                <ScrollableDataTable
+                  data={approvals}
+                  columns={columns}
+                  renderRow={renderRow}
+                  title="Pending Approvals"
+                  emptyMessage="No pending marketing approvals"
+                  maxHeight="500px"
+                  itemsPerPage={itemsPerPage}
+                  searchable={true}
+                  searchFields={['Item Name', 'Partner Name', 'Overall Status']}
+                />
+              </div>
+            </div>
+          );
+        }
+        
+       
+        
+        // Main App Component
+          const App = () => {
+              const [darkMode, setDarkMode] = useState(false);
+              const [currentManager, setCurrentManager] = useState(window.appConfig?.user || '');
+              const [loading, setLoading] = useState(false);
+              
+              useEffect(() => {
+                  // Apply dark mode
+                  document.documentElement.setAttribute('data-bs-theme', darkMode ? 'dark' : 'light');
+                  
+                  // Save preference
+                  try {
+                      localStorage.setItem('darkMode', darkMode);
+                  } catch (e) {
+                      // Handle localStorage errors
+                  }
+              }, [darkMode]);
+              
+              useEffect(() => {
+                  // Load dark mode preference
+                  try {
+                      const savedDarkMode = localStorage.getItem('darkMode') === 'true';
+                      setDarkMode(savedDarkMode);
+                  } catch (e) {
+                      // Handle localStorage errors
+                  }
+              }, []);
+              
+              const toggleDarkMode = () => {
+                  setDarkMode(!darkMode);
+              };
+              
+              const handleRefresh = async () => {
+                  setLoading(true);
+                  // Trigger refresh in child components
+                  setTimeout(() => setLoading(false), 1000);
+              };
+              
+              return (
+                  <AppContext.Provider value={{ currentManager, darkMode }}>
+                      <div className="app-container">
+                          {/* Navigation */}
+                          <nav className="navbar navbar-expand-lg navbar-dark navbar-custom">
+                              <div className="container-fluid">
+                                  <a className="navbar-brand" href="#">
+                                      <i className="bi bi-grid-3x3-gap-fill"></i>
+                                      Alliance Manager Portal
+                                  </a>
+                                  <div className="d-flex align-items-center gap-3">
+                                      <span className="text-white small">
+                                          {currentManager}
+                                      </span>
+                                      <button 
+                                          className="theme-toggle"
+                                          onClick={toggleDarkMode}
+                                          title={darkMode ? 'Light Mode' : 'Dark Mode'}
+                                      >
+                                          <i className={`bi bi-${darkMode ? 'sun' : 'moon'}`}></i>
+                                      </button>
+                                  </div>
+                              </div>
+                          </nav>
+                          
+                          {/* Main Content */}
+                          <div className="main-content">
+                              <div className="container-fluid">
+                                  {/* First Row - Marketing Approvals & Marketing Calendar */}
+                                  <div className="row mb-3">
+                                      <div className="col-lg-6 mb-3 mb-lg-0">
+                                          <MarketingApprovals manager={currentManager} />
+                                      </div>
+                                      <div className="col-lg-6">
+                                          <MarketingCalendar manager={currentManager} />
+                                      </div>
+                                  </div>
+                                  
+                                  {/* Second Row - Activity Tracker & Partner Heatmap */}
+                                  <div className="row mb-3">
+                                      <div className="col-xl-6 mb-3 mb-xl-0">
+                                          <ActivityTracker manager={currentManager} />
+                                      </div>
+                                      <div className="col-xl-6">
+                                          <PartnerHeatmap manager={currentManager} />
+                                      </div>
+                                  </div>
+                                  
+                                  {/* Third Row - General Approvals (full width) */}
+                                  <div className="row">
+                                      <div className="col-12">
+                                          <GeneralApprovals manager={currentManager} />
+                                      </div>
+                                  </div>
+                              </div>
+                          </div>
+                          
+                          {/* Footer */}
+                          <footer className="bg-dark text-light text-center py-2 mt-3">
+                              <small>
+                                  © 2025 Guidewire Software. Alliance Manager Portal v2.0
+                              </small>
+                          </footer>
+                      </div>
+                  </AppContext.Provider>
+              );
+          };
+        
+        // Render the app
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
