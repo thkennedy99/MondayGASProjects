@@ -1,0 +1,593 @@
+/**
+ * DataProcessor.gs - Functions for processing and writing Monday.com data to Google Sheets
+ */
+
+/**
+ * Parse column value based on type
+ */
+function parseColumnValue(columnValue, columnInfo, itemAssets) {
+  if (!columnValue) return '';
+  
+  const { type, text, value } = columnValue;
+  
+  // For file columns, check if it's the Scope Document column
+  if (type === 'file') {
+    // Check if this is the Scope Document column based on column info
+    if (columnInfo && columnInfo.title === 'Scope Document') {
+      // Parse the file value to get both URLs
+      if (value) {
+        try {
+          const parsed = JSON.parse(value);
+          
+          // Handle different file types
+          if (parsed.files && parsed.files.length > 0) {
+            const file = parsed.files[0];
+            
+            // If it's a LINK type, return the link
+            if (file.fileType === 'LINK' && file.linkToFile) {
+              return {
+                mondayUrl: file.linkToFile,
+                publicUrl: file.linkToFile
+              };
+            }
+            
+            // If it's an ASSET type, find matching asset by ID
+            if (file.fileType === 'ASSET' && file.assetId && itemAssets && itemAssets.length > 0) {
+              const asset = itemAssets.find(a => a.id == file.assetId);
+              if (asset) {
+                return {
+                  mondayUrl: asset.url || '',
+                  publicUrl: asset.public_url || asset.url || ''
+                };
+              }
+            }
+          }
+        } catch (e) {
+          console.log('Failed to parse Scope Document file value:', e);
+        }
+      }
+      
+      // If we have text field with URL, use it
+      if (text && text.trim() !== '') {
+        // Find matching asset to get public URL
+        if (itemAssets && itemAssets.length > 0) {
+          const asset = itemAssets[0]; // Use first asset if available
+          return {
+            mondayUrl: text,
+            publicUrl: asset ? (asset.public_url || text) : text
+          };
+        }
+        return {
+          mondayUrl: text,
+          publicUrl: text
+        };
+      }
+    }
+    // For other file columns, return empty as originally requested
+    return '';
+  }
+  
+  // For status and dropdown columns, use the text value (label)
+  if (type === 'color' || type === 'dropdown') {
+    if (text) return text;
+    
+    // If text is not available, try to parse from value
+    if (value && columnInfo && columnInfo.settings_str) {
+      try {
+        const parsed = JSON.parse(value);
+        const settings = JSON.parse(columnInfo.settings_str);
+        
+        // For dropdown columns with multiple values
+        if (parsed.ids && Array.isArray(parsed.ids)) {
+          const labels = [];
+          
+          if (settings.labels) {
+            parsed.ids.forEach(id => {
+              const label = settings.labels.find(l => l.id == id);
+              if (label) labels.push(label.name);
+            });
+          }
+          
+          return labels.join(', ');
+        }
+        
+        // For status columns
+        if (parsed.label) return parsed.label;
+        
+        // For single dropdown values
+        if (parsed.id && settings.labels) {
+          const label = settings.labels.find(l => l.id == parsed.id);
+          if (label) return label.name;
+        }
+      } catch (e) {
+        // If parsing fails, return text or empty
+        console.log(`Failed to parse ${type} value for column ${columnInfo ? columnInfo.title : 'unknown'}:`, e);
+      }
+    }
+    
+    return text || '';
+  }
+  
+  // For people columns
+  if (type === 'multiple-person') {
+    if (text) return text;
+    
+    if (value) {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed.personsAndTeams && Array.isArray(parsed.personsAndTeams)) {
+          const names = parsed.personsAndTeams.map(p => p.name || '').filter(n => n);
+          return names.join(', ');
+        }
+      } catch (e) {
+        // If parsing fails, return text
+      }
+    }
+    
+    return text || '';
+  }
+  
+  // For date columns
+  if (type === 'date') {
+    if (text) return text;
+    
+    if (value) {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed.date) return parsed.date;
+        if (parsed.text) return parsed.text;
+      } catch (e) {
+        // If parsing fails, return text
+      }
+    }
+    
+    return text || '';
+  }
+  
+  // For all other column types, return text value
+  return text || '';
+}
+
+/**
+ * Write data to Google Sheet
+ */
+function writeDataToSheet(sheet, boardStructure, items, isFirstBoard = true, boardConfig = null) {
+  if (!items || items.length === 0) return;
+  
+  // Create a map of column ID to column info for parsing
+  const columnInfoMap = new Map();
+  let scopeDocColumnIndex = -1;
+  
+  boardStructure.columns.forEach(col => {
+    columnInfoMap.set(col.id, {
+      title: col.title,
+      type: col.type,
+      settings_str: col.settings_str
+    });
+  });
+  
+  // Get column headers - include Item Name, Group, Board Name, Partner Name, Monday Item ID, and Board ID as first columns
+  const headers = ['Item Name', 'Group', 'Board Name', 'Partner Name', 'Monday Item ID', 'Board ID'];
+  const columnMap = new Map();
+  
+  // Add other columns from board structure
+  boardStructure.columns.forEach(col => {
+    if (col.type !== 'name') { // Skip the name column as we already have Item Name
+      headers.push(col.title);
+      const index = headers.length - 1;
+      columnMap.set(col.id, index);
+      
+      // Track the Scope Document column index
+      if (col.title === 'Scope Document') {
+        scopeDocColumnIndex = index;
+      }
+    }
+  });
+  
+  // Add columns for Public URLs and Alliance Manager at the end
+  headers.push('Scope Document Public URL');
+  const publicUrlColumnIndex = headers.length - 1;
+  
+  headers.push('Alliance Manager');
+  const allianceManagerColumnIndex = headers.length - 1;
+  
+  // Get alliance manager lookup map
+  const allianceManagerMap = getAllianceManagerLookup();
+  
+  // Write headers only for the first board
+  if (isFirstBoard) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+  
+  // Prepare data rows
+  const dataRows = items.map(item => {
+    const row = new Array(headers.length).fill('');
+    let scopeDocPublicUrl = '';
+    
+    // Set Item Name
+    row[0] = item.name || '';
+    
+    // Set Group
+    row[1] = item.group ? item.group.title : '';
+    
+    // Set Board Name and Partner Name
+    row[2] = item.boardName || boardConfig?.boardName || '';
+    row[3] = item.partnerName || boardConfig?.partnerName || '';
+    
+    // Set Monday Item ID
+    row[4] = item.id || '';
+    
+    // Set Board ID
+    row[5] = item.boardId || boardConfig?.boardId || '';
+    
+    // Set column values
+    item.column_values.forEach(colValue => {
+      const colIndex = columnMap.get(colValue.id);
+      if (colIndex !== undefined) {
+        // Get column info from our map
+        const columnInfo = columnInfoMap.get(colValue.id);
+        // Pass item assets for file columns
+        const parsedValue = parseColumnValue(colValue, columnInfo, item.assets);
+        
+        // Special handling for Scope Document column
+        if (columnInfo.title === 'Scope Document' && typeof parsedValue === 'object' && parsedValue.mondayUrl) {
+          // Put Monday URL in the Scope Document column
+          row[colIndex] = parsedValue.mondayUrl;
+          // Save public URL to put in the second-to-last column
+          scopeDocPublicUrl = parsedValue.publicUrl;
+        } else {
+          row[colIndex] = parsedValue;
+        }
+      }
+    });
+    
+    // Put the public URL in the second-to-last column
+    row[publicUrlColumnIndex] = scopeDocPublicUrl;
+    
+    // Lookup and set Alliance Manager in the last column
+    const partnerName = item.partnerName || boardConfig?.partnerName || '';
+    row[allianceManagerColumnIndex] = lookupAllianceManager(partnerName, allianceManagerMap);
+    
+    return row;
+  });
+  
+  // Write data rows - append to existing data
+  if (dataRows.length > 0) {
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, dataRows.length, headers.length).setValues(dataRows);
+  }
+  
+  // Note: Post-processing is now handled in the calling function after all boards are processed
+}
+
+
+/**
+ * Get alliance manager lookup map from Partner sheet
+ */
+function getAllianceManagerLookup() {
+  try {
+    console.log('Loading alliance manager lookup data...');
+    
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const partnerSheet = spreadsheet.getSheetByName('Partner');
+    
+    if (!partnerSheet) {
+      console.log('Partner sheet not found. Alliance Manager lookups will be empty.');
+      return new Map();
+    }
+    
+    const lastRow = partnerSheet.getLastRow();
+    if (lastRow < 2) {
+      console.log('No data found in Partner sheet.');
+      return new Map();
+    }
+    
+    // Get data from A2 onwards (Account Name) and D2 onwards (Account Owner)
+    const accountNames = partnerSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    const accountOwners = partnerSheet.getRange(2, 4, lastRow - 1, 1).getValues();
+    
+    // Create lookup map
+    const allianceManagerMap = new Map();
+    
+    for (let i = 0; i < accountNames.length; i++) {
+      const accountName = accountNames[i][0];
+      const accountOwner = accountOwners[i][0];
+      
+      if (accountName && accountName.toString().trim() !== '') {
+        const key = accountName.toString().trim();
+        const value = accountOwner ? accountOwner.toString().trim() : '';
+        allianceManagerMap.set(key, value);
+      }
+    }
+    
+    console.log(`Loaded ${allianceManagerMap.size} alliance manager mappings`);
+    return allianceManagerMap;
+    
+  } catch (error) {
+    console.error('Error loading alliance manager lookup:', error);
+    return new Map();
+  }
+}
+
+/**
+ * Lookup alliance manager for a given partner name
+ */
+function lookupAllianceManager(partnerName, allianceManagerMap) {
+  if (!partnerName || !allianceManagerMap) {
+    return '';
+  }
+  
+  const trimmedPartnerName = partnerName.toString().trim();
+  
+  // Try exact match first
+  if (allianceManagerMap.has(trimmedPartnerName)) {
+    return allianceManagerMap.get(trimmedPartnerName);
+  }
+  
+  // Try case-insensitive match
+  for (const [key, value] of allianceManagerMap) {
+    if (key.toLowerCase() === trimmedPartnerName.toLowerCase()) {
+      return value;
+    }
+  }
+  
+  // No match found
+  console.log(`No alliance manager found for partner: "${trimmedPartnerName}"`);
+  return '';
+}
+
+/**
+ * Delete rows where column B (Group) equals "Completed"
+ */
+function deleteCompletedRows(sheet) {
+  try {
+    console.log('Deleting rows with Group = "Completed or Cancelled"...');
+    
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) {
+      console.log('No data rows to process');
+      return;
+    }
+    
+    // Get all values from column B (Group column)
+    const groupValues = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+    
+    // Find rows to delete (working backwards to avoid index issues)
+    let deletedCount = 0;
+    for (let i = groupValues.length - 1; i >= 0; i--) {
+      if (groupValues[i][0] === 'Completed' || groupValues[i][0] === 'Cancelled' || groupValues[i][0] ==='Accepted by Steer Co') {
+        // Delete the row (i + 2 because we start from row 2)
+        sheet.deleteRow(i + 2);
+        deletedCount++;
+      }
+    }
+    
+    console.log(`Deleted ${deletedCount} rows with Group = "Completed"`);
+    
+  } catch (error) {
+    console.error('Error deleting completed rows:', error);
+    // Don't throw - allow sync to continue
+  }
+}
+
+/**
+ * Clear dashboard sheet data from row 2 onwards
+ */
+function clearDashboardSheetData(sheet) {
+  const lastRow = sheet.getLastRow();
+  var fRange = sheet.getFilter();
+  if (fRange) {
+    fRange.remove();
+  }
+  if (lastRow > 1) {
+    sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clear();
+  }
+}
+
+/**
+ * Write dashboard data to MondayDashboard sheet
+ */
+function writeDashboardDataToSheet(sheet, boardStructure, items, boardId) {
+  if (!items || items.length === 0) return;
+  
+  // Create a map of column ID to column info for parsing
+  const columnInfoMap = new Map();
+  
+  boardStructure.columns.forEach(col => {
+    columnInfoMap.set(col.id, {
+      title: col.title,
+      type: col.type,
+      settings_str: col.settings_str
+    });
+  });
+  
+  // Get column headers - start with Item, Monday Item ID, Board ID
+  const headers = ['Item', 'Monday Item ID', 'Board ID'];
+  const columnMap = new Map();
+  
+  // Add other columns from board structure
+  boardStructure.columns.forEach(col => {
+    if (col.type !== 'name') { // Skip the name column as we already have Item
+      headers.push(col.title);
+      const index = headers.length - 1;
+      columnMap.set(col.id, index);
+    }
+  });
+  
+  // Add Partner Name and Alliance Manager columns at the end
+  headers.push('Partner Name');
+  const partnerNameColumnIndex = headers.length - 1;
+  
+  headers.push('Alliance Manager');
+  const allianceManagerColumnIndex = headers.length - 1;
+  
+  // Get partner translate lookup map
+  const partnerTranslateMap = getPartnerTranslateLookup();
+  
+  // Get alliance manager lookup map
+  const allianceManagerMap = getAllianceManagerLookup();
+  
+  // Write headers
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  
+  // Prepare data rows
+  const dataRows = items.map(item => {
+    const row = new Array(headers.length).fill('');
+    
+    // Set Item (original partner name from Monday)
+    row[0] = item.name || '';
+    
+    // Set Monday Item ID
+    row[1] = item.id || '';
+    
+    // Set Board ID
+    row[2] = boardId;
+    
+    // Set column values
+    item.column_values.forEach(colValue => {
+      const colIndex = columnMap.get(colValue.id);
+      if (colIndex !== undefined) {
+        // Get column info from our map
+        const columnInfo = columnInfoMap.get(colValue.id);
+        // Parse the value
+        const parsedValue = parseColumnValue(colValue, columnInfo, item.assets);
+        row[colIndex] = parsedValue;
+      }
+    });
+    
+    // Translate partner name and set Partner Name
+    const originalPartnerName = item.name || '';
+    const translatedPartnerName = lookupPartnerTranslation(originalPartnerName, partnerTranslateMap);
+    row[partnerNameColumnIndex] = translatedPartnerName;
+    
+    // Lookup and set Alliance Manager
+    row[allianceManagerColumnIndex] = lookupAllianceManager(translatedPartnerName, allianceManagerMap);
+    
+    return row;
+  });
+  
+  // Write data rows
+  if (dataRows.length > 0) {
+    sheet.getRange(2, 1, dataRows.length, headers.length).setValues(dataRows);
+  }
+  
+  // Auto-resize columns for better visibility
+  for (let i = 1; i <= headers.length; i++) {
+    sheet.autoResizeColumn(i);
+  }
+  
+  console.log('Dashboard data processing complete');
+}
+
+
+/**
+ * Translate partner names based on PartnerTranslate sheet mapping
+ */
+function translatePartnerNames() {
+  try {
+    console.log('Starting partner name translation...');
+    
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // Get the PartnerTranslate sheet
+    const translateSheet = spreadsheet.getSheetByName('PartnerTranslate');
+    if (!translateSheet) {
+      console.log('PartnerTranslate sheet not found. Skipping translation.');
+      return;
+    }
+    
+    // Get the MondayData sheet
+    const mondaySheet = spreadsheet.getSheetByName(SHEET_TAB_NAME);
+    if (!mondaySheet) {
+      console.log('MondayData sheet not found. Skipping translation.');
+      return;
+    }
+    
+    // Get the translation mapping from PartnerTranslate
+    const translateLastRow = translateSheet.getLastRow();
+    if (translateLastRow < 2) {
+      console.log('No translation mappings found in PartnerTranslate sheet.');
+      return;
+    }
+    
+    // Get all translation data at once (columns A and B starting from row 2)
+    const translationData = translateSheet.getRange(2, 1, translateLastRow - 1, 2).getValues();
+    
+    // Create a map for faster lookups
+    const translationMap = new Map();
+    translationData.forEach(row => {
+      const originalName = row[0];
+      const correctName = row[1];
+      if (originalName && correctName) {
+        translationMap.set(originalName.toString().trim(), correctName.toString().trim());
+      }
+    });
+    
+    console.log(`Found ${translationMap.size} translation mappings`);
+    
+    // Get all data from MondayData column D (Partner Name - now column 4, Monday Item ID is column 5)
+    const mondayLastRow = mondaySheet.getLastRow();
+    if (mondayLastRow < 2) {
+      console.log('No data found in MondayData sheet.');
+      return;
+    }
+    
+    // Get all values from column D (Partner Name) at once
+    const range = mondaySheet.getRange(2, 4, mondayLastRow - 1, 1);
+    const values = range.getValues();
+    
+    // Track changes
+    let changesCount = 0;
+    
+    // Update values based on translation map
+    const updatedValues = values.map(row => {
+      const currentValue = row[0];
+      if (currentValue) {
+        const trimmedValue = currentValue.toString().trim();
+        if (translationMap.has(trimmedValue)) {
+          const newValue = translationMap.get(trimmedValue);
+          console.log(`Translating: "${trimmedValue}" → "${newValue}"`);
+          changesCount++;
+          return [newValue];
+        }
+      }
+      return row;
+    });
+    
+    // Write all updated values back at once
+    if (changesCount > 0) {
+      range.setValues(updatedValues);
+      console.log(`Partner name translation complete. ${changesCount} names updated.`);
+    } else {
+      console.log('No partner names needed translation.');
+    }
+    
+  } catch (error) {
+    console.error('Error translating partner names:', error);
+    // Don't throw the error - allow the sync to continue even if translation fails
+  }
+}
+
+/**
+ * Sort the data by column A (Item Name)
+ */
+function sortDataByItemName(sheet) {
+  try {
+    console.log('Sorting data by Item Name (column A)...');
+    
+    const lastRow = sheet.getLastRow();
+    const lastColumn = sheet.getLastColumn();
+    
+    if (lastRow > 1) {
+      const dataRange = sheet.getRange(2, 1, lastRow - 1, lastColumn);
+      dataRange.sort({column: 1, ascending: true});
+      console.log('Data sorted successfully');
+    } else {
+      console.log('No data to sort');
+    }
+    
+  } catch (error) {
+    console.error('Error sorting data:', error);
+    // Don't throw - allow sync to continue
+  }
+}
