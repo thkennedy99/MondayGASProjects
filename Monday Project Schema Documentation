@@ -1,0 +1,4730 @@
+====================================================
+3:25:38 PM	Info	ANALYZING SPECIFIC MONDAY.COM BOARDS
+3:25:38 PM	Info	====================================================
+3:25:38 PM	Info	Analysis Time: 8/19/2025, 5:25:38 PM
+3:25:38 PM	Info	
+
+==== [1/6] Marketing: Marketing Events Approval Requests ====
+3:25:38 PM	Info	Target Sheet: MarketingApproval
+3:25:38 PM	Info	
+========================================
+3:25:38 PM	Info	ANALYZING: Marketing Events Approval Requests
+3:25:38 PM	Info	BOARD ID: 9710279044
+3:25:38 PM	Info	========================================
+3:25:38 PM	Info	Board structure query for board 9710279044: 
+    query {
+      boards(ids: [9710279044]) {
+        id
+        name
+        columns {
+          id
+          title
+          type
+          settings_str
+        }
+        groups {
+          id
+          title
+        }
+      }
+    }
+  
+3:25:38 PM	Info	Making API request...
+3:25:39 PM	Info	Response code: 200
+3:25:39 PM	Info	Board Name (from Monday): Marketing Event Approval Requests
+3:25:39 PM	Info	Total Columns: 26
+3:25:39 PM	Info	
+--- COLUMN DETAILS ---
+3:25:39 PM	Info	Column 1:
+3:25:39 PM	Info	  Name: "Name"
+3:25:39 PM	Info	  ID: "name"
+3:25:39 PM	Info	  Type: "name"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 2:
+3:25:39 PM	Info	  Name: "Subitems"
+3:25:39 PM	Info	  ID: "subitems"
+3:25:39 PM	Info	  Type: "subtasks"
+3:25:39 PM	Info	  Other Settings: {
+  "allowMultipleItems": true,
+  "itemTypeName": "column.subtasks.title",
+  "displayType": "BOARD_INLINE",
+  "boardIds": [
+    9710279182
+  ]
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 3:
+3:25:39 PM	Info	  Name: "Event URL"
+3:25:39 PM	Info	  ID: "text_mktj8ce4"
+3:25:39 PM	Info	  Type: "text"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 4:
+3:25:39 PM	Info	  Name: "Priority"
+3:25:39 PM	Info	  ID: "color_mktjmqkc"
+3:25:39 PM	Info	  Type: "status"
+3:25:39 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "color_mapping": {
+    "2": 14,
+    "14": 2
+  },
+  "labels": {
+    "0": "Priority 2",
+    "1": "Priority 1",
+    "2": "Priority 3"
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#784bd1",
+      "border": "#8f4dc4",
+      "var_name": "dark-purple"
+    }
+  }
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 5:
+3:25:39 PM	Info	  Name: "Overall Status"
+3:25:39 PM	Info	  ID: "status"
+3:25:39 PM	Info	  Type: "status"
+3:25:39 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Submit Request Form",
+    "1": "Sent to Will for Approval",
+    "2": "PM Approved",
+    "3": "Ready to Start",
+    "4": "Final Approval",
+    "5": "Started",
+    "6": "Marketing Approved",
+    "7": "Will Approved",
+    "8": "Sent to Eric For Approval",
+    "9": "PM Rejected",
+    "10": "Marketing Rejected",
+    "11": "Send to AM to Adjust",
+    "12": "Rejected",
+    "13": "Will Rejected",
+    "160": "Sent to Marketing for Approval"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 7,
+    "2": 5,
+    "3": 1,
+    "4": 13,
+    "5": 2,
+    "6": 8,
+    "7": 12,
+    "8": 3,
+    "9": 4,
+    "10": 9,
+    "11": 10,
+    "12": 14,
+    "13": 11,
+    "160": 6
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#9d50dd",
+      "border": "#9238af",
+      "var_name": "purple"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    },
+    "9": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "10": {
+      "color": "#333333",
+      "border": "#000",
+      "var_name": "soft-black"
+    },
+    "11": {
+      "color": "#bb3354",
+      "border": "#a42d4a",
+      "var_name": "dark-red"
+    },
+    "12": {
+      "color": "#ff007f",
+      "border": "#e01279",
+      "var_name": "dark-pink"
+    },
+    "13": {
+      "color": "#ff5ac4",
+      "border": "#e04fac",
+      "var_name": "light-pink"
+    },
+    "160": {
+      "color": "#175a63",
+      "border": "#175a63",
+      "var_name": "eden"
+    }
+  }
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 6:
+3:25:39 PM	Info	  Name: "Owner"
+3:25:39 PM	Info	  ID: "person"
+3:25:39 PM	Info	  Type: "people"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 7:
+3:25:39 PM	Info	  Name: "Alliance Manager"
+3:25:39 PM	Info	  ID: "text_mktkrhhj"
+3:25:39 PM	Info	  Type: "text"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 8:
+3:25:39 PM	Info	  Name: "Requesting Department"
+3:25:39 PM	Info	  ID: "status_1"
+3:25:39 PM	Info	  Type: "status"
+3:25:39 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Product Marketing",
+    "1": "GSC",
+    "106": "Marketplace",
+    "107": "Partner Management",
+    "152": "Marketing",
+    "154": "Product Development",
+    "156": "CoSell"
+  },
+  "labels_positions_v2": {
+    "0": 6,
+    "1": 7,
+    "5": 0,
+    "106": 2,
+    "107": 1,
+    "152": 3,
+    "154": 5,
+    "156": 4
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "106": {
+      "color": "#74afcc",
+      "border": "#74afcc",
+      "var_name": "river"
+    },
+    "107": {
+      "color": "#225091",
+      "border": "#225091",
+      "var_name": "navy"
+    },
+    "152": {
+      "color": "#bda8f9",
+      "border": "#bda8f9",
+      "var_name": "light_magic"
+    },
+    "154": {
+      "color": "#a9bee8",
+      "border": "#a9bee8",
+      "var_name": "cold_blue"
+    },
+    "156": {
+      "color": "#9d99b9",
+      "border": "#9d99b9",
+      "var_name": "purple_gray"
+    }
+  }
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 9:
+3:25:39 PM	Info	  Name: "Cost"
+3:25:39 PM	Info	  ID: "numeric_mktjxtjk"
+3:25:39 PM	Info	  Type: "numbers"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 10:
+3:25:39 PM	Info	  Name: "Date and Location"
+3:25:39 PM	Info	  ID: "text_mktkdwry"
+3:25:39 PM	Info	  Type: "text"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 11:
+3:25:39 PM	Info	  Name: "Start Date"
+3:25:39 PM	Info	  ID: "date_mktkb5sf"
+3:25:39 PM	Info	  Type: "date"
+3:25:39 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 12:
+3:25:39 PM	Info	  Name: "Request Type"
+3:25:39 PM	Info	  ID: "status_16"
+3:25:39 PM	Info	  Type: "status"
+3:25:39 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Whitepaper or Customer Success",
+    "1": "Videos/Vlogs",
+    "2": "Other Collateral",
+    "3": "Newsletter / Email Campaign",
+    "101": "Sales Enablement Partner Pitch",
+    "102": "Press Release",
+    "103": "Social Promo",
+    "110": "Blogs",
+    "153": "GW.com or MP.com Promotional",
+    "160": "Live Event"
+  },
+  "labels_positions_v2": {
+    "0": 8,
+    "1": 9,
+    "2": 10,
+    "3": 2,
+    "5": 0,
+    "101": 7,
+    "102": 3,
+    "103": 1,
+    "110": 6,
+    "153": 4,
+    "160": 5
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "101": {
+      "color": "#ff7575",
+      "border": "#ff7575",
+      "var_name": "sunset"
+    },
+    "102": {
+      "color": "#faa1f1",
+      "border": "#faa1f1",
+      "var_name": "bubble"
+    },
+    "103": {
+      "color": "#ffadad",
+      "border": "#ffadad",
+      "var_name": "peach"
+    },
+    "110": {
+      "color": "#401694",
+      "border": "#401694",
+      "var_name": "dark_indigo"
+    },
+    "153": {
+      "color": "#216edf",
+      "border": "#216edf",
+      "var_name": "sky"
+    },
+    "160": {
+      "color": "#175a63",
+      "border": "#175a63",
+      "var_name": "eden"
+    }
+  }
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 13:
+3:25:39 PM	Info	  Name: "Urgency"
+3:25:39 PM	Info	  ID: "color_mktjnf1b"
+3:25:39 PM	Info	  Type: "status"
+3:25:39 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Normal",
+    "1": "Rush"
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    }
+  }
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 14:
+3:25:39 PM	Info	  Name: "Number of Meetings or Receptions"
+3:25:39 PM	Info	  ID: "text_mktk5zwj"
+3:25:39 PM	Info	  Type: "text"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 15:
+3:25:39 PM	Info	  Name: "Total Audience"
+3:25:39 PM	Info	  ID: "text_mktkv2yd"
+3:25:39 PM	Info	  Type: "text"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 16:
+3:25:39 PM	Info	  Name: "Expected Attendance"
+3:25:39 PM	Info	  ID: "text_mktk6sdh"
+3:25:39 PM	Info	  Type: "text"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 17:
+3:25:39 PM	Info	  Name: "Speaking Opportunity"
+3:25:39 PM	Info	  ID: "long_text_mktkr2xz"
+3:25:39 PM	Info	  Type: "long_text"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 18:
+3:25:39 PM	Info	  Name: "Brand Details"
+3:25:39 PM	Info	  ID: "text_mktkfpbj"
+3:25:39 PM	Info	  Type: "text"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 19:
+3:25:39 PM	Info	  Name: "Create Date"
+3:25:39 PM	Info	  ID: "date_mktmw20b"
+3:25:39 PM	Info	  Type: "date"
+3:25:39 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 20:
+3:25:39 PM	Info	  Name: "Eric Approval Date"
+3:25:39 PM	Info	  ID: "date_mktmf2mp"
+3:25:39 PM	Info	  Type: "date"
+3:25:39 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 21:
+3:25:39 PM	Info	  Name: "Marketing Approval Date"
+3:25:39 PM	Info	  ID: "date_mktmw334"
+3:25:39 PM	Info	  Type: "date"
+3:25:39 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 22:
+3:25:39 PM	Info	  Name: "Final Approval Date"
+3:25:39 PM	Info	  ID: "date_mktmk43q"
+3:25:39 PM	Info	  Type: "date"
+3:25:39 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 23:
+3:25:39 PM	Info	  Name: "Eric Decision"
+3:25:39 PM	Info	  ID: "color_mktmgws7"
+3:25:39 PM	Info	  Type: "status"
+3:25:39 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Send Back to Requestor",
+    "1": "Approve and Send to Marketing",
+    "2": "Reject"
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    }
+  }
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 24:
+3:25:39 PM	Info	  Name: "Marketing Decision"
+3:25:39 PM	Info	  ID: "color_mktmnajj"
+3:25:39 PM	Info	  Type: "status"
+3:25:39 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Send Back to Requestor",
+    "2": "Reject",
+    "3": "Approve"
+  },
+  "labels_positions_v2": {
+    "0": 1,
+    "2": 2,
+    "3": 0,
+    "5": 3
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    }
+  }
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 25:
+3:25:39 PM	Info	  Name: "Will Decision"
+3:25:39 PM	Info	  ID: "color_mktm2c28"
+3:25:39 PM	Info	  Type: "status"
+3:25:39 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Send Back to Requestor",
+    "1": "Final Approval",
+    "2": "Reject"
+  },
+  "labels_positions_v2": {
+    "0": 1,
+    "1": 0,
+    "2": 2,
+    "5": 3
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    }
+  }
+}
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	Column 26:
+3:25:39 PM	Info	  Name: "Long text"
+3:25:39 PM	Info	  ID: "long_text_mktmkzbw"
+3:25:39 PM	Info	  Type: "long_text"
+3:25:39 PM	Info	  ---
+3:25:39 PM	Info	
+--- COLUMN ARRAY FOR Marketing Events Approval Requests ---
+3:25:39 PM	Info	Logging output too large. Truncating output. [
+  {
+    "name": "Name",
+    "id": "name",
+    "type": "name",
+    "settings": {}
+  },
+  {
+    "name": "Subitems",
+    "id": "subitems",
+    "type": "subtasks",
+    "settings": {
+      "allowMultipleItems": true,
+      "itemTypeName": "column.subtasks.title",
+      "displayType": "BOARD_INLINE",
+      "boardIds": [
+        9710279182
+      ]
+    }
+  },
+  {
+    "name": "Event URL",
+    "id": "text_mktj8ce4",
+    "type": "text",
+    "settings": {}
+  },
+  {
+    "name": "Priority",
+    "id": "color_mktjmqkc",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "color_mapping": {
+        "2": 14,
+        "14": 2
+      },
+      "labels": {
+        "0": "Priority 2",
+        "1": "Priority 1",
+        "2": "Priority 3"
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#784bd1",
+          "border": "#8f4dc4",
+          "var_name": "dark-purple"
+        }
+      }
+    }
+  },
+  {
+    "name": "Overall Status",
+    "id": "status",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+        "0": "Submit Request Form",
+        "1": "Sent to Will for Approval",
+        "2": "PM Approved",
+        "3": "Ready to Start",
+        "4": "Final Approval",
+        "5": "Started",
+        "6": "Marketing Approved",
+        "7": "Will Approved",
+        "8": "Sent to Eric For Approval",
+        "9": "PM Rejected",
+        "10": "Marketing Rejected",
+        "11": "Send to AM to Adjust",
+        "12": "Rejected",
+        "13": "Will Rejected",
+        "160": "Sent to Marketing for Approval"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 7,
+        "2": 5,
+        "3": 1,
+        "4": 13,
+        "5": 2,
+        "6": 8,
+        "7": 12,
+        "8": 3,
+        "9": 4,
+        "10": 9,
+        "11": 10,
+        "12": 14,
+        "13": 11,
+        "160": 6
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#9d50dd",
+          "border": "#9238af",
+          "var_name": "purple"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        },
+        "9": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "10": {
+          "color": "#333333",
+          "border": "#000",
+          "var_name": "soft-black"
+        },
+        "11": {
+          "color": "#bb3354",
+          "border": "#a42d4a",
+          "var_name": "dark-red"
+        },
+        "12": {
+          "color": "#ff007f",
+          "border": "#e01279",
+          "var_name": "dark-pink"
+        },
+        "13": {
+          "color": "#ff5ac4",
+          "border": "#e04fac",
+          "var_name": "light-pink"
+        },
+        "160": {
+          "color": "#175a63",
+          "border": "#175a63",
+          "var_name": "eden"
+        }
+      }
+    }
+  },
+  {
+    "name": "Owner",
+    "id": "person",
+    "type": "people",
+    "settings": {}
+  },
+  {
+    "name": "Alliance Manager",
+    "id": "text_mktkrhhj",
+    "type": "text",
+    "settings": {}
+  },
+  {
+    "name": "Requesting Department",
+    "id": "status_1",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+        "0": "Product Marketing",
+        "1": "GSC",
+        "106": "Marketplace",
+        "107": "Partner Management",
+        "152": "Marketing",
+        "154": "Product Development",
+        "156": "CoSell"
+      },
+      "labels_positions_v2": {
+        "0": 6,
+        "1": 7,
+        "5": 0,
+        "106": 2,
+        "107": 1,
+        "152": 3,
+        "154": 5,
+        "156": 4
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "106": {
+          "color": "#74afcc",
+          "border": "#74afcc",
+          "var_name": "river"
+        },
+        "107": {
+          "color": "#225091",
+          "border": "#225091",
+          "var_name": "navy"
+        },
+        "152": {
+          "color": "#bda8f9",
+          "border": "#bda8f9",
+          "var_name": "light_magic"
+        },
+        "154": {
+          "color": "#a9bee8",
+          "border": "#a9bee8",
+          "var_name": "cold_blue"
+        },
+        "156": {
+          "color": "#9d99b9",
+          "border": "#9d99b9",
+          "var_name": "purple_gray"
+        }
+      }
+    }
+  },
+  {
+    "name": "Cost",
+    "id": "numeric_mktjxtjk",
+    "type": "numbers",
+    "settings": {}
+  },
+  {
+    "name": "Date and Location",
+    "id": "text_mktkdwry",
+    "type": "text",
+    "settings": {}
+  },
+  {
+    "name": "Start Date",
+    "id": "date_mktkb5sf",
+    "type": "date",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Request Type",
+    "id": "status_16",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+        "0": "Whitepaper or Customer Success",
+        "1": "Videos/Vlogs",
+        "2": "Other Collateral",
+        "3": "Newsletter / Email Campaign",
+        "101": "Sales Enablement Partner Pitch",
+        "102": "Press Release",
+        "103": "Social Promo",
+        "110": "Blogs",
+        "153": "GW.com or MP.com Promotional",
+        "160": "Live Event"
+      },
+      "labels_positions_v2": {
+        "0": 8,
+        "1": 9,
+        "2": 10,
+        "3": 2,
+        "5": 0,
+        "101": 7,
+        "102": 3,
+        "103": 1,
+        "110": 6,
+        "153": 4,
+        "160": 5
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "101": {
+          "color": "#ff7575",
+          "border": "#ff7575",
+          "var_name": "sunset"
+        },
+        "102": {
+          "color": "#faa1f1",
+          "border": "#faa1f1",
+          "var_name": "bubble"
+        },
+        "103": {
+          "color": "#ffadad",
+          "border": "#ffadad",
+          "var_name": "peach"
+        },
+        "110": {
+          "color": "#401694",
+          "border": "#401694",
+          "var_name": "dark_indigo"
+        },
+        "153": {
+          "color": "#216edf",
+          "border": "#216edf",
+          "var_name": "sky"
+        },
+        "160": {
+          "color": "#175a63",
+          "border": "#175a63",
+          "var_name": "eden"
+        }
+      }
+    }
+  },
+  {
+    "name": "Urgency",
+    "id": "color_mktjnf1b",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+       
+3:25:39 PM	Info	
+--- GROUPS IN Marketing Events Approval Requests ---
+3:25:39 PM	Info	  - "Incoming" (ID: topics)
+3:25:39 PM	Info	  - "In Progress" (ID: new_group)
+3:25:39 PM	Info	  - "Complete" (ID: group_title)
+3:25:39 PM	Info	  - "Rejected" (ID: group_mktjf8pq)
+3:25:39 PM	Info	
+
+==== [2/6] Marketing: Marketing Event Calendar ====
+3:25:39 PM	Info	Target Sheet: MarketingCalendar
+3:25:39 PM	Info	
+========================================
+3:25:39 PM	Info	ANALYZING: Marketing Event Calendar
+3:25:39 PM	Info	BOARD ID: 9770467355
+3:25:39 PM	Info	========================================
+3:25:39 PM	Info	Board structure query for board 9770467355: 
+    query {
+      boards(ids: [9770467355]) {
+        id
+        name
+        columns {
+          id
+          title
+          type
+          settings_str
+        }
+        groups {
+          id
+          title
+        }
+      }
+    }
+  
+3:25:39 PM	Info	Making API request...
+3:25:40 PM	Info	Response code: 200
+3:25:40 PM	Info	Board Name (from Monday): Marketing Event Calendar
+3:25:40 PM	Info	Total Columns: 7
+3:25:40 PM	Info	
+--- COLUMN DETAILS ---
+3:25:40 PM	Info	Column 1:
+3:25:40 PM	Info	  Name: "Name"
+3:25:40 PM	Info	  ID: "name"
+3:25:40 PM	Info	  Type: "name"
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 2:
+3:25:40 PM	Info	  Name: "Month"
+3:25:40 PM	Info	  ID: "color_mktk2s2a"
+3:25:40 PM	Info	  Type: "status"
+3:25:40 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "February",
+    "1": "January",
+    "2": "March",
+    "3": "April",
+    "4": "May",
+    "6": "June",
+    "7": "July",
+    "8": "August",
+    "9": "September",
+    "10": "October",
+    "11": "November",
+    "12": "December"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 4,
+    "4": 5,
+    "5": 3,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "10": 10,
+    "11": 11,
+    "12": 12
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#9d50dd",
+      "border": "#9238af",
+      "var_name": "purple"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    },
+    "9": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "10": {
+      "color": "#333333",
+      "border": "#000",
+      "var_name": "soft-black"
+    },
+    "11": {
+      "color": "#bb3354",
+      "border": "#a42d4a",
+      "var_name": "dark-red"
+    },
+    "12": {
+      "color": "#ff007f",
+      "border": "#e01279",
+      "var_name": "dark-pink"
+    }
+  }
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 3:
+3:25:40 PM	Info	  Name: "Week"
+3:25:40 PM	Info	  ID: "color_mktkd041"
+3:25:40 PM	Info	  Type: "status"
+3:25:40 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "2",
+    "1": "1",
+    "2": "3",
+    "3": "4",
+    "4": "5"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 4,
+    "4": 5,
+    "5": 3
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#9d50dd",
+      "border": "#9238af",
+      "var_name": "purple"
+    }
+  }
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 4:
+3:25:40 PM	Info	  Name: "Activity Type"
+3:25:40 PM	Info	  ID: "color_mktk258r"
+3:25:40 PM	Info	  Type: "status"
+3:25:40 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Newsletters + Email Campaigns",
+    "1": "Social Promo",
+    "2": "Press Releae",
+    "3": "GW.com MP.Com Promo",
+    "4": "LIve Event",
+    "6": "Webinar",
+    "7": "Blogs",
+    "8": "Sales Enablement Pitch Pkg",
+    "9": "Whitepaper or Customer Success",
+    "10": "Videos/Vlogs",
+    "11": "Other",
+    "12": "Press Release",
+    "13": "GW.com or MP.com Promo",
+    "14": "Live Event",
+    "15": "Sales Enablement Pitch Pkgs"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 4,
+    "4": 5,
+    "5": 3,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "10": 10,
+    "11": 11
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#9d50dd",
+      "border": "#9238af",
+      "var_name": "purple"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    },
+    "9": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "10": {
+      "color": "#333333",
+      "border": "#000",
+      "var_name": "soft-black"
+    },
+    "11": {
+      "color": "#bb3354",
+      "border": "#a42d4a",
+      "var_name": "dark-red"
+    },
+    "12": {
+      "color": "#ff007f",
+      "border": "#e01279",
+      "var_name": "dark-pink"
+    },
+    "13": {
+      "color": "#ff5ac4",
+      "border": "#e04fac",
+      "var_name": "light-pink"
+    },
+    "14": {
+      "color": "#784bd1",
+      "border": "#8f4dc4",
+      "var_name": "dark-purple"
+    },
+    "15": {
+      "color": "#9cd326",
+      "border": "#89b921",
+      "var_name": "lime-green"
+    }
+  }
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 5:
+3:25:40 PM	Info	  Name: "Date"
+3:25:40 PM	Info	  ID: "formula_mktkr89x"
+3:25:40 PM	Info	  Type: "formula"
+3:25:40 PM	Info	  Other Settings: {
+  "formula": "IF(OR({color_mktk2s2a}=\"\",{color_mktkd041}=\"\"),\"\",\nFORMAT_DATE(\n  DATE(\n    YEAR(TODAY()),\n    SWITCH({color_mktk2s2a},\"January\",1,\"February\",2,\"March\",3,\"April\",4,\"May\",5,\"June\",6,\"July\",7,\"August\",8,\"September\",9,\"October\",10,\"November\",11,\"December\",12,1),\n    SWITCH(TRIM(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(LOWER({color_mktkd041}),\"week\",\"\"),\"wk\",\"\"),\"w\",\"\"),\"#\",\"\")),\"1\",1,\"2\",7,\"3\",14,\"4\",21,\"5\",28,1)\n  ),\n  \"YYYY-MM-DD\"\n))\n",
+  "hide_footer": true
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 6:
+3:25:40 PM	Info	  Name: "Formula"
+3:25:40 PM	Info	  ID: "formula_mktkajwy"
+3:25:40 PM	Info	  Type: "formula"
+3:25:40 PM	Info	  Other Settings: {
+  "formula": "CONCATENATE(\n  TEXT(SWITCH(LEFT(UPPER(TRIM({color_mktk2s2a})),3),\n    \"JAN\",1,\"FEB\",2,\"MAR\",3,\"APR\",4,\"MAY\",5,\"JUN\",6,\n    \"JUL\",7,\"AUG\",8,\"SEP\",9,\"OCT\",10,\"NOV\",11,\"DEC\",12,0),\"00\"),\n  \" — \",\n  {color_mktk2s2a}\n)\n"
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 7:
+3:25:40 PM	Info	  Name: "EventDate"
+3:25:40 PM	Info	  ID: "date_mktkyhta"
+3:25:40 PM	Info	  Type: "date"
+3:25:40 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	
+--- COLUMN ARRAY FOR Marketing Event Calendar ---
+3:25:40 PM	Info	[
+  {
+    "name": "Name",
+    "id": "name",
+    "type": "name",
+    "settings": {}
+  },
+  {
+    "name": "Month",
+    "id": "color_mktk2s2a",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+        "0": "February",
+        "1": "January",
+        "2": "March",
+        "3": "April",
+        "4": "May",
+        "6": "June",
+        "7": "July",
+        "8": "August",
+        "9": "September",
+        "10": "October",
+        "11": "November",
+        "12": "December"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 4,
+        "4": 5,
+        "5": 3,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "10": 10,
+        "11": 11,
+        "12": 12
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#9d50dd",
+          "border": "#9238af",
+          "var_name": "purple"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        },
+        "9": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "10": {
+          "color": "#333333",
+          "border": "#000",
+          "var_name": "soft-black"
+        },
+        "11": {
+          "color": "#bb3354",
+          "border": "#a42d4a",
+          "var_name": "dark-red"
+        },
+        "12": {
+          "color": "#ff007f",
+          "border": "#e01279",
+          "var_name": "dark-pink"
+        }
+      }
+    }
+  },
+  {
+    "name": "Week",
+    "id": "color_mktkd041",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+        "0": "2",
+        "1": "1",
+        "2": "3",
+        "3": "4",
+        "4": "5"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 4,
+        "4": 5,
+        "5": 3
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#9d50dd",
+          "border": "#9238af",
+          "var_name": "purple"
+        }
+      }
+    }
+  },
+  {
+    "name": "Activity Type",
+    "id": "color_mktk258r",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+        "0": "Newsletters + Email Campaigns",
+        "1": "Social Promo",
+        "2": "Press Releae",
+        "3": "GW.com MP.Com Promo",
+        "4": "LIve Event",
+        "6": "Webinar",
+        "7": "Blogs",
+        "8": "Sales Enablement Pitch Pkg",
+        "9": "Whitepaper or Customer Success",
+        "10": "Videos/Vlogs",
+        "11": "Other",
+        "12": "Press Release",
+        "13": "GW.com or MP.com Promo",
+        "14": "Live Event",
+        "15": "Sales Enablement Pitch Pkgs"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 4,
+        "4": 5,
+        "5": 3,
+        "6": 6,
+        "7": 7,
+        "8": 8,
+        "9": 9,
+        "10": 10,
+        "11": 11
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#9d50dd",
+          "border": "#9238af",
+          "var_name": "purple"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        },
+        "9": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "10": {
+          "color": "#333333",
+          "border": "#000",
+          "var_name": "soft-black"
+        },
+        "11": {
+          "color": "#bb3354",
+          "border": "#a42d4a",
+          "var_name": "dark-red"
+        },
+        "12": {
+          "color": "#ff007f",
+          "border": "#e01279",
+          "var_name": "dark-pink"
+        },
+        "13": {
+          "color": "#ff5ac4",
+          "border": "#e04fac",
+          "var_name": "light-pink"
+        },
+        "14": {
+          "color": "#784bd1",
+          "border": "#8f4dc4",
+          "var_name": "dark-purple"
+        },
+        "15": {
+          "color": "#9cd326",
+          "border": "#89b921",
+          "var_name": "lime-green"
+        }
+      }
+    }
+  },
+  {
+    "name": "Date",
+    "id": "formula_mktkr89x",
+    "type": "formula",
+    "settings": {
+      "formula": "IF(OR({color_mktk2s2a}=\"\",{color_mktkd041}=\"\"),\"\",\nFORMAT_DATE(\n  DATE(\n    YEAR(TODAY()),\n    SWITCH({color_mktk2s2a},\"January\",1,\"February\",2,\"March\",3,\"April\",4,\"May\",5,\"June\",6,\"July\",7,\"August\",8,\"September\",9,\"October\",10,\"November\",11,\"December\",12,1),\n    SWITCH(TRIM(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(SUBSTITUTE(LOWER({color_mktkd041}),\"week\",\"\"),\"wk\",\"\"),\"w\",\"\"),\"#\",\"\")),\"1\",1,\"2\",7,\"3\",14,\"4\",21,\"5\",28,1)\n  ),\n  \"YYYY-MM-DD\"\n))\n",
+      "hide_footer": true
+    }
+  },
+  {
+    "name": "Formula",
+    "id": "formula_mktkajwy",
+    "type": "formula",
+    "settings": {
+      "formula": "CONCATENATE(\n  TEXT(SWITCH(LEFT(UPPER(TRIM({color_mktk2s2a})),3),\n    \"JAN\",1,\"FEB\",2,\"MAR\",3,\"APR\",4,\"MAY\",5,\"JUN\",6,\n    \"JUL\",7,\"AUG\",8,\"SEP\",9,\"OCT\",10,\"NOV\",11,\"DEC\",12,0),\"00\"),\n  \" — \",\n  {color_mktk2s2a}\n)\n"
+    }
+  },
+  {
+    "name": "EventDate",
+    "id": "date_mktkyhta",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  }
+]
+3:25:40 PM	Info	
+--- GROUPS IN Marketing Event Calendar ---
+3:25:40 PM	Info	  - "Pending" (ID: topics)
+3:25:40 PM	Info	  - "Complete" (ID: group_title)
+3:25:40 PM	Info	
+
+==== [3/6] Guidewire Internal: GW Board 1 ====
+3:25:40 PM	Info	Target Sheet: GWMondayData
+3:25:40 PM	Info	
+========================================
+3:25:40 PM	Info	ANALYZING: GW Board 1
+3:25:40 PM	Info	BOARD ID: 9791255941
+3:25:40 PM	Info	========================================
+3:25:40 PM	Info	Board structure query for board 9791255941: 
+    query {
+      boards(ids: [9791255941]) {
+        id
+        name
+        columns {
+          id
+          title
+          type
+          settings_str
+        }
+        groups {
+          id
+          title
+        }
+      }
+    }
+  
+3:25:40 PM	Info	Making API request...
+3:25:40 PM	Info	Response code: 200
+3:25:40 PM	Info	Board Name (from Monday): Partner Management Tracker
+3:25:40 PM	Info	Total Columns: 13
+3:25:40 PM	Info	
+--- COLUMN DETAILS ---
+3:25:40 PM	Info	Column 1:
+3:25:40 PM	Info	  Name: "Name"
+3:25:40 PM	Info	  ID: "name"
+3:25:40 PM	Info	  Type: "name"
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 2:
+3:25:40 PM	Info	  Name: "Subitems"
+3:25:40 PM	Info	  ID: "subtasks_mkp7am7a"
+3:25:40 PM	Info	  Type: "subtasks"
+3:25:40 PM	Info	  Other Settings: {
+  "allowMultipleItems": true,
+  "itemTypeName": "column.subtasks.title",
+  "displayType": "BOARD_INLINE",
+  "boardIds": [
+    9791256239
+  ]
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 3:
+3:25:40 PM	Info	  Name: "Comments/Notes"
+3:25:40 PM	Info	  ID: "status_1_mkn1ekgr"
+3:25:40 PM	Info	  Type: "long_text"
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 4:
+3:25:40 PM	Info	  Name: "Activity Status"
+3:25:40 PM	Info	  ID: "color_mktakkpw"
+3:25:40 PM	Info	  Type: "status"
+3:25:40 PM	Info	  Other Settings: {
+  "done_colors": [
+    1,
+    4
+  ],
+  "color_mapping": {
+    "1": 2,
+    "2": 15,
+    "4": 153,
+    "6": 6,
+    "10": 106,
+    "15": 1,
+    "106": 10,
+    "153": 4
+  },
+  "deactivated_labels": [
+    9,
+    8,
+    0,
+    7
+  ],
+  "labels": {
+    "0": "Not Started",
+    "1": "Blockers",
+    "2": "In Progress",
+    "3": "Ongoing",
+    "4": "Halted",
+    "5": "Not Started",
+    "6": "SOLD",
+    "7": "Other",
+    "8": "Guidewire PD",
+    "9": "Training",
+    "10": "Completed"
+  },
+  "labels_positions_v2": {
+    "0": 8,
+    "1": 2,
+    "2": 1,
+    "3": 5,
+    "4": 3,
+    "5": 0,
+    "6": 6,
+    "7": 7,
+    "8": 9,
+    "9": 10,
+    "10": 4
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "2": {
+      "color": "#9cd326",
+      "border": "#89b921",
+      "var_name": "lime-green"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#216edf",
+      "border": "#216edf",
+      "var_name": "sky"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    },
+    "9": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "10": {
+      "color": "#74afcc",
+      "border": "#74afcc",
+      "var_name": "river"
+    }
+  }
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 5:
+3:25:40 PM	Info	  Name: "Assigned By"
+3:25:40 PM	Info	  ID: "9791140449__multiple_person_mktq3ehf"
+3:25:40 PM	Info	  Type: "people"
+3:25:40 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 6:
+3:25:40 PM	Info	  Name: "Owner"
+3:25:40 PM	Info	  ID: "9791140449__multiple_person_mktqh3q3"
+3:25:40 PM	Info	  Type: "people"
+3:25:40 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 7:
+3:25:40 PM	Info	  Name: "Importance"
+3:25:40 PM	Info	  ID: "color_mkt9mypk"
+3:25:40 PM	Info	  Type: "status"
+3:25:40 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "color_mapping": {
+    "0": 11,
+    "2": 9,
+    "9": 2,
+    "11": 0
+  },
+  "labels": {
+    "0": "1. Urgent",
+    "1": "2. High",
+    "2": "3. Medium",
+    "3": "4. Low",
+    "5": "5. N/A"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "5": 4
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#bb3354",
+      "border": "#a42d4a",
+      "var_name": "dark-red"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    }
+  }
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 8:
+3:25:40 PM	Info	  Name: "Activity Type"
+3:25:40 PM	Info	  ID: "color_mktqmpeh"
+3:25:40 PM	Info	  Type: "status"
+3:25:40 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Marketplace",
+    "1": "Partner Management",
+    "2": "TechAll Program",
+    "3": "Validation",
+    "4": "GSC RFG/BBG",
+    "5": "TechAll Marketing",
+    "6": "Referal",
+    "7": "Vanguards",
+    "8": "Other"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 4,
+    "4": 5,
+    "5": 3,
+    "6": 6,
+    "7": 7,
+    "8": 8
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#9d50dd",
+      "border": "#9238af",
+      "var_name": "purple"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    }
+  }
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 9:
+3:25:40 PM	Info	  Name: "Date Created"
+3:25:40 PM	Info	  ID: "date_1_mkn1x66b"
+3:25:40 PM	Info	  Type: "date"
+3:25:40 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 10:
+3:25:40 PM	Info	  Name: "Date Due"
+3:25:40 PM	Info	  ID: "date_1_mkn1rbp8"
+3:25:40 PM	Info	  Type: "date"
+3:25:40 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 11:
+3:25:40 PM	Info	  Name: "Actual Completion"
+3:25:40 PM	Info	  ID: "dup__of_date_due_mkn1zx06"
+3:25:40 PM	Info	  Type: "date"
+3:25:40 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 12:
+3:25:40 PM	Info	  Name: "Files"
+3:25:40 PM	Info	  ID: "files_mkn15ep0"
+3:25:40 PM	Info	  Type: "file"
+3:25:40 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:40 PM	Info	  ---
+3:25:40 PM	Info	Column 13:
+3:25:40 PM	Info	  Name: "Tech Board Type"
+3:25:40 PM	Info	  ID: "9791140449__color_mktzarg2"
+3:25:40 PM	Info	  Type: "status"
+3:25:40 PM	Info	  Other Settings: {
+  "color_mapping": {
+    "0": 153,
+    "2": 14,
+    "14": 2,
+    "153": 0
+  },
+  "labels": {
+    "0": "Solution Ops",
+    "1": "Partner Management",
+    "2": "Alliance Marketing"
+  },
+  "labels_positions_v2": {},
+  "labels_colors": {
+    "0": {
+      "color": "#216edf",
+      "border": "#216edf",
+      "var_name": "sky"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#784bd1",
+      "border": "#8f4dc4",
+      "var_name": "dark-purple"
+    }
+  }
+}
+3:25:40 PM	Info	  ---
+3:25:41 PM	Info	
+--- COLUMN ARRAY FOR GW Board 1 ---
+3:25:41 PM	Info	[
+  {
+    "name": "Name",
+    "id": "name",
+    "type": "name",
+    "settings": {}
+  },
+  {
+    "name": "Subitems",
+    "id": "subtasks_mkp7am7a",
+    "type": "subtasks",
+    "settings": {
+      "allowMultipleItems": true,
+      "itemTypeName": "column.subtasks.title",
+      "displayType": "BOARD_INLINE",
+      "boardIds": [
+        9791256239
+      ]
+    }
+  },
+  {
+    "name": "Comments/Notes",
+    "id": "status_1_mkn1ekgr",
+    "type": "long_text",
+    "settings": {}
+  },
+  {
+    "name": "Activity Status",
+    "id": "color_mktakkpw",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1,
+        4
+      ],
+      "color_mapping": {
+        "1": 2,
+        "2": 15,
+        "4": 153,
+        "6": 6,
+        "10": 106,
+        "15": 1,
+        "106": 10,
+        "153": 4
+      },
+      "deactivated_labels": [
+        9,
+        8,
+        0,
+        7
+      ],
+      "labels": {
+        "0": "Not Started",
+        "1": "Blockers",
+        "2": "In Progress",
+        "3": "Ongoing",
+        "4": "Halted",
+        "5": "Not Started",
+        "6": "SOLD",
+        "7": "Other",
+        "8": "Guidewire PD",
+        "9": "Training",
+        "10": "Completed"
+      },
+      "labels_positions_v2": {
+        "0": 8,
+        "1": 2,
+        "2": 1,
+        "3": 5,
+        "4": 3,
+        "5": 0,
+        "6": 6,
+        "7": 7,
+        "8": 9,
+        "9": 10,
+        "10": 4
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "2": {
+          "color": "#9cd326",
+          "border": "#89b921",
+          "var_name": "lime-green"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#216edf",
+          "border": "#216edf",
+          "var_name": "sky"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        },
+        "9": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "10": {
+          "color": "#74afcc",
+          "border": "#74afcc",
+          "var_name": "river"
+        }
+      }
+    }
+  },
+  {
+    "name": "Assigned By",
+    "id": "9791140449__multiple_person_mktq3ehf",
+    "type": "people",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Owner",
+    "id": "9791140449__multiple_person_mktqh3q3",
+    "type": "people",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Importance",
+    "id": "color_mkt9mypk",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "color_mapping": {
+        "0": 11,
+        "2": 9,
+        "9": 2,
+        "11": 0
+      },
+      "labels": {
+        "0": "1. Urgent",
+        "1": "2. High",
+        "2": "3. Medium",
+        "3": "4. Low",
+        "5": "5. N/A"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "5": 4
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#bb3354",
+          "border": "#a42d4a",
+          "var_name": "dark-red"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        }
+      }
+    }
+  },
+  {
+    "name": "Activity Type",
+    "id": "color_mktqmpeh",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+        "0": "Marketplace",
+        "1": "Partner Management",
+        "2": "TechAll Program",
+        "3": "Validation",
+        "4": "GSC RFG/BBG",
+        "5": "TechAll Marketing",
+        "6": "Referal",
+        "7": "Vanguards",
+        "8": "Other"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 4,
+        "4": 5,
+        "5": 3,
+        "6": 6,
+        "7": 7,
+        "8": 8
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#9d50dd",
+          "border": "#9238af",
+          "var_name": "purple"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        }
+      }
+    }
+  },
+  {
+    "name": "Date Created",
+    "id": "date_1_mkn1x66b",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Date Due",
+    "id": "date_1_mkn1rbp8",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Actual Completion",
+    "id": "dup__of_date_due_mkn1zx06",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Files",
+    "id": "files_mkn15ep0",
+    "type": "file",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Tech Board Type",
+    "id": "9791140449__color_mktzarg2",
+    "type": "status",
+    "settings": {
+      "color_mapping": {
+        "0": 153,
+        "2": 14,
+        "14": 2,
+        "153": 0
+      },
+      "labels": {
+        "0": "Solution Ops",
+        "1": "Partner Management",
+        "2": "Alliance Marketing"
+      },
+      "labels_positions_v2": {},
+      "labels_colors": {
+        "0": {
+          "color": "#216edf",
+          "border": "#216edf",
+          "var_name": "sky"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#784bd1",
+          "border": "#8f4dc4",
+          "var_name": "dark-purple"
+        }
+      }
+    }
+  }
+]
+3:25:41 PM	Info	
+--- GROUPS IN GW Board 1 ---
+3:25:41 PM	Info	  - "Open Items" (ID: topics)
+3:25:41 PM	Info	  - "Completed Items" (ID: new_group_mkn3rvh7)
+3:25:41 PM	Info	  - "Pipeline" (ID: group_mkp7x20v)
+3:25:41 PM	Info	
+
+==== [4/6] Guidewire Internal: GW Board 2 ====
+3:25:41 PM	Info	Target Sheet: GWMondayData
+3:25:41 PM	Info	
+========================================
+3:25:41 PM	Info	ANALYZING: GW Board 2
+3:25:41 PM	Info	BOARD ID: 9791272390
+3:25:41 PM	Info	========================================
+3:25:41 PM	Info	Board structure query for board 9791272390: 
+    query {
+      boards(ids: [9791272390]) {
+        id
+        name
+        columns {
+          id
+          title
+          type
+          settings_str
+        }
+        groups {
+          id
+          title
+        }
+      }
+    }
+  
+3:25:41 PM	Info	Making API request...
+3:25:41 PM	Info	Response code: 200
+3:25:41 PM	Info	Board Name (from Monday): Solution Ops Tracker
+3:25:41 PM	Info	Total Columns: 13
+3:25:41 PM	Info	
+--- COLUMN DETAILS ---
+3:25:41 PM	Info	Column 1:
+3:25:41 PM	Info	  Name: "Name"
+3:25:41 PM	Info	  ID: "name"
+3:25:41 PM	Info	  Type: "name"
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 2:
+3:25:41 PM	Info	  Name: "Subitems"
+3:25:41 PM	Info	  ID: "subtasks_mkp7am7a"
+3:25:41 PM	Info	  Type: "subtasks"
+3:25:41 PM	Info	  Other Settings: {
+  "allowMultipleItems": true,
+  "itemTypeName": "column.subtasks.title",
+  "displayType": "BOARD_INLINE",
+  "boardIds": [
+    9791272683
+  ]
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 3:
+3:25:41 PM	Info	  Name: "Comments/Notes"
+3:25:41 PM	Info	  ID: "status_1_mkn1ekgr"
+3:25:41 PM	Info	  Type: "long_text"
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 4:
+3:25:41 PM	Info	  Name: "Activity Status"
+3:25:41 PM	Info	  ID: "color_mktakkpw"
+3:25:41 PM	Info	  Type: "status"
+3:25:41 PM	Info	  Other Settings: {
+  "done_colors": [
+    1,
+    4
+  ],
+  "color_mapping": {
+    "1": 2,
+    "2": 15,
+    "4": 153,
+    "6": 6,
+    "10": 106,
+    "15": 1,
+    "106": 10,
+    "153": 4
+  },
+  "deactivated_labels": [
+    9,
+    8,
+    0,
+    7
+  ],
+  "labels": {
+    "0": "Not Started",
+    "1": "Blockers",
+    "2": "In Progress",
+    "3": "Ongoing",
+    "4": "Halted",
+    "5": "Not Started",
+    "6": "SOLD",
+    "7": "Other",
+    "8": "Guidewire PD",
+    "9": "Training",
+    "10": "Completed"
+  },
+  "labels_positions_v2": {
+    "0": 8,
+    "1": 2,
+    "2": 1,
+    "3": 5,
+    "4": 3,
+    "5": 0,
+    "6": 6,
+    "7": 7,
+    "8": 9,
+    "9": 10,
+    "10": 4
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "2": {
+      "color": "#9cd326",
+      "border": "#89b921",
+      "var_name": "lime-green"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#216edf",
+      "border": "#216edf",
+      "var_name": "sky"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    },
+    "9": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "10": {
+      "color": "#74afcc",
+      "border": "#74afcc",
+      "var_name": "river"
+    }
+  }
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 5:
+3:25:41 PM	Info	  Name: "Assigned By"
+3:25:41 PM	Info	  ID: "9791140449__multiple_person_mktq3ehf"
+3:25:41 PM	Info	  Type: "people"
+3:25:41 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 6:
+3:25:41 PM	Info	  Name: "Owner"
+3:25:41 PM	Info	  ID: "9791140449__multiple_person_mktqh3q3"
+3:25:41 PM	Info	  Type: "people"
+3:25:41 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 7:
+3:25:41 PM	Info	  Name: "Importance"
+3:25:41 PM	Info	  ID: "color_mkt9mypk"
+3:25:41 PM	Info	  Type: "status"
+3:25:41 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "color_mapping": {
+    "0": 11,
+    "2": 9,
+    "9": 2,
+    "11": 0
+  },
+  "labels": {
+    "0": "1. Urgent",
+    "1": "2. High",
+    "2": "3. Medium",
+    "3": "4. Low",
+    "5": "5. N/A"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "5": 4
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#bb3354",
+      "border": "#a42d4a",
+      "var_name": "dark-red"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    }
+  }
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 8:
+3:25:41 PM	Info	  Name: "Activity Type"
+3:25:41 PM	Info	  ID: "color_mktqmpeh"
+3:25:41 PM	Info	  Type: "status"
+3:25:41 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Marketplace",
+    "1": "Partner Management",
+    "2": "TechAll Program",
+    "3": "Validation",
+    "4": "GSC RFG/BBG",
+    "5": "TechAll Marketing",
+    "6": "Referal",
+    "7": "Vanguards",
+    "8": "Other"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 4,
+    "4": 5,
+    "5": 3,
+    "6": 6,
+    "7": 7,
+    "8": 8
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#9d50dd",
+      "border": "#9238af",
+      "var_name": "purple"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    }
+  }
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 9:
+3:25:41 PM	Info	  Name: "Date Created"
+3:25:41 PM	Info	  ID: "date_1_mkn1x66b"
+3:25:41 PM	Info	  Type: "date"
+3:25:41 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 10:
+3:25:41 PM	Info	  Name: "Date Due"
+3:25:41 PM	Info	  ID: "date_1_mkn1rbp8"
+3:25:41 PM	Info	  Type: "date"
+3:25:41 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 11:
+3:25:41 PM	Info	  Name: "Actual Completion"
+3:25:41 PM	Info	  ID: "dup__of_date_due_mkn1zx06"
+3:25:41 PM	Info	  Type: "date"
+3:25:41 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 12:
+3:25:41 PM	Info	  Name: "Files"
+3:25:41 PM	Info	  ID: "files_mkn15ep0"
+3:25:41 PM	Info	  Type: "file"
+3:25:41 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	Column 13:
+3:25:41 PM	Info	  Name: "Tech Board Type"
+3:25:41 PM	Info	  ID: "9791140449__color_mktzarg2"
+3:25:41 PM	Info	  Type: "status"
+3:25:41 PM	Info	  Other Settings: {
+  "color_mapping": {
+    "0": 153,
+    "2": 14,
+    "14": 2,
+    "153": 0
+  },
+  "labels": {
+    "0": "Solution Ops",
+    "1": "Partner Management",
+    "2": "Alliance Marketing"
+  },
+  "labels_positions_v2": {},
+  "labels_colors": {
+    "0": {
+      "color": "#216edf",
+      "border": "#216edf",
+      "var_name": "sky"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#784bd1",
+      "border": "#8f4dc4",
+      "var_name": "dark-purple"
+    }
+  }
+}
+3:25:41 PM	Info	  ---
+3:25:41 PM	Info	
+--- COLUMN ARRAY FOR GW Board 2 ---
+3:25:41 PM	Info	[
+  {
+    "name": "Name",
+    "id": "name",
+    "type": "name",
+    "settings": {}
+  },
+  {
+    "name": "Subitems",
+    "id": "subtasks_mkp7am7a",
+    "type": "subtasks",
+    "settings": {
+      "allowMultipleItems": true,
+      "itemTypeName": "column.subtasks.title",
+      "displayType": "BOARD_INLINE",
+      "boardIds": [
+        9791272683
+      ]
+    }
+  },
+  {
+    "name": "Comments/Notes",
+    "id": "status_1_mkn1ekgr",
+    "type": "long_text",
+    "settings": {}
+  },
+  {
+    "name": "Activity Status",
+    "id": "color_mktakkpw",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1,
+        4
+      ],
+      "color_mapping": {
+        "1": 2,
+        "2": 15,
+        "4": 153,
+        "6": 6,
+        "10": 106,
+        "15": 1,
+        "106": 10,
+        "153": 4
+      },
+      "deactivated_labels": [
+        9,
+        8,
+        0,
+        7
+      ],
+      "labels": {
+        "0": "Not Started",
+        "1": "Blockers",
+        "2": "In Progress",
+        "3": "Ongoing",
+        "4": "Halted",
+        "5": "Not Started",
+        "6": "SOLD",
+        "7": "Other",
+        "8": "Guidewire PD",
+        "9": "Training",
+        "10": "Completed"
+      },
+      "labels_positions_v2": {
+        "0": 8,
+        "1": 2,
+        "2": 1,
+        "3": 5,
+        "4": 3,
+        "5": 0,
+        "6": 6,
+        "7": 7,
+        "8": 9,
+        "9": 10,
+        "10": 4
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "2": {
+          "color": "#9cd326",
+          "border": "#89b921",
+          "var_name": "lime-green"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#216edf",
+          "border": "#216edf",
+          "var_name": "sky"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        },
+        "9": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "10": {
+          "color": "#74afcc",
+          "border": "#74afcc",
+          "var_name": "river"
+        }
+      }
+    }
+  },
+  {
+    "name": "Assigned By",
+    "id": "9791140449__multiple_person_mktq3ehf",
+    "type": "people",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Owner",
+    "id": "9791140449__multiple_person_mktqh3q3",
+    "type": "people",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Importance",
+    "id": "color_mkt9mypk",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "color_mapping": {
+        "0": 11,
+        "2": 9,
+        "9": 2,
+        "11": 0
+      },
+      "labels": {
+        "0": "1. Urgent",
+        "1": "2. High",
+        "2": "3. Medium",
+        "3": "4. Low",
+        "5": "5. N/A"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "5": 4
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#bb3354",
+          "border": "#a42d4a",
+          "var_name": "dark-red"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        }
+      }
+    }
+  },
+  {
+    "name": "Activity Type",
+    "id": "color_mktqmpeh",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+        "0": "Marketplace",
+        "1": "Partner Management",
+        "2": "TechAll Program",
+        "3": "Validation",
+        "4": "GSC RFG/BBG",
+        "5": "TechAll Marketing",
+        "6": "Referal",
+        "7": "Vanguards",
+        "8": "Other"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 4,
+        "4": 5,
+        "5": 3,
+        "6": 6,
+        "7": 7,
+        "8": 8
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#9d50dd",
+          "border": "#9238af",
+          "var_name": "purple"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        }
+      }
+    }
+  },
+  {
+    "name": "Date Created",
+    "id": "date_1_mkn1x66b",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Date Due",
+    "id": "date_1_mkn1rbp8",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Actual Completion",
+    "id": "dup__of_date_due_mkn1zx06",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Files",
+    "id": "files_mkn15ep0",
+    "type": "file",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Tech Board Type",
+    "id": "9791140449__color_mktzarg2",
+    "type": "status",
+    "settings": {
+      "color_mapping": {
+        "0": 153,
+        "2": 14,
+        "14": 2,
+        "153": 0
+      },
+      "labels": {
+        "0": "Solution Ops",
+        "1": "Partner Management",
+        "2": "Alliance Marketing"
+      },
+      "labels_positions_v2": {},
+      "labels_colors": {
+        "0": {
+          "color": "#216edf",
+          "border": "#216edf",
+          "var_name": "sky"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#784bd1",
+          "border": "#8f4dc4",
+          "var_name": "dark-purple"
+        }
+      }
+    }
+  }
+]
+3:25:41 PM	Info	
+--- GROUPS IN GW Board 2 ---
+3:25:41 PM	Info	  - "Open Items" (ID: topics)
+3:25:41 PM	Info	  - "Completed Items" (ID: new_group_mkn3rvh7)
+3:25:41 PM	Info	  - "Pipeline" (ID: group_mkp7x20v)
+3:25:41 PM	Info	
+
+==== [5/6] Guidewire Internal: GW Board 3 ====
+3:25:41 PM	Info	Target Sheet: GWMondayData
+3:25:41 PM	Info	
+========================================
+3:25:41 PM	Info	ANALYZING: GW Board 3
+3:25:41 PM	Info	BOARD ID: 9855494527
+3:25:41 PM	Info	========================================
+3:25:41 PM	Info	Board structure query for board 9855494527: 
+    query {
+      boards(ids: [9855494527]) {
+        id
+        name
+        columns {
+          id
+          title
+          type
+          settings_str
+        }
+        groups {
+          id
+          title
+        }
+      }
+    }
+  
+3:25:41 PM	Info	Making API request...
+3:25:42 PM	Info	Response code: 200
+3:25:42 PM	Info	Board Name (from Monday): Marketing Project Tracker
+3:25:42 PM	Info	Total Columns: 13
+3:25:42 PM	Info	
+--- COLUMN DETAILS ---
+3:25:42 PM	Info	Column 1:
+3:25:42 PM	Info	  Name: "Name"
+3:25:42 PM	Info	  ID: "name"
+3:25:42 PM	Info	  Type: "name"
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 2:
+3:25:42 PM	Info	  Name: "Subitems"
+3:25:42 PM	Info	  ID: "subtasks_mkp7am7a"
+3:25:42 PM	Info	  Type: "subtasks"
+3:25:42 PM	Info	  Other Settings: {
+  "allowMultipleItems": true,
+  "itemTypeName": "column.subtasks.title",
+  "displayType": "BOARD_INLINE",
+  "boardIds": [
+    9855494612
+  ]
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 3:
+3:25:42 PM	Info	  Name: "Comments/Notes"
+3:25:42 PM	Info	  ID: "status_1_mkn1ekgr"
+3:25:42 PM	Info	  Type: "long_text"
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 4:
+3:25:42 PM	Info	  Name: "Activity Status"
+3:25:42 PM	Info	  ID: "color_mktakkpw"
+3:25:42 PM	Info	  Type: "status"
+3:25:42 PM	Info	  Other Settings: {
+  "done_colors": [
+    1,
+    4
+  ],
+  "color_mapping": {
+    "1": 2,
+    "2": 15,
+    "4": 153,
+    "6": 6,
+    "10": 106,
+    "15": 1,
+    "106": 10,
+    "153": 4
+  },
+  "deactivated_labels": [
+    9,
+    8,
+    0,
+    7
+  ],
+  "labels": {
+    "0": "Not Started",
+    "1": "Blockers",
+    "2": "In Progress",
+    "3": "Ongoing",
+    "4": "Halted",
+    "5": "Not Started",
+    "6": "SOLD",
+    "7": "Other",
+    "8": "Guidewire PD",
+    "9": "Training",
+    "10": "Completed"
+  },
+  "labels_positions_v2": {
+    "0": 8,
+    "1": 2,
+    "2": 1,
+    "3": 5,
+    "4": 3,
+    "5": 0,
+    "6": 6,
+    "7": 7,
+    "8": 9,
+    "9": 10,
+    "10": 4
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "2": {
+      "color": "#9cd326",
+      "border": "#89b921",
+      "var_name": "lime-green"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#216edf",
+      "border": "#216edf",
+      "var_name": "sky"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    },
+    "9": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "10": {
+      "color": "#74afcc",
+      "border": "#74afcc",
+      "var_name": "river"
+    }
+  }
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 5:
+3:25:42 PM	Info	  Name: "Assigned By"
+3:25:42 PM	Info	  ID: "9791140449__multiple_person_mktq3ehf"
+3:25:42 PM	Info	  Type: "people"
+3:25:42 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 6:
+3:25:42 PM	Info	  Name: "Owner"
+3:25:42 PM	Info	  ID: "9791140449__multiple_person_mktqh3q3"
+3:25:42 PM	Info	  Type: "people"
+3:25:42 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 7:
+3:25:42 PM	Info	  Name: "Importance"
+3:25:42 PM	Info	  ID: "color_mkt9mypk"
+3:25:42 PM	Info	  Type: "status"
+3:25:42 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "color_mapping": {
+    "0": 11,
+    "2": 9,
+    "9": 2,
+    "11": 0
+  },
+  "labels": {
+    "0": "1. Urgent",
+    "1": "2. High",
+    "2": "3. Medium",
+    "3": "4. Low",
+    "5": "5. N/A"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "5": 4
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#bb3354",
+      "border": "#a42d4a",
+      "var_name": "dark-red"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    }
+  }
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 8:
+3:25:42 PM	Info	  Name: "Status"
+3:25:42 PM	Info	  ID: "color_mktqmpeh"
+3:25:42 PM	Info	  Type: "status"
+3:25:42 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Marketplace",
+    "1": "Partner Management",
+    "2": "TechAll Program",
+    "3": "Validation",
+    "4": "GSC RFG/BBG",
+    "5": "TechAll Marketing",
+    "6": "Referal",
+    "7": "Vanguards",
+    "8": "Other"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 4,
+    "4": 5,
+    "5": 3,
+    "6": 6,
+    "7": 7,
+    "8": 8
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#9d50dd",
+      "border": "#9238af",
+      "var_name": "purple"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    }
+  }
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 9:
+3:25:42 PM	Info	  Name: "Date Created"
+3:25:42 PM	Info	  ID: "date_1_mkn1x66b"
+3:25:42 PM	Info	  Type: "date"
+3:25:42 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 10:
+3:25:42 PM	Info	  Name: "Date Due"
+3:25:42 PM	Info	  ID: "date_1_mkn1rbp8"
+3:25:42 PM	Info	  Type: "date"
+3:25:42 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 11:
+3:25:42 PM	Info	  Name: "Actual Completion"
+3:25:42 PM	Info	  ID: "dup__of_date_due_mkn1zx06"
+3:25:42 PM	Info	  Type: "date"
+3:25:42 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 12:
+3:25:42 PM	Info	  Name: "Files"
+3:25:42 PM	Info	  ID: "files_mkn15ep0"
+3:25:42 PM	Info	  Type: "file"
+3:25:42 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	Column 13:
+3:25:42 PM	Info	  Name: "Tech Board Type"
+3:25:42 PM	Info	  ID: "9791140449__color_mktqwq7c"
+3:25:42 PM	Info	  Type: "status"
+3:25:42 PM	Info	  Other Settings: {
+  "color_mapping": {
+    "0": 153,
+    "2": 14,
+    "14": 2,
+    "153": 0
+  },
+  "labels": {
+    "0": "Solution Ops",
+    "1": "Partner Management",
+    "2": "Alliance Marketing"
+  },
+  "labels_positions_v2": {},
+  "labels_colors": {
+    "0": {
+      "color": "#216edf",
+      "border": "#216edf",
+      "var_name": "sky"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#784bd1",
+      "border": "#8f4dc4",
+      "var_name": "dark-purple"
+    }
+  }
+}
+3:25:42 PM	Info	  ---
+3:25:42 PM	Info	
+--- COLUMN ARRAY FOR GW Board 3 ---
+3:25:42 PM	Info	[
+  {
+    "name": "Name",
+    "id": "name",
+    "type": "name",
+    "settings": {}
+  },
+  {
+    "name": "Subitems",
+    "id": "subtasks_mkp7am7a",
+    "type": "subtasks",
+    "settings": {
+      "allowMultipleItems": true,
+      "itemTypeName": "column.subtasks.title",
+      "displayType": "BOARD_INLINE",
+      "boardIds": [
+        9855494612
+      ]
+    }
+  },
+  {
+    "name": "Comments/Notes",
+    "id": "status_1_mkn1ekgr",
+    "type": "long_text",
+    "settings": {}
+  },
+  {
+    "name": "Activity Status",
+    "id": "color_mktakkpw",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1,
+        4
+      ],
+      "color_mapping": {
+        "1": 2,
+        "2": 15,
+        "4": 153,
+        "6": 6,
+        "10": 106,
+        "15": 1,
+        "106": 10,
+        "153": 4
+      },
+      "deactivated_labels": [
+        9,
+        8,
+        0,
+        7
+      ],
+      "labels": {
+        "0": "Not Started",
+        "1": "Blockers",
+        "2": "In Progress",
+        "3": "Ongoing",
+        "4": "Halted",
+        "5": "Not Started",
+        "6": "SOLD",
+        "7": "Other",
+        "8": "Guidewire PD",
+        "9": "Training",
+        "10": "Completed"
+      },
+      "labels_positions_v2": {
+        "0": 8,
+        "1": 2,
+        "2": 1,
+        "3": 5,
+        "4": 3,
+        "5": 0,
+        "6": 6,
+        "7": 7,
+        "8": 9,
+        "9": 10,
+        "10": 4
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "2": {
+          "color": "#9cd326",
+          "border": "#89b921",
+          "var_name": "lime-green"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#216edf",
+          "border": "#216edf",
+          "var_name": "sky"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        },
+        "9": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "10": {
+          "color": "#74afcc",
+          "border": "#74afcc",
+          "var_name": "river"
+        }
+      }
+    }
+  },
+  {
+    "name": "Assigned By",
+    "id": "9791140449__multiple_person_mktq3ehf",
+    "type": "people",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Owner",
+    "id": "9791140449__multiple_person_mktqh3q3",
+    "type": "people",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Importance",
+    "id": "color_mkt9mypk",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "color_mapping": {
+        "0": 11,
+        "2": 9,
+        "9": 2,
+        "11": 0
+      },
+      "labels": {
+        "0": "1. Urgent",
+        "1": "2. High",
+        "2": "3. Medium",
+        "3": "4. Low",
+        "5": "5. N/A"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "5": 4
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#bb3354",
+          "border": "#a42d4a",
+          "var_name": "dark-red"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        }
+      }
+    }
+  },
+  {
+    "name": "Status",
+    "id": "color_mktqmpeh",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+        "0": "Marketplace",
+        "1": "Partner Management",
+        "2": "TechAll Program",
+        "3": "Validation",
+        "4": "GSC RFG/BBG",
+        "5": "TechAll Marketing",
+        "6": "Referal",
+        "7": "Vanguards",
+        "8": "Other"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 4,
+        "4": 5,
+        "5": 3,
+        "6": 6,
+        "7": 7,
+        "8": 8
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#9d50dd",
+          "border": "#9238af",
+          "var_name": "purple"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        }
+      }
+    }
+  },
+  {
+    "name": "Date Created",
+    "id": "date_1_mkn1x66b",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Date Due",
+    "id": "date_1_mkn1rbp8",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Actual Completion",
+    "id": "dup__of_date_due_mkn1zx06",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Files",
+    "id": "files_mkn15ep0",
+    "type": "file",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Tech Board Type",
+    "id": "9791140449__color_mktqwq7c",
+    "type": "status",
+    "settings": {
+      "color_mapping": {
+        "0": 153,
+        "2": 14,
+        "14": 2,
+        "153": 0
+      },
+      "labels": {
+        "0": "Solution Ops",
+        "1": "Partner Management",
+        "2": "Alliance Marketing"
+      },
+      "labels_positions_v2": {},
+      "labels_colors": {
+        "0": {
+          "color": "#216edf",
+          "border": "#216edf",
+          "var_name": "sky"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#784bd1",
+          "border": "#8f4dc4",
+          "var_name": "dark-purple"
+        }
+      }
+    }
+  }
+]
+3:25:42 PM	Info	
+--- GROUPS IN GW Board 3 ---
+3:25:42 PM	Info	  - "Open Items" (ID: topics)
+3:25:42 PM	Info	  - "Completed Items" (ID: new_group_mkn3rvh7)
+3:25:42 PM	Info	  - "Pipeline" (ID: group_mkp7x20v)
+3:25:42 PM	Info	
+
+==== [6/6] Partner: Partner Board 1 ====
+3:25:42 PM	Info	Target Sheet: MondayData
+3:25:42 PM	Info	
+========================================
+3:25:42 PM	Info	ANALYZING: Partner Board 1
+3:25:42 PM	Info	BOARD ID: 8465980366
+3:25:42 PM	Info	========================================
+3:25:42 PM	Info	Board structure query for board 8465980366: 
+    query {
+      boards(ids: [8465980366]) {
+        id
+        name
+        columns {
+          id
+          title
+          type
+          settings_str
+        }
+        groups {
+          id
+          title
+        }
+      }
+    }
+  
+3:25:42 PM	Info	Making API request...
+3:25:43 PM	Info	Response code: 200
+3:25:43 PM	Info	Board Name (from Monday): WTW
+3:25:43 PM	Info	Total Columns: 12
+3:25:43 PM	Info	
+--- COLUMN DETAILS ---
+3:25:43 PM	Info	Column 1:
+3:25:43 PM	Info	  Name: "Name"
+3:25:43 PM	Info	  ID: "name"
+3:25:43 PM	Info	  Type: "name"
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 2:
+3:25:43 PM	Info	  Name: "Subitems"
+3:25:43 PM	Info	  ID: "subtasks_mkq8zjd4"
+3:25:43 PM	Info	  Type: "subtasks"
+3:25:43 PM	Info	  Other Settings: {
+  "allowMultipleItems": true,
+  "itemTypeName": "column.subtasks.title",
+  "displayType": "BOARD_INLINE",
+  "boardIds": [
+    8979315331
+  ]
+}
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 3:
+3:25:43 PM	Info	  Name: "Comments/Notes"
+3:25:43 PM	Info	  ID: "status_1_mkn1ekgr"
+3:25:43 PM	Info	  Type: "long_text"
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 4:
+3:25:43 PM	Info	  Name: "Activity Status"
+3:25:43 PM	Info	  ID: "color_mktak50b"
+3:25:43 PM	Info	  Type: "status"
+3:25:43 PM	Info	  Other Settings: {
+  "done_colors": [
+    1,
+    4
+  ],
+  "color_mapping": {
+    "1": 2,
+    "2": 15,
+    "4": 153,
+    "6": 6,
+    "10": 106,
+    "15": 1,
+    "106": 10,
+    "153": 4
+  },
+  "deactivated_labels": [
+    9,
+    8,
+    0,
+    7
+  ],
+  "labels": {
+    "0": "Not Started",
+    "1": "Blockers",
+    "2": "In Progress",
+    "3": "Ongoing",
+    "4": "Halted",
+    "5": "Not Started",
+    "6": "SOLD",
+    "7": "Other",
+    "8": "Guidewire PD",
+    "9": "Training",
+    "10": "Completed"
+  },
+  "labels_positions_v2": {
+    "0": 8,
+    "1": 2,
+    "2": 1,
+    "3": 5,
+    "4": 3,
+    "5": 0,
+    "6": 6,
+    "7": 7,
+    "8": 9,
+    "9": 10,
+    "10": 4
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "2": {
+      "color": "#9cd326",
+      "border": "#89b921",
+      "var_name": "lime-green"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#216edf",
+      "border": "#216edf",
+      "var_name": "sky"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    },
+    "9": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "10": {
+      "color": "#74afcc",
+      "border": "#74afcc",
+      "var_name": "river"
+    }
+  }
+}
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 5:
+3:25:43 PM	Info	  Name: "Owner"
+3:25:43 PM	Info	  ID: "dropdown_mkta767d"
+3:25:43 PM	Info	  Type: "dropdown"
+3:25:43 PM	Info	  Dropdown Options:
+3:25:43 PM	Info	    - ID 1: "GW Alliance Manager"
+3:25:43 PM	Info	    - ID 2: "GW Tech Team"
+3:25:43 PM	Info	    - ID 3: "GW Marketing"
+3:25:43 PM	Info	    - ID 4: "GW Marketplace"
+3:25:43 PM	Info	    - ID 5: "Partner Alliances"
+3:25:43 PM	Info	    - ID 6: "Partner Tech"
+3:25:43 PM	Info	    - ID 7: "Partner Marketing"
+3:25:43 PM	Info	    - ID 8: "GW GSC"
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 6:
+3:25:43 PM	Info	  Name: "Importance"
+3:25:43 PM	Info	  ID: "color_mktattds"
+3:25:43 PM	Info	  Type: "status"
+3:25:43 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "color_mapping": {
+    "0": 11,
+    "2": 9,
+    "9": 2,
+    "11": 0
+  },
+  "labels": {
+    "0": "1. Urgent",
+    "1": "2. High",
+    "2": "3. Medium",
+    "3": "4. Low",
+    "5": "5. N/A"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "5": 4
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#bb3354",
+      "border": "#a42d4a",
+      "var_name": "dark-red"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    }
+  }
+}
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 7:
+3:25:43 PM	Info	  Name: "Activity"
+3:25:43 PM	Info	  ID: "color_mktah6mj"
+3:25:43 PM	Info	  Type: "status"
+3:25:43 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "labels": {
+    "0": "Marketing",
+    "1": "Accelerator",
+    "2": "Sponsorship/Events",
+    "3": "Contracts",
+    "4": "Marketplace",
+    "5": "Alliances",
+    "6": "NPE",
+    "7": "Pipeline",
+    "8": "Other",
+    "9": "Guidewire PD",
+    "10": "Training",
+    "11": "Campaign"
+  },
+  "labels_positions_v2": {
+    "0": 0,
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 7,
+    "7": 6,
+    "8": 8,
+    "9": 9,
+    "10": 10,
+    "11": 11
+  },
+  "labels_colors": {
+    "0": {
+      "color": "#fdab3d",
+      "border": "#e99729",
+      "var_name": "orange"
+    },
+    "1": {
+      "color": "#00c875",
+      "border": "#00b461",
+      "var_name": "green-shadow"
+    },
+    "2": {
+      "color": "#df2f4a",
+      "border": "#ce3048",
+      "var_name": "red-shadow"
+    },
+    "3": {
+      "color": "#007eb5",
+      "border": "#3db0df",
+      "var_name": "blue-links"
+    },
+    "4": {
+      "color": "#9d50dd",
+      "border": "#9238af",
+      "var_name": "purple"
+    },
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    },
+    "6": {
+      "color": "#037f4c",
+      "border": "#006b38",
+      "var_name": "grass-green"
+    },
+    "7": {
+      "color": "#579bfc",
+      "border": "#4387e8",
+      "var_name": "bright-blue"
+    },
+    "8": {
+      "color": "#cab641",
+      "border": "#c0ab31",
+      "var_name": "mustered"
+    },
+    "9": {
+      "color": "#ffcb00",
+      "border": "#c0ab1b",
+      "var_name": "yellow"
+    },
+    "10": {
+      "color": "#333333",
+      "border": "#000",
+      "var_name": "soft-black"
+    },
+    "11": {
+      "color": "#bb3354",
+      "border": "#a42d4a",
+      "var_name": "dark-red"
+    }
+  }
+}
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 8:
+3:25:43 PM	Info	  Name: "Date Created"
+3:25:43 PM	Info	  ID: "date_1_mkn1x66b"
+3:25:43 PM	Info	  Type: "date"
+3:25:43 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 9:
+3:25:43 PM	Info	  Name: "Date Due"
+3:25:43 PM	Info	  ID: "date_1_mkn1rbp8"
+3:25:43 PM	Info	  Type: "date"
+3:25:43 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 10:
+3:25:43 PM	Info	  Name: "Actual Completion"
+3:25:43 PM	Info	  ID: "dup__of_date_due_mkn1zx06"
+3:25:43 PM	Info	  Type: "date"
+3:25:43 PM	Info	  Other Settings: {
+  "hide_footer": false,
+  "date_format": "WITH_YEAR"
+}
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 11:
+3:25:43 PM	Info	  Name: "Files"
+3:25:43 PM	Info	  ID: "files_mkn15ep0"
+3:25:43 PM	Info	  Type: "file"
+3:25:43 PM	Info	  Other Settings: {
+  "hide_footer": false
+}
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	Column 12:
+3:25:43 PM	Info	  Name: "Partner Name"
+3:25:43 PM	Info	  ID: "status_1_mkn1xbbx"
+3:25:43 PM	Info	  Type: "status"
+3:25:43 PM	Info	  Other Settings: {
+  "done_colors": [
+    1
+  ],
+  "hide_footer": true,
+  "labels": {
+    "5": "WTW"
+  },
+  "labels_colors": {
+    "5": {
+      "color": "#c4c4c4",
+      "border": "#b0b0b0",
+      "var_name": "grey"
+    }
+  }
+}
+3:25:43 PM	Info	  ---
+3:25:43 PM	Info	
+--- COLUMN ARRAY FOR Partner Board 1 ---
+3:25:43 PM	Info	[
+  {
+    "name": "Name",
+    "id": "name",
+    "type": "name",
+    "settings": {}
+  },
+  {
+    "name": "Subitems",
+    "id": "subtasks_mkq8zjd4",
+    "type": "subtasks",
+    "settings": {
+      "allowMultipleItems": true,
+      "itemTypeName": "column.subtasks.title",
+      "displayType": "BOARD_INLINE",
+      "boardIds": [
+        8979315331
+      ]
+    }
+  },
+  {
+    "name": "Comments/Notes",
+    "id": "status_1_mkn1ekgr",
+    "type": "long_text",
+    "settings": {}
+  },
+  {
+    "name": "Activity Status",
+    "id": "color_mktak50b",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1,
+        4
+      ],
+      "color_mapping": {
+        "1": 2,
+        "2": 15,
+        "4": 153,
+        "6": 6,
+        "10": 106,
+        "15": 1,
+        "106": 10,
+        "153": 4
+      },
+      "deactivated_labels": [
+        9,
+        8,
+        0,
+        7
+      ],
+      "labels": {
+        "0": "Not Started",
+        "1": "Blockers",
+        "2": "In Progress",
+        "3": "Ongoing",
+        "4": "Halted",
+        "5": "Not Started",
+        "6": "SOLD",
+        "7": "Other",
+        "8": "Guidewire PD",
+        "9": "Training",
+        "10": "Completed"
+      },
+      "labels_positions_v2": {
+        "0": 8,
+        "1": 2,
+        "2": 1,
+        "3": 5,
+        "4": 3,
+        "5": 0,
+        "6": 6,
+        "7": 7,
+        "8": 9,
+        "9": 10,
+        "10": 4
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "2": {
+          "color": "#9cd326",
+          "border": "#89b921",
+          "var_name": "lime-green"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#216edf",
+          "border": "#216edf",
+          "var_name": "sky"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        },
+        "9": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "10": {
+          "color": "#74afcc",
+          "border": "#74afcc",
+          "var_name": "river"
+        }
+      }
+    }
+  },
+  {
+    "name": "Owner",
+    "id": "dropdown_mkta767d",
+    "type": "dropdown",
+    "settings": {
+      "labels": [
+        {
+          "id": 1,
+          "name": "GW Alliance Manager"
+        },
+        {
+          "id": 2,
+          "name": "GW Tech Team"
+        },
+        {
+          "id": 3,
+          "name": "GW Marketing"
+        },
+        {
+          "id": 4,
+          "name": "GW Marketplace"
+        },
+        {
+          "id": 5,
+          "name": "Partner Alliances"
+        },
+        {
+          "id": 6,
+          "name": "Partner Tech"
+        },
+        {
+          "id": 7,
+          "name": "Partner Marketing"
+        },
+        {
+          "id": 8,
+          "name": "GW GSC"
+        }
+      ],
+      "deactivated_labels": []
+    }
+  },
+  {
+    "name": "Importance",
+    "id": "color_mktattds",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "color_mapping": {
+        "0": 11,
+        "2": 9,
+        "9": 2,
+        "11": 0
+      },
+      "labels": {
+        "0": "1. Urgent",
+        "1": "2. High",
+        "2": "3. Medium",
+        "3": "4. Low",
+        "5": "5. N/A"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "5": 4
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#bb3354",
+          "border": "#a42d4a",
+          "var_name": "dark-red"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        }
+      }
+    }
+  },
+  {
+    "name": "Activity",
+    "id": "color_mktah6mj",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "labels": {
+        "0": "Marketing",
+        "1": "Accelerator",
+        "2": "Sponsorship/Events",
+        "3": "Contracts",
+        "4": "Marketplace",
+        "5": "Alliances",
+        "6": "NPE",
+        "7": "Pipeline",
+        "8": "Other",
+        "9": "Guidewire PD",
+        "10": "Training",
+        "11": "Campaign"
+      },
+      "labels_positions_v2": {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5,
+        "6": 7,
+        "7": 6,
+        "8": 8,
+        "9": 9,
+        "10": 10,
+        "11": 11
+      },
+      "labels_colors": {
+        "0": {
+          "color": "#fdab3d",
+          "border": "#e99729",
+          "var_name": "orange"
+        },
+        "1": {
+          "color": "#00c875",
+          "border": "#00b461",
+          "var_name": "green-shadow"
+        },
+        "2": {
+          "color": "#df2f4a",
+          "border": "#ce3048",
+          "var_name": "red-shadow"
+        },
+        "3": {
+          "color": "#007eb5",
+          "border": "#3db0df",
+          "var_name": "blue-links"
+        },
+        "4": {
+          "color": "#9d50dd",
+          "border": "#9238af",
+          "var_name": "purple"
+        },
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        },
+        "6": {
+          "color": "#037f4c",
+          "border": "#006b38",
+          "var_name": "grass-green"
+        },
+        "7": {
+          "color": "#579bfc",
+          "border": "#4387e8",
+          "var_name": "bright-blue"
+        },
+        "8": {
+          "color": "#cab641",
+          "border": "#c0ab31",
+          "var_name": "mustered"
+        },
+        "9": {
+          "color": "#ffcb00",
+          "border": "#c0ab1b",
+          "var_name": "yellow"
+        },
+        "10": {
+          "color": "#333333",
+          "border": "#000",
+          "var_name": "soft-black"
+        },
+        "11": {
+          "color": "#bb3354",
+          "border": "#a42d4a",
+          "var_name": "dark-red"
+        }
+      }
+    }
+  },
+  {
+    "name": "Date Created",
+    "id": "date_1_mkn1x66b",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Date Due",
+    "id": "date_1_mkn1rbp8",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Actual Completion",
+    "id": "dup__of_date_due_mkn1zx06",
+    "type": "date",
+    "settings": {
+      "hide_footer": false,
+      "date_format": "WITH_YEAR"
+    }
+  },
+  {
+    "name": "Files",
+    "id": "files_mkn15ep0",
+    "type": "file",
+    "settings": {
+      "hide_footer": false
+    }
+  },
+  {
+    "name": "Partner Name",
+    "id": "status_1_mkn1xbbx",
+    "type": "status",
+    "settings": {
+      "done_colors": [
+        1
+      ],
+      "hide_footer": true,
+      "labels": {
+        "5": "WTW"
+      },
+      "labels_colors": {
+        "5": {
+          "color": "#c4c4c4",
+          "border": "#b0b0b0",
+          "var_name": "grey"
+        }
+      }
+    }
+  }
+]
+3:25:43 PM	Info	
+--- GROUPS IN Partner Board 1 ---
+3:25:43 PM	Info	  - "Open Items" (ID: topics)
+3:25:43 PM	Info	  - "Completed Items" (ID: new_group_mkn3rvh7)
+3:25:43 PM	Info	  - "Pipeline" (ID: group_mkpdf1dr)
+3:25:43 PM	Info	
+
+====================================================
+3:25:43 PM	Info	SUMMARY BY SHEET
+3:25:43 PM	Info	====================================================
+3:25:43 PM	Info	
+Sheet: MarketingApproval
+3:25:43 PM	Info	Number of boards writing to this sheet: 1
+3:25:43 PM	Info	  - Marketing Events Approval Requests (26 columns)
+3:25:43 PM	Info	
+Sheet: MarketingCalendar
+3:25:43 PM	Info	Number of boards writing to this sheet: 1
+3:25:43 PM	Info	  - Marketing Event Calendar (7 columns)
+3:25:43 PM	Info	
+Sheet: GWMondayData
+3:25:43 PM	Info	Number of boards writing to this sheet: 3
+3:25:43 PM	Info	  - GW Board 1 (13 columns)
+3:25:43 PM	Info	  - GW Board 2 (13 columns)
+3:25:43 PM	Info	  - GW Board 3 (13 columns)
+3:25:43 PM	Info	
+Common columns across all GWMondayData boards:
+3:25:43 PM	Info	  - Name
+3:25:43 PM	Info	  - Subitems
+3:25:43 PM	Info	  - Comments/Notes
+3:25:43 PM	Info	  - Activity Status
+3:25:43 PM	Info	  - Assigned By
+3:25:43 PM	Info	  - Owner
+3:25:43 PM	Info	  - Importance
+3:25:43 PM	Info	  - Date Created
+3:25:43 PM	Info	  - Date Due
+3:25:43 PM	Info	  - Actual Completion
+3:25:43 PM	Info	  - Files
+3:25:43 PM	Info	  - Tech Board Type
+3:25:43 PM	Info	
+Sheet: MondayData
+3:25:43 PM	Info	Number of boards writing to this sheet: 1
+3:25:43 PM	Info	  - Partner Board 1 (12 columns)
+3:25:43 PM	Info	
+====================================================
+3:25:43 PM	Info	ANALYSIS COMPLETE
+3:25:43 PM	Info	====================================================
+3:25:43 PM	Info	Check the logs above for detailed column information
+3:25:43 PM	Info	Copy the JSON arrays for use in your schema definitions
+3:25:43 PM	Notice	
