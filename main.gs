@@ -23,8 +23,11 @@ const MARKETING_APPROVAL_SHEET_NAME = 'MarketingApproval';
 const MARKETING_CALENDAR_BOARD_ID = '9770467355';
 const MARKETING_CALENDAR_SHEET_NAME = 'MarketingCalendar';
 const GW_BOARD_1_ID = '9791255941';
+const GW_BOARD_1_NAME = 'Partner Management Tracker';
 const GW_BOARD_2_ID = '9791272390';
+const GW_BOARD_2_NAME = 'Solution Ops Tracker';
 const GW_BOARD_3_ID = '9855494527';
+const GW_BOARD_3_NAME = 'Marketing Projects';
 const GW_MONDAY_SHEET_NAME = 'GWMondayData';
 
 const MONDAY_API_URL = 'https://api.monday.com/v2';
@@ -284,7 +287,7 @@ function syncMarketingBoards() {
     
   } catch (error) {
     console.error('Error syncing marketing boards:', error);
-    SpreadsheetApp.getUi().alert('Error syncing marketing boards: ' + error.toString());
+   // SpreadsheetApp.getUi().alert('Error syncing marketing boards: ' + error.toString());
   }
 }
 
@@ -394,16 +397,14 @@ function syncMondayData() {
     console.log(`Dashboard synced successfully`);
     console.log(`Total items synced from ${boardConfigs.length} dashboard boards: ${totalItems}`);
     console.log(`Marketing boards synced separately`);
-    
-    if (totalItems > 0) {
-      SpreadsheetApp.getUi().alert(`Success! Synced MondayDashboard, ${totalItems} items from ${boardConfigs.length} Monday.com boards, and marketing boards`);
-    } else {
-      SpreadsheetApp.getUi().alert('Dashboard and marketing boards synced successfully, but no items found on dashboard boards');
-    }
+
+   // STAGE 4: Sync Guidewire Boards
+    syncGuidewireBoards();   
+ 
     
   } catch (error) {
     console.error('Error syncing Monday data:', error);
-    SpreadsheetApp.getUi().alert('Error: ' + error.toString());
+  //  SpreadsheetApp.getUi().alert('Error: ' + error.toString());
   }
 }
 
@@ -421,7 +422,7 @@ function syncAllMondayData() {
     
   } catch (error) {
     console.error('Error in comprehensive sync:', error);
-    SpreadsheetApp.getUi().alert('Error in comprehensive sync: ' + error.toString());
+  // SpreadsheetApp.getUi().alert('Error in comprehensive sync: ' + error.toString());
   }
 }
 
@@ -509,6 +510,7 @@ function onOpen() {
     .addItem('Sync Dashboard Only', 'syncMondayDashboard')
     .addItem('Sync All (Dashboard + Data)', 'syncMondayData')
     .addItem('Sync Marketing Boards Only', 'syncMarketingBoards')
+    .addItem('Sync GW Boards Only', 'syncGuidewireBoards')
     .addItem('Sync Everything (Dashboard + Data + Marketing)', 'syncAllMondayData')
     .addItem('Sync Data Only (No Pagination)', 'syncMondayDataNoPagination')
     .addItem('Fetch Document from Link', 'showDocumentLinkModal')
@@ -530,7 +532,7 @@ function setupHourlyTrigger() {
     .everyHours(1)
     .create();
   
-  SpreadsheetApp.getUi().alert('Hourly sync has been set up successfully (includes all boards)!');
+ // SpreadsheetApp.getUi().alert('Hourly sync has been set up successfully (includes all boards)!');
 }
 
 /**
@@ -545,18 +547,24 @@ function removeHourlyTrigger() {
   });
 }
 
-function getGuidewireBooardConfigurations() {
+function getGuidewireBoardConfigurations() {
   return [
     {
-      boardName: 'Guidewire Board 1',
+      boardName: GW_BOARD_1_NAME,
       partnerName: 'Guidewire',
       boardId: GW_BOARD_1_ID,
       targetSheetName: GW_MONDAY_SHEET_NAME
     },
     {
-      boardName: 'Guidewire Board 2',
+      boardName: GW_BOARD_2_NAME,
       partnerName: 'Guidewire',
       boardId: GW_BOARD_2_ID,
+      targetSheetName: GW_MONDAY_SHEET_NAME
+    },
+    {
+      boardName: GW_BOARD_3_NAME,
+      partnerName: 'Guidewire',
+      boardId: GW_BOARD_3_ID,
       targetSheetName: GW_MONDAY_SHEET_NAME
     }
   ];
@@ -565,82 +573,86 @@ function getGuidewireBooardConfigurations() {
 /**
  * Sync Guidewire Monday boards to GWMondayData sheet
  */
+/**
+ * Sync Guidewire Monday boards to GWMondayData sheet
+ */
 function syncGuidewireBoards() {
   try {
     console.log('Starting Guidewire boards sync...');
-    
+
     // Get or create the GWMondayData sheet
     const gwSheet = getOrCreateSheet(GW_MONDAY_SHEET_NAME);
-    
+
     // Clear existing data from row 2 onwards
     clearSheetData(gwSheet);
-    
+
     // Get partner translation lookup map
     const partnerTranslateMap = getPartnerTranslateLookup();
-    
+
     // Get alliance manager lookup map
     const allianceManagerMap = getAllianceManagerLookup();
-    
-    const guidewireConfigs = getGuidewireBooardConfigurations();
-    let allItems = [];
-    let boardStructure = null;
-    
+
+    const guidewireConfigs = getGuidewireBoardConfigurations();
+    let totalItems = 0;
+
+    // Process each board individually to handle different column structures
     for (let i = 0; i < guidewireConfigs.length; i++) {
       const boardConfig = guidewireConfigs[i];
       const isFirstBoard = (i === 0);
-      
+
       console.log(`\n=== Processing Guidewire Board ${i + 1}/${guidewireConfigs.length}: ${boardConfig.boardName} ===`);
       console.log('Board ID:', boardConfig.boardId);
-      
+
       try {
-        // Get board structure (columns) - we'll use the structure from the first board
-        if (isFirstBoard) {
-          console.log('Fetching board structure...');
-          boardStructure = getBoardStructure(boardConfig.boardId);
-          console.log('Board name:', boardStructure.name);
-          console.log('Number of columns:', boardStructure.columns.length);
-          console.log('Number of groups:', boardStructure.groups.length);
-        }
-        
-        // Get all items from the board
+        // Fetch board structure for THIS specific board (don't assume all boards are the same)
+        console.log('Fetching board structure...');
+        const boardStructure = getBoardStructure(boardConfig.boardId);
+        console.log('Board name from Monday:', boardStructure.name);
+        console.log('Number of columns:', boardStructure.columns.length);
+        console.log('Number of groups:', boardStructure.groups.length);
+
+        // Get all items from this board
         const items = getAllBoardItems(boardConfig.boardId);
-        console.log(`Items retrieved for ${boardConfig.boardName}: ${items.length}`);
-        
-        // Add board info to each item for identification
+        console.log(`Items retrieved from ${boardStructure.name}: ${items.length}`);
+
+        // Process and write this board's data
         if (items.length > 0) {
+          // Add board info to each item using the ACTUAL board name from Monday
           items.forEach(item => {
             item.partnerName = boardConfig.partnerName;
-            item.boardName = boardStructure ? boardStructure.name : boardConfig.boardName;
+            item.boardName = boardStructure.name;  // Use actual board name from Monday
             item.boardId = boardConfig.boardId;
           });
-          
-          allItems = allItems.concat(items);
+
+          // Write this board's data to the sheet
+          // First board writes headers, subsequent boards append
+          writeDataToSheet(gwSheet, boardStructure, items, isFirstBoard, boardConfig);
+          totalItems += items.length;
+
+          console.log(`Written ${items.length} items from ${boardStructure.name}`);
         } else {
-          console.log(`No items found on board: ${boardConfig.boardName}`);
+          console.log(`No items found on board: ${boardStructure.name}`);
         }
-        
+
       } catch (boardError) {
         console.error(`Error processing Guidewire board ${boardConfig.boardName} (${boardConfig.boardId}):`, boardError);
+        // Continue processing other boards even if one fails
       }
     }
-    
-    // Write all collected data to sheet at once
-    if (allItems.length > 0 && boardStructure) {
-      console.log(`Writing ${allItems.length} total items to ${GW_MONDAY_SHEET_NAME}`);
-      writeDataToSheet(gwSheet, boardStructure, allItems, true, guidewireConfigs[0]);
-      
-      // Apply post-processing
-      console.log('Applying post-processing to Guidewire data...');
-      
+
+    // Apply post-processing to all data
+    if (totalItems > 0) {
+      console.log(`\nApplying post-processing to ${totalItems} total items...`);
+
       // 1. Delete rows where column B (Group) equals completed statuses
       deleteCompletedRows(gwSheet);
-      
+
       // 2. Translate partner names if needed
       const lastRow = gwSheet.getLastRow();
       if (lastRow > 1) {
         const partnerNameRange = gwSheet.getRange(2, 4, lastRow - 1, 1);
         const partnerNames = partnerNameRange.getValues();
-        
+
         const updatedNames = partnerNames.map(row => {
           const originalName = row[0];
           if (originalName) {
@@ -649,29 +661,28 @@ function syncGuidewireBoards() {
           }
           return row;
         });
-        
+
         partnerNameRange.setValues(updatedNames);
       }
-      
+
       // 3. Sort the data by column A (Item Name)
       sortDataByItemName(gwSheet);
-      
+
       // Auto-resize columns for better visibility
       const lastColumn = gwSheet.getLastColumn();
       for (let i = 1; i <= lastColumn; i++) {
         gwSheet.autoResizeColumn(i);
       }
-      
+
       console.log('Guidewire boards sync complete');
-      SpreadsheetApp.getUi().alert(`Success! Synced ${allItems.length} items from Guidewire Monday.com boards to ${GW_MONDAY_SHEET_NAME}`);
+      console.log(`Success! Synced ${totalItems} items from Guidewire Monday.com boards to ${GW_MONDAY_SHEET_NAME}`);
     } else {
-      console.log('No items found on Guidewire boards');
-      SpreadsheetApp.getUi().alert('No items found on the specified Guidewire boards');
+      console.log('No items found on any Guidewire boards');
     }
-    
+
   } catch (error) {
     console.error('Error syncing Guidewire boards:', error);
-    SpreadsheetApp.getUi().alert('Error syncing Guidewire boards: ' + error.toString());
+    throw error; // Re-throw to be handled by caller
   }
 }
 
@@ -692,6 +703,6 @@ function syncAllDataIncludingGuidewire() {
     
   } catch (error) {
     console.error('Error in comprehensive sync with Guidewire:', error);
-    SpreadsheetApp.getUi().alert('Error in comprehensive sync: ' + error.toString());
+   // SpreadsheetApp.getUi().alert('Error in comprehensive sync: ' + error.toString());
   }
 }
