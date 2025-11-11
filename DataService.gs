@@ -370,31 +370,58 @@ getMarketingCalendarData(managerEmail) {
     if (type === 'partner') {
       // For partner activities, filter by Alliance Manager column (added by DataProcessor)
       const managerName = this.getManagerName(managerEmail);
-      
+
       return data.filter(row => {
-        const allianceManager = row['Alliance Manager'];
-        
+        // Use helper method to handle both 'AllianceManager' and 'Alliance Manager' column names
+        const allianceManager = this.getAllianceManager(row);
+
         // Check both email and name formats
-        return allianceManager === managerEmail || 
+        return allianceManager === managerEmail ||
                allianceManager === managerName ||
                (allianceManager && allianceManager.includes(managerName.split(' ')[0])); // Check first name
       });
     } else {
-      // For internal activities (GWMondayData), check Owner or Assigned By columns
+      // For internal activities (GWMondayData), filter ONLY by Owner field
+      // Owner and Assigned By are for display purposes, not for filtering access
       const managerName = this.getManagerName(managerEmail);
-      
-      return data.filter(row => {
-        const owner = row['Owner'];
-        const assignedBy = row['Assigned By'];
-        
-        // Check both email and name formats
-        return owner === managerEmail || 
-               owner === managerName ||
-               assignedBy === managerEmail || 
-               assignedBy === managerName ||
-               (owner && owner.includes(managerName.split(' ')[0])) ||
-               (assignedBy && assignedBy.includes(managerName.split(' ')[0]));
+
+      console.log(`Filtering internal activities for manager: ${managerEmail}, name: ${managerName}`);
+      console.log(`Total rows before filtering: ${data.length}`);
+
+      const filtered = data.filter(row => {
+        const allianceManager = this.getAllianceManagerInternal(row);
+
+        // If Alliance Manager is empty, show the activity to all managers
+        if (!allianceManager) {
+          console.log(`Row with empty Alliance Manager - showing to all managers. Item: ${row['Item Name']}`);
+          return true;
+        }
+          // Split comma-delimited list into trimmed values
+          const managerList = allianceManager
+            .split(',')
+            .map(m => m.trim().toLowerCase())
+            .filter(Boolean);
+
+          // Compare against possible identifiers for this manager
+          const nameParts = managerName ? managerName.toLowerCase().split(' ') : [];
+          const emailLower = managerEmail.toLowerCase();
+
+          const matches = managerList.some(m =>
+            m === emailLower ||
+            m === managerName?.toLowerCase() ||
+            nameParts.some(part => m.includes(part))
+          );
+
+
+        if (matches) {
+          console.log(`Alliance Manager match: "${allianceManager}" matches manager. Item: ${row['Item Name']}`);
+        }
+
+        return matches;
       });
+
+      console.log(`Rows after filtering: ${filtered.length}`);
+      return filtered;
     }
   }
   
@@ -475,6 +502,36 @@ getMarketingCalendarData(managerEmail) {
     return managedPartners;
   }
   
+
+  /**
+   * Clear all cached data
+   */
+  clearCache() {
+    try {
+      this.cache.removeAll();
+      console.log('Cache cleared successfully');
+      return { success: true, message: 'Cache cleared successfully' };
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+      return { success: false, message: String(error.message) };
+    }
+  }
+
+
+
+
+
+    /**
+   * Helper method to get Alliance Manager value from a row
+   * Handles both 'AllianceManager' (no space) and 'Alliance Manager' (with space)
+   */
+  getAllianceManager(row) {
+    return row['AllianceManager'] || row['Alliance Manager'] || '';
+  }
+
+  getAllianceManagerInternal(row) {
+    return row['Owner'] || '';
+  }
   
   /**
  * Get marketing approvals
@@ -497,62 +554,93 @@ getMarketingApprovals(managerEmail) {
     
     const data = this.getSheetData(sheet);
     const managerName = this.getManagerName(managerEmail);
-    
+
     console.log(`Getting marketing approvals for: ${managerEmail} / ${managerName}`);
     console.log(`Total marketing approval rows: ${data.length}`);
-    
-    // Filter by Alliance Manager column and approval status
-    const filtered = data.filter(row => {
+
+    // Log sample data to see what we're working with
+    if (data.length > 0) {
+      console.log('Sample row columns:', Object.keys(data[0]));
+      console.log('Sample row AllianceManager:', data[0]['AllianceManager']);
+      console.log('Sample row Alliance Manager (with space):', data[0]['Alliance Manager']);
+      console.log('Sample row Owner:', data[0]['Owner']);
+      console.log('Sample row Overall Status:', data[0]['Overall Status']);
+    }
+
+    // Filter by Alliance Manager column and approval status (handles both 'AllianceManager' and 'Alliance Manager')
+    let managerMatchCount = 0;
+    let statusFilteredCount = 0;
+
+    const filtered = data.filter((row, index) => {
       // Check if this approval belongs to the manager
-      const allianceManager = row['Alliance Manager'];
+      const allianceManager = this.getAllianceManager(row);
       const owner = row['Owner'];
-      
-      const matchesManager = 
-        allianceManager === managerEmail || 
+
+      const matchesManager =
+        allianceManager === managerEmail ||
         allianceManager === managerName ||
         (allianceManager && allianceManager.includes(managerName.split(' ')[0])) ||
         owner === managerEmail ||
         owner === managerName ||
         (owner && owner.includes(managerName.split(' ')[0]));
-      
+
+      // Log first few rows for debugging
+      if (index < 3) {
+        console.log(`Row ${index}: AllianceManager="${allianceManager}", Owner="${owner}", matchesManager=${matchesManager}`);
+      }
+
+      if (matchesManager) {
+        managerMatchCount++;
+      }
+
       if (!matchesManager) return false;
       
       // Check for pending approval status - using the Overall Status column
       const overallStatus = String(row['Overall Status'] || '').toLowerCase();
-      
+
       // Consider it pending if it's not fully approved or rejected
-      const isPending = 
+      const isPending =
         !overallStatus.includes('final approval') &&
         !overallStatus.includes('rejected') &&
         !overallStatus.includes('completed') &&
         !overallStatus.includes('cancelled');
-      
+
       // Also check individual decision columns
       const ericDecision = String(row['Eric Decision'] || '').toLowerCase();
       const marketingDecision = String(row['Marketing Decision'] || '').toLowerCase();
       const willDecision = String(row['Will Decision'] || '').toLowerCase();
-      
+
       // If any decision is explicitly pending or not yet made, include it
-      const hasOutstandingDecision = 
+      const hasOutstandingDecision =
         !ericDecision || ericDecision.includes('pending') || ericDecision.includes('send back') ||
         !marketingDecision || marketingDecision.includes('pending') || marketingDecision.includes('send back') ||
         !willDecision || willDecision.includes('pending') || willDecision.includes('send back');
-      
-      return matchesManager && (isPending || hasOutstandingDecision);
+
+      const passesStatusFilter = isPending || hasOutstandingDecision;
+
+      // Log first matching manager row to see status filtering
+      if (matchesManager && statusFilteredCount < 3) {
+        console.log(`Manager match ${statusFilteredCount}: OverallStatus="${overallStatus}", isPending=${isPending}, hasOutstanding=${hasOutstandingDecision}, passesFilter=${passesStatusFilter}`);
+        statusFilteredCount++;
+      }
+
+      return matchesManager && passesStatusFilter;
     });
-    
+
+    console.log(`Manager matches found: ${managerMatchCount}`);
     console.log(`Filtered to ${filtered.length} pending approvals`);
     
     // Convert all values to strings and add calculated fields
     const approvals = filtered.map(row => {
       const sanitized = {};
-      
+
       // Add all the columns from the sheet
       const columnsToInclude = [
         'Item Name',
         'Group',
         'Board Name',
-        'Partner Name',
+        'Partner Name',  // Included but not used - Partner column is the source of truth
+        'Partner',  // Primary partner field - this is the single source of truth
         'Monday Item ID',
         'Board ID',
         'Subitems',
@@ -560,7 +648,7 @@ getMarketingApprovals(managerEmail) {
         'Priority',
         'Overall Status',
         'Owner',
-        'Alliance Manager',
+        'AllianceManager',
         'Requesting Department',
         'Cost',
         'Date and Location',
@@ -604,7 +692,11 @@ getMarketingApprovals(managerEmail) {
           sanitized[column] = String(value);
         }
       });
-      
+
+      // Note: For MarketingApproval, only use Partner column (ignore Partner Name column)
+      // Partner Name column in MarketingApproval sheet should be ignored per user requirement
+      // The Partner field is the single source of truth for partner data
+
       // Calculate days waiting from Create Date
       const createDate = row['Create Date'];
       let daysWaiting = 0;
@@ -680,18 +772,18 @@ getPartnerHeatmap(managerEmail) {
     
     console.log(`Getting heatmap for manager: ${managerEmail} / ${managerName}`);
     console.log(`Total dashboard rows: ${data.length}`);
-    
-    // Filter by Alliance Manager column
+
+    // Filter by Alliance Manager column - use helper method to handle both column name variants
     const filtered = data.filter(row => {
-      const allianceManager = row['Alliance Manager'];
-      const matches = allianceManager === managerEmail || 
+      const allianceManager = this.getAllianceManager(row);
+      const matches = allianceManager === managerEmail ||
              allianceManager === managerName ||
              (allianceManager && allianceManager.includes(managerName.split(' ')[0]));
-      
+
       if (matches) {
         console.log(`Match found for partner: ${row['Partner Name'] || row['Item']}`);
       }
-      
+
       return matches;
     });
     
@@ -745,7 +837,7 @@ getPartnerHeatmap(managerEmail) {
         'Temperature': String(temperature || ''),
         'Engagement': String(engagement || ''),
         'Files': String(row['Files'] || ''),
-        'Alliance Manager': String(row['Alliance Manager'] || ''),
+        'Alliance Manager': String(row['AllianceManager'] || ''),
         'Summary of Partner Activities': String(row['Summary of Partner Activities'] || ''),
         'PartnerBoard': String(row['PartnerBoard'] || ''),
         
@@ -1259,9 +1351,11 @@ function getAllPartners() {
 
 function getPartnerHeatmap(managerEmail) {
   try {
+    console.log('getPartnerHeatmap called with:', managerEmail);
     const service = new DataService();
     const result = service.getPartnerHeatmap(managerEmail);
-    
+    console.log('getPartnerHeatmap result count:', result.length);
+
     // Ensure everything is serializable
     const serialized = result.map(row => {
       const clean = {};
@@ -1282,11 +1376,13 @@ function getPartnerHeatmap(managerEmail) {
       }
       return clean;
     });
-    
+
+    console.log('Returning', serialized.length, 'heatmap entries');
     return serialized;
-    
+
   } catch (error) {
     console.error('Error in getPartnerHeatmap wrapper:', error);
+    console.error('Error stack:', error.stack);
     return [];
   }
 }
@@ -1462,91 +1558,314 @@ function getPartnerActivityFilterOptions(managerEmail) {
  */
 function getManagerName(email) {
   try {
+    console.log('getManagerName called with email:', email);
     if (!email) return email;
-    
+
     // Check cache first
     const cache = CacheService.getScriptCache();
     const cacheKey = `manager_name_${email}`;
     const cached = cache.get(cacheKey);
-    
+
     if (cached) {
+      console.log('Manager name found in cache:', cached);
       return cached;
     }
-    
+
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const managerSheet = spreadsheet.getSheetByName('AllianceManager');
-    
+
     if (!managerSheet) {
       console.log('AllianceManager sheet not found');
       return email; // Return email if sheet not found
     }
-    
+
     // Get data using the standalone helper function
     const managerData = getSheetDataAsObjects(managerSheet);
+    console.log('AllianceManager sheet has', managerData.length, 'rows');
+
+    // Log all managers for debugging
+    if (managerData.length > 0) {
+      console.log('All managers in AllianceManager sheet:', JSON.stringify(
+        managerData.map(row => ({ Manager: row['Manager'], Email: row['Email'] }))
+      ));
+    }
+
     const manager = managerData.find(row => {
       const rowEmail = row['Email'];
-      return rowEmail && rowEmail.toString().toLowerCase().trim() === email.toLowerCase().trim();
+      const match = rowEmail && rowEmail.toString().toLowerCase().trim() === email.toLowerCase().trim();
+      if (match) {
+        console.log('Found matching row:', JSON.stringify({ Manager: row['Manager'], Email: row['Email'] }));
+      }
+      return match;
     });
-    
+
+    if (!manager) {
+      console.log('No manager found for email:', email);
+    }
+
     const name = manager && manager['Manager'] ? manager['Manager'].toString().trim() : email;
-    
+    console.log('Manager name resolved to:', name);
+
     // Cache for 1 hour
     cache.put(cacheKey, name, 3600);
-    
+
     return name;
-    
+
   } catch (error) {
     console.error('Error in getManagerName:', error);
+    console.error('Error stack:', error.stack);
     return email;
   }
 }
+
+/**
+ * Get internal activity filter options
+ * @param {string} managerEmail - Manager's email
+ * @returns {Object} Filter options for boards, statuses, and priorities
+ */
+function getInternalActivityFilterOptions(managerEmail) {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('GWMondayData');
+
+    if (!sheet) {
+      console.error('GWMondayData sheet not found');
+      return { boards: [], statuses: [], priorities: [] };
+    }
+
+    // Get all data from the sheet
+    const dataRange = sheet.getDataRange();
+    const values = dataRange.getValues();
+
+    if (values.length < 2) {
+      return { boards: [], statuses: [], priorities: [] };
+    }
+
+    // Find column indices
+    const headers = values[0];
+    const boardIndex = headers.indexOf('Board Name');
+    const statusIndex = headers.indexOf('Activity Status');
+    const priorityIndex = headers.indexOf('Importance');
+    const ownerIndex = headers.indexOf('Owner');
+    const assignedByIndex = headers.indexOf('Assigned By');
+
+    if (boardIndex === -1 || statusIndex === -1) {
+      console.error('Required columns not found');
+      return { boards: [], statuses: [], priorities: [] };
+    }
+
+    const managerName = getManagerName(managerEmail);
+
+    // Use Sets to collect unique values
+    const boardsSet = new Set();
+    const statusesSet = new Set();
+    const prioritiesSet = new Set();
+
+    // Process data rows (skip header)
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const owner = row[ownerIndex];
+      const assignedBy = row[assignedByIndex];
+
+      // Filter by manager - check if manager is owner or assignedBy
+      const isManagerActivity =
+        owner === managerEmail ||
+        owner === managerName ||
+        (owner && owner.toString().includes(managerName.split(' ')[0])) ||
+        assignedBy === managerEmail ||
+        assignedBy === managerName ||
+        (assignedBy && assignedBy.toString().includes(managerName.split(' ')[0]));
+
+      if (isManagerActivity) {
+        // Collect unique values
+        if (row[boardIndex]) boardsSet.add(row[boardIndex].toString().trim());
+        if (row[statusIndex]) statusesSet.add(row[statusIndex].toString().trim());
+        if (priorityIndex !== -1 && row[priorityIndex]) {
+          prioritiesSet.add(row[priorityIndex].toString().trim());
+        }
+      }
+    }
+
+    // Convert sets to sorted arrays
+    const boards = Array.from(boardsSet).sort();
+    const statuses = Array.from(statusesSet).sort();
+    const priorities = Array.from(prioritiesSet).sort();
+
+    console.log(`Internal activity filter options - Boards: ${boards.length}, Statuses: ${statuses.length}, Priorities: ${priorities.length}`);
+
+    return {
+      boards: boards,
+      statuses: statuses,
+      priorities: priorities
+    };
+
+  } catch (error) {
+    console.error('Error getting internal activity filter options:', error);
+    return { boards: [], statuses: [], priorities: [] };
+  }
+}
+
+/**
+ * Get filtered internal activities
+ * @param {string} managerEmail - Manager's email
+ * @param {Object} filters - Filter criteria { boards, statuses, priorities }
+ * @returns {Array} Filtered activity data
+ */
+function getFilteredInternalActivities(managerEmail, filters = {}) {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('GWMondayData');
+
+    if (!sheet) {
+      console.error('GWMondayData sheet not found');
+      return [];
+    }
+
+    const data = getSheetDataAsObjects(sheet);
+    const managerName = getManagerName(managerEmail);
+
+    // Filter by manager first
+    let filtered = data.filter(row => {
+      const owner = row['Owner'];
+      const assignedBy = row['Assigned By'];
+
+      return owner === managerEmail ||
+             owner === managerName ||
+             (owner && owner.toString().includes(managerName.split(' ')[0])) ||
+             assignedBy === managerEmail ||
+             assignedBy === managerName ||
+             (assignedBy && assignedBy.toString().includes(managerName.split(' ')[0]));
+    });
+
+    // Apply multiselect filters with OR logic within each filter type
+    if (filters.boards && filters.boards.length > 0) {
+      filtered = filtered.filter(row =>
+        filters.boards.includes(row['Board Name'])
+      );
+    }
+
+    if (filters.statuses && filters.statuses.length > 0) {
+      filtered = filtered.filter(row =>
+        filters.statuses.includes(row['Activity Status'])
+      );
+    }
+
+    if (filters.priorities && filters.priorities.length > 0) {
+      filtered = filtered.filter(row =>
+        filters.priorities.includes(row['Importance'])
+      );
+    }
+
+    // Convert dates to strings for client
+    const sanitized = filtered.map(row => {
+      const clean = {};
+      for (const key in row) {
+        const value = row[key];
+        if (value instanceof Date) {
+          clean[key] = value.toISOString().split('T')[0];
+        } else if (value === null || value === undefined) {
+          clean[key] = '';
+        } else {
+          clean[key] = String(value);
+        }
+      }
+      return clean;
+    });
+
+    return sanitized;
+
+  } catch (error) {
+    console.error('Error getting filtered internal activities:', error);
+    return [];
+  }
+}
+
 /**
  * Get filtered partner activities
  * @param {string} managerEmail - Manager's email
- * @param {Object} filters - Filter criteria { partner, status, owner }
+ * @param {Object} filters - Filter criteria { partners: [], statuses: [], owners: [] }
  * @returns {Array} Filtered activity data
  */
 function getFilteredPartnerActivities(managerEmail, filters = {}) {
   try {
+    console.log('getFilteredPartnerActivities called with manager:', managerEmail);
+    console.log('Filters received:', JSON.stringify(filters));
+
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = spreadsheet.getSheetByName('MondayData');
-    
+
     if (!sheet) {
       console.error('MondayData sheet not found');
       return [];
     }
-    
+
     const data = getSheetDataAsObjects(sheet);
+    console.log('Total rows in MondayData:', data.length);
+
     const managerName = getManagerName(managerEmail);
-    
-    // Filter by manager first
-    let filtered = data.filter(row => {
+    console.log('Manager name resolved to:', managerName);
+    console.log('Manager email:', managerEmail);
+
+    // Log all unique Alliance Manager values in the data
+    const uniqueManagers = [...new Set(data.map(row => row['Alliance Manager']))];
+    console.log('Unique Alliance Manager values in data:', JSON.stringify(uniqueManagers));
+
+    // Filter by manager first with detailed logging
+    let filtered = data.filter((row, index) => {
       const allianceManager = row['Alliance Manager'];
-      return allianceManager === managerEmail || 
-             allianceManager === managerName ||
-             (allianceManager && allianceManager.toString().includes(managerName.split(' ')[0]));
+
+      // Log first 3 rows for debugging
+      if (index < 3) {
+        console.log(`Row ${index + 1}:`, JSON.stringify({
+          'Item Name': row['Item Name'],
+          'Alliance Manager': allianceManager,
+          'Alliance Manager Type': typeof allianceManager,
+          'Alliance Manager Length': allianceManager ? allianceManager.length : 0
+        }));
+      }
+
+      const emailMatch = allianceManager === managerEmail;
+      const nameMatch = allianceManager === managerName;
+      const firstNameMatch = allianceManager && allianceManager.toString().includes(managerName.split(' ')[0]);
+
+      if (index < 3) {
+        console.log(`  Comparisons:`, {
+          'emailMatch (${allianceManager} === ${managerEmail})': emailMatch,
+          'nameMatch (${allianceManager} === ${managerName})': nameMatch,
+          [`firstNameMatch (includes ${managerName.split(' ')[0]})`]: firstNameMatch
+        });
+      }
+
+      return emailMatch || nameMatch || firstNameMatch;
     });
-    
-    // Apply partner filter
-    if (filters.partner && filters.partner !== 'all') {
-      filtered = filtered.filter(row => row['Partner Name'] === filters.partner);
+
+    console.log('After manager filter:', filtered.length, 'rows');
+
+    // Apply multiselect filters with OR logic
+    // If any filters are active, apply them with OR logic within each filter type
+    if (filters.partners && filters.partners.length > 0) {
+      filtered = filtered.filter(row =>
+        filters.partners.includes(row['Partner Name'])
+      );
     }
-    
-    // Apply status filter
-    if (filters.status && filters.status !== 'all') {
-      filtered = filtered.filter(row => row['Activity Status'] === filters.status);
+
+    if (filters.statuses && filters.statuses.length > 0) {
+      filtered = filtered.filter(row =>
+        filters.statuses.includes(row['Activity Status'])
+      );
     }
-    
-    // Apply owner filter (handle multiple owners)
-    if (filters.owner && filters.owner !== 'all') {
+
+    if (filters.owners && filters.owners.length > 0) {
       filtered = filtered.filter(row => {
         const owner = row['Owner'];
         if (!owner) return false;
-        
+
         const ownerStr = owner.toString();
-        // Check if the selected owner is in the list of owners
+        // Check if any selected owner is in the list of owners for this row
         const ownerList = ownerStr.split(/[,;]/).map(o => o.trim());
-        return ownerList.includes(filters.owner);
+        return filters.owners.some(selectedOwner =>
+          ownerList.includes(selectedOwner)
+        );
       });
     }
     
@@ -1565,13 +1884,99 @@ function getFilteredPartnerActivities(managerEmail, filters = {}) {
       }
       return clean;
     });
-    
+
+    console.log('After partner filter:', (filters.partners && filters.partners.length > 0) ? filtered.length : 'skipped', 'rows');
+    console.log('After status filter:', (filters.statuses && filters.statuses.length > 0) ? filtered.length : 'skipped', 'rows');
+    console.log('After owner filter:', (filters.owners && filters.owners.length > 0) ? filtered.length : 'skipped', 'rows');
     console.log(`Returning ${sanitized.length} filtered partner activities`);
+
     return sanitized;
-    
+
   } catch (error) {
     console.error('Error getting filtered partner activities:', error);
+    console.error('Error stack:', error.stack);
     return [];
+  }
+}
+
+/**
+ * Debug function to check what Alliance Manager values exist in MondayData
+ */
+function debugAllianceManagerValues() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MondayData');
+
+    if (!sheet) {
+      return { error: 'MondayData sheet not found' };
+    }
+
+    const data = getSheetDataAsObjects(sheet);
+
+    // Get unique Alliance Manager values
+    const managers = new Set();
+    data.forEach(row => {
+      if (row['Alliance Manager']) {
+        managers.add(row['Alliance Manager']);
+      }
+    });
+
+    // Get data from AllianceManager sheet
+    const managerSheet = spreadsheet.getSheetByName('AllianceManager');
+    const managerData = managerSheet ? getSheetDataAsObjects(managerSheet) : [];
+
+    return {
+      totalRows: data.length,
+      uniqueAllianceManagers: Array.from(managers),
+      allianceManagerSheetData: managerData.map(m => ({
+        Manager: m.Manager,
+        Email: m.Email
+      })),
+      sampleRows: data.slice(0, 3).map(row => ({
+        'Item Name': row['Item Name'],
+        'Alliance Manager': row['Alliance Manager'],
+        'Partner Name': row['Partner Name']
+      }))
+    };
+  } catch (error) {
+    return { error: error.toString(), stack: error.stack };
+  }
+}
+
+/**
+ * Debug function to check what's in MondayDashboard for heatmap
+ */
+function debugMondayDashboard() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MondayDashboard');
+
+    if (!sheet) {
+      return { error: 'MondayDashboard sheet not found' };
+    }
+
+    const data = getSheetDataAsObjects(sheet);
+
+    // Get unique Alliance Manager values
+    const managers = new Set();
+    data.forEach(row => {
+      if (row['Alliance Manager']) {
+        managers.add(row['Alliance Manager']);
+      }
+    });
+
+    return {
+      totalRows: data.length,
+      uniqueAllianceManagers: Array.from(managers),
+      sampleRows: data.slice(0, 3).map(row => ({
+        'Partner Name': row['Partner Name'],
+        'Item': row['Item'],
+        'Alliance Manager': row['Alliance Manager'],
+        'PartnerBoard': row['PartnerBoard']
+      }))
+    };
+  } catch (error) {
+    return { error: error.toString(), stack: error.stack };
   }
 }
 
@@ -1633,4 +2038,196 @@ function parseValue(value) {
   }
   
   return value;
+}
+
+// ========================================================================
+// New Activity Creation Functions
+// ========================================================================
+
+/**
+ * Get board ID for a specific partner
+ * @param {string} partnerName - Partner name
+ * @returns {string} Board ID
+ */
+function getBoardIdForPartner(partnerName) {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const dashboardSheet = spreadsheet.getSheetByName('MondayDashboard');
+
+    if (!dashboardSheet) {
+      throw new Error('MondayDashboard sheet not found');
+    }
+
+    const data = getSheetDataAsObjects(dashboardSheet);
+    const partner = data.find(row =>
+      row['Partner Name'] &&
+      row['Partner Name'].toString().toLowerCase() === partnerName.toLowerCase()
+    );
+
+    if (partner && partner['PartnerBoard']) {
+      return partner['PartnerBoard'].toString().trim();
+    }
+
+    throw new Error(`Board ID not found for partner: ${partnerName}`);
+
+  } catch (error) {
+    console.error('Error getting board ID for partner:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get board columns structure
+ * @param {string} boardId - Monday.com board ID
+ * @returns {Array} Array of column objects with id, title, and type
+ */
+function getBoardColumnsStructure(boardId) {
+  try {
+    console.log('Getting board columns for board:', boardId);
+
+    const monday = new MondayAPI();
+    const columns = monday.getBoardColumns(boardId);
+
+    // Return simplified column structure
+    return columns.map(col => ({
+      id: col.id,
+      title: col.title,
+      type: col.type,
+      settings: col.settings_str ? JSON.parse(col.settings_str) : {}
+    }));
+
+  } catch (error) {
+    console.error('Error getting board columns:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get board groups
+ * @param {string} boardId - Monday.com board ID
+ * @returns {Array} Array of group objects
+ */
+function getBoardGroups(boardId) {
+  try {
+    console.log('Getting board groups for board:', boardId);
+
+    const query = `
+      query {
+        boards(ids: [${boardId}]) {
+          groups {
+            id
+            title
+            color
+          }
+        }
+      }
+    `;
+
+    const monday = new MondayAPI();
+    const result = monday.query(query);
+
+    return result.boards[0].groups;
+
+  } catch (error) {
+    console.error('Error getting board groups:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create new Monday.com item
+ * @param {string} boardId - Board ID
+ * @param {string} groupId - Group ID
+ * @param {string} itemName - Item name
+ * @param {Object} columnValues - Column values object
+ * @returns {Object} Created item info
+ */
+function createMondayActivity(boardId, groupId, itemName, columnValues) {
+  try {
+    console.log('Creating activity on board:', boardId);
+    console.log('Item name:', itemName);
+    console.log('Column values:', JSON.stringify(columnValues));
+
+    const monday = new MondayAPI();
+    const result = monday.createItem(boardId, groupId, itemName, columnValues);
+
+    console.log('Activity created successfully:', result);
+    return result;
+
+  } catch (error) {
+    console.error('Error creating Monday activity:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get available partners for creating new activities
+ * @param {string} managerEmail - Manager email
+ * @returns {Array} Array of partner objects with name and boardId
+ */
+function getAvailablePartnersForNewActivity(managerEmail) {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const dashboardSheet = spreadsheet.getSheetByName('MondayDashboard');
+
+    if (!dashboardSheet) {
+      return [];
+    }
+
+    const managerName = getManagerName(managerEmail);
+    const data = getSheetDataAsObjects(dashboardSheet);
+
+    // Filter partners managed by this manager
+    const managedPartners = data.filter(row => {
+      const allianceManager = row['Alliance Manager'];
+      return allianceManager === managerEmail ||
+             allianceManager === managerName ||
+             (allianceManager && allianceManager.toString().includes(managerName.split(' ')[0]));
+    });
+
+    // Return partner names and board IDs
+    return managedPartners
+      .filter(row => row['Partner Name'] && row['PartnerBoard'])
+      .map(row => ({
+        partnerName: row['Partner Name'].toString().trim(),
+        boardId: row['PartnerBoard'].toString().trim()
+      }));
+
+  } catch (error) {
+    console.error('Error getting available partners:', error);
+    return [];
+  }
+}
+
+/**
+ * Get GW board options for internal activities
+ * @returns {Array} Array of board objects
+ */
+function getGWBoardOptions() {
+  return [
+    { boardId: '9791255941', boardName: 'Partner Management Tracker' },
+    { boardId: '9791272390', boardName: 'Solution Ops Tracker' },
+    { boardId: '9855494527', boardName: 'Marketing Project Tracker' }
+  ];
+}
+
+/**
+ * Get board structure including columns and groups
+ * @param {string} boardId - Board ID
+ * @returns {Object} Board structure with columns and groups
+ */
+function getBoardStructureForNewActivity(boardId) {
+  try {
+    const columns = getBoardColumnsStructure(boardId);
+    const groups = getBoardGroups(boardId);
+
+    return {
+      columns: columns,
+      groups: groups
+    };
+
+  } catch (error) {
+    console.error('Error getting board structure:', error);
+    throw error;
+  }
 }
