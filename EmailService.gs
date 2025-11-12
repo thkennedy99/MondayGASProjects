@@ -30,7 +30,8 @@ function sendMarketingApprovalNotification(itemDetails) {
         htmlBody: htmlBody,
         from: 'techalliancemangement@guidewire.com',
         replyTo: 'tkennedy@guidewire.com',
-        name: 'Timbot2000'
+        name: 'Timbot2000',
+        cc: 'tkennedy@guidewire.com'
       }
     );
 
@@ -70,7 +71,8 @@ function sendMarketingCalendarNotification(itemDetails) {
         htmlBody: htmlBody,
         from: 'techalliancemangement@guidewire.com',
         replyTo: 'tkennedy@guidewire.com',
-        name: 'Timbot2000'
+        name: 'Timbot2000',
+        cc: 'tkennedy@guidewire.com'
       }
     );
 
