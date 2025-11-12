@@ -28,7 +28,7 @@ function sendMarketingApprovalNotification(itemDetails) {
       '', // Plain text body (empty, we'll use HTML)
       {
         htmlBody: htmlBody,
-        from: 'techalliancemangement@guidewire.com',
+        from: 'techalliancemanagement@guidewire.com',
         replyTo: 'tkennedy@guidewire.com',
         name: 'Timbot2000',
         cc: 'tkennedy@guidewire.com'
@@ -69,7 +69,7 @@ function sendMarketingCalendarNotification(itemDetails) {
       '', // Plain text body (empty, we'll use HTML)
       {
         htmlBody: htmlBody,
-        from: 'techalliancemangement@guidewire.com',
+        from: 'techalliancemanagement@guidewire.com',
         replyTo: 'tkennedy@guidewire.com',
         name: 'Timbot2000',
         cc: 'tkennedy@guidewire.com'
@@ -203,7 +203,7 @@ function buildMarketingApprovalEmailHtml(itemDetails) {
               </p>
               <p style="margin: 15px 0 0 0; font-size: 12px; color: #999;">
                 This is an automated notification from the Alliance Manager Portal.<br>
-                Sent from: techalliancemangement@guidewire.com<br>
+                Sent from: techalliancemanagement@guidewire.com<br>
                 Please do not reply to this email. For questions, contact
                 <a href="mailto:tkennedy@guidewire.com" style="color: #00739d;">tkennedy@guidewire.com</a>
               </p>
@@ -346,7 +346,7 @@ function buildMarketingCalendarEmailHtml(itemDetails) {
               </p>
               <p style="margin: 15px 0 0 0; font-size: 12px; color: #999;">
                 This is an automated notification from the Alliance Manager Portal.<br>
-                Sent from: techalliancemangement@guidewire.com<br>
+                Sent from: techalliancemanagement@guidewire.com<br>
                 Please do not reply to this email. For questions, contact
                 <a href="mailto:tkennedy@guidewire.com" style="color: #00739d;">tkennedy@guidewire.com</a>
               </p>
