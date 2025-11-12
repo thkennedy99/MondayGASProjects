@@ -2692,15 +2692,29 @@
                     .getMondayBoardUsers(boardId);
                 };
 
-                const handleEdit = (activity) => {
+                const handleEdit = async (activity) => {
                   const boardId = activity['Board ID'];
                   console.log('=== EDIT ITEM DEBUG (Internal Activities) ===');
                   console.log('Item:', activity);
                   console.log('Board ID:', boardId);
-                  console.log('Available columns for this board:', columns);
-                  if (columns && columns.length > 0) {
+
+                  // Load board-specific metadata if not already loaded
+                  if (!columnsByBoard[boardId]) {
+                    console.log('Loading board-specific metadata for editing...');
+                    try {
+                      await loadBoardMetadata(boardId);
+                    } catch (error) {
+                      console.error('Error loading board metadata:', error);
+                      alert('Failed to load board metadata: ' + error.message);
+                      return;
+                    }
+                  }
+
+                  const boardColumns = columnsByBoard[boardId] || [];
+                  console.log('Available columns for this board:', boardColumns);
+                  if (boardColumns.length > 0) {
                     console.log('Column IDs and Names:');
-                    columns.forEach(col => {
+                    boardColumns.forEach(col => {
                       console.log(`  - ${col.title}: ${col.id} (type: ${col.type})`);
                       if (col.settings && col.settings.labels) {
                         console.log(`    Available labels:`, Object.values(col.settings.labels));
@@ -3183,12 +3197,12 @@
                     searchFields: ['Name', 'Item Name', 'Board Name', 'Owner', 'Activity Status']
                   }),
 
-                  // Edit Modal
+                  // Edit Modal - use board-specific columns and users
                   editingItem && React.createElement(EditItemModal, {
                     item: editingItem,
                     boardId: editingItem['Board ID'],
-                    columns: columns,
-                    users: users,
+                    columns: columnsByBoard[editingItem['Board ID']] || [],
+                    users: usersByBoard[editingItem['Board ID']] || [],
                     onClose: () => setEditingItem(null),
                     onSave: handleSaveEdit
                   }),
