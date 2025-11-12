@@ -3228,7 +3228,7 @@
 
               return React.createElement('div', { className: 'card h-100' },
                 React.createElement('div', { className: 'card-header' },
-                  React.createElement('ul', { 
+                  React.createElement('ul', {
                     className: 'nav nav-tabs card-header-tabs',
                     role: 'tablist'
                   },
@@ -3242,20 +3242,31 @@
                     ),
                     React.createElement('li', { className: 'nav-item' },
                       React.createElement('button', {
-                        className: `nav-link ${activeTab === 'internal' ? 'active' : ''}`,
-                        onClick: () => setActiveTab('internal'),
+                        className: `nav-link ${activeTab === 'heatmap' ? 'active' : ''}`,
+                        onClick: () => setActiveTab('heatmap'),
                         type: 'button',
                         role: 'tab'
-                      }, '🏢 Internal Activities')
+                      }, '🔥 Partner Health Heatmap')
                     )
                   )
                 ),
                 React.createElement('div', { className: 'card-body' },
                   React.createElement('div', { className: 'tab-content' },
-                    activeTab === 'partner' 
+                    activeTab === 'partner'
                       ? React.createElement(PartnerActivities, { manager: manager })
-                      : React.createElement(InternalActivities, { manager: manager })
+                      : React.createElement(PartnerHeatmap, { manager: manager })
                   )
+                )
+              );
+            }
+
+            function InternalActivitiesCard({ manager }) {
+              return React.createElement('div', { className: 'card h-100' },
+                React.createElement('div', { className: 'card-header' },
+                  React.createElement('h5', { className: 'mb-0' }, '🏢 Internal Activities')
+                ),
+                React.createElement('div', { className: 'card-body' },
+                  React.createElement(InternalActivities, { manager: manager })
                 )
               );
             }
@@ -4649,13 +4660,13 @@
                                       </div>
                                   </div>
                                   
-                                  {/* Second Row - Partner Heatmap & Activity Tracker */}
+                                  {/* Second Row - Activity Tracker (with Partner Activities & Partner Health Heatmap tabs) & Internal Activities */}
                                   <div className="row mb-3">
                                       <div className="col-xl-6 mb-3 mb-xl-0">
-                                          <PartnerHeatmap manager={currentManager} />
+                                          <ActivityTracker manager={currentManager} />
                                       </div>
                                       <div className="col-xl-6">
-                                          <ActivityTracker manager={currentManager} />
+                                          <InternalActivitiesCard manager={currentManager} />
                                       </div>
                                   </div>
                                   
