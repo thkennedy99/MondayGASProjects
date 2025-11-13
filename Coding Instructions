@@ -1,0 +1,336 @@
+# Google Sheets Scripts Project Knowledge Instructions
+
+
+Interaction Instructions
+1. never pass date objects from the server functions to the UI as they will crash. Convert date to a string
+2. Never delete code. Only replace or add code. 
+
+## Core Development Principles
+
+### 1. Documentation First Approach
+- **Always verify current API documentation** before writing any code
+- Check Google Apps Script official documentation at https://developers.google.com/apps-script
+- Verify method signatures and return types for 2025 compatibility
+- Cross-reference with Google Workspace Developer documentation
+
+### 2. Research Protocol
+
+#### Before Writing Any Code:
+1. **Search current documentation** (2024-2025)
+   - Google Apps Script Reference
+   - Google Sheets Service documentation
+   - Gmail Service documentation
+   - Drive Service documentation
+
+2. **Check Stack Overflow** for:
+   - Recent questions tagged `google-apps-script` (last 12 months)
+   - Common pitfalls and solutions
+   - Best practices from experienced developers
+
+3. **Search GitHub** for:
+   - Similar implementations
+   - Popular Google Apps Script repositories
+   - Code patterns that have been tested by the community
+   - Look for repositories with recent commits (2024-2025)
+
+4. **Review Google Workspace Updates**
+   - Check for deprecated methods
+   - New API features or changes
+   - Security best practices updates
+
+### 3. Code Verification Standards
+
+#### Never Assume - Always Verify:
+- **Method existence**: Confirm the method exists in current API
+- **Parameter requirements**: Verify exact parameter types and order
+- **Return values**: Confirm what the method returns
+- **Permissions**: Check required OAuth scopes
+
+#### Common Verification Points:
+```javascript
+// ALWAYS VERIFY these common patterns:
+SpreadsheetApp.getActive() // vs getActiveSpreadsheet()
+sheet.getRange(row, col) // vs getRange(a1Notation)
+trigger.getHandlerFunction() // verify property names
+```
+
+### 4. Error Prevention Strategies
+
+#### Type Safety:
+- Always check for null/undefined before using objects
+- Verify array lengths before accessing elements
+- Use try-catch blocks for external service calls
+
+
+### 5. Testing Requirements
+
+#### Before Finalizing Code:
+1. Test all edge cases
+2. Verify behavior with empty data
+3. Test with maximum expected data volume
+4. Confirm UI elements render correctly
+5. Test time-based triggers in different timezones
+
+### 6. Code Pattern Library
+
+#### Verified Patterns (Always Safe):
+```javascript
+// Getting active spreadsheet
+var spreadsheet = SpreadsheetApp.getActive();
+
+// Creating time-based triggers
+ScriptApp.newTrigger('functionName')
+  .timeBased()
+  .everyMinutes(1)
+  .create();
+
+// Cache service usage
+var cache = CacheService.getScriptCache();
+cache.put(key, value, expirationInSeconds);
+
+// Properties service
+PropertiesService.getScriptProperties().setProperty(key, value);
+```
+
+### 7. Common Pitfalls to Avoid
+
+#### Never Use Without Verification:
+- Deprecated methods (check documentation)
+- Browser-specific APIs in server-side code
+- Synchronous file operations
+- Direct DOM manipulation in Apps Script
+
+#### Always Remember:
+- Apps Script runs server-side, not client-side
+- HTML Service has specific limitations
+- Time zone handling is critical for calendar operations
+- Execution time limits (6 minutes for consumer accounts)
+
+### 8. Research Workflow
+
+When implementing any feature:
+
+1. **Define Requirements**
+   - What exactly needs to be accomplished?
+   - What services/APIs are involved?
+
+2. **Research Phase**
+   - Search: "Google Apps Script [feature] 2025"
+   - Check official documentation
+   - Look for GitHub examples
+   - Review Stack Overflow solutions
+
+3. **Validate Approach**
+   - Confirm all methods exist in current API
+   - Check for any deprecation notices
+   - Verify permission requirements
+
+4. **Implement with Safeguards**
+   - Add error handling
+   - Include logging for debugging
+   - Comment complex logic
+
+5. **Test Thoroughly**
+   - Test in actual Google Sheets environment
+   - Verify all user interactions
+   - Check edge cases
+
+### 9. Documentation Resources Priority
+
+1. **Primary Sources** (Always check first):
+   - https://developers.google.com/apps-script/reference
+   - https://developers.google.com/apps-script/guides
+
+2. **Secondary Sources** (For examples and patterns):
+   - Official Google Workspace Developer Blog
+   - Google Apps Script GitHub samples
+   - Stack Overflow (recent answers only)
+
+3. **Community Resources** (For complex implementations):
+   - Google Apps Script Community
+   - GitHub repositories with high stars
+   - Developer forums with verified solutions
+
+### 10. Code Quality Standards
+
+#### Every Function Should:
+- Have clear error handling
+- Include relevant comments
+- Use descriptive variable names
+- Follow Google's JavaScript style guide
+- Be tested in actual Sheets environment
+
+#### Never Ship Code That:
+- Uses undocumented methods
+- Relies on deprecated APIs
+- Hasn't been tested
+- Makes assumptions about API behavior
+- Ignores execution limits
+
+### 11. Specific Google Sheets Script Guidelines
+
+
+#### Trigger Management:
+- Always delete existing triggers before creating new ones
+- Use unique function names for triggers
+- Implement trigger error handling
+- Consider time zone implications
+
+#### Performance Optimization:
+- Batch operations when possible
+- Use getValues() instead of getValue() in loops
+- Cache frequently accessed data
+- Minimize API calls
+
+### 12. Project File Management
+
+#### When Creating/Updating Files:
+1. Always save complete, working code
+2. Include all necessary functions
+3. Preserve existing functionality
+4. Document any breaking changes
+5. Test before saving
+
+#### Version Control:
+- Comment significant changes
+- Preserve working configurations
+- Document API version dependencies
+- Note any workarounds for limitations
+
+## Critical Reminders
+
+- **NEVER guess API methods** - always verify
+- **ALWAYS test in actual environment** before finalizing
+- **RESEARCH before implementing** any unfamiliar feature
+- **DOCUMENT assumptions and limitations**
+- **CHECK for recent API changes** (2024-2025)
+
+## File Size Management for Context Efficiency
+
+### Code Organization Best Practices
+
+1. **Modular Function Design**
+   - Break large functions into smaller, focused functions
+   - Each function should have a single responsibility
+   - Avoid functions longer than 50-70 lines
+   - Use helper functions to reduce repetition
+
+2. **Efficient Comments**
+   - Use concise, meaningful comments
+   - Remove obvious comments (e.g., `// Set x to 5` for `x = 5`)
+   - Keep JSDoc comments brief but informative
+   - Use single-line comments where appropriate
+
+3. **Smart Variable Names**
+   - Use clear but concise variable names
+   - In loops: `i`, `j`, `k` instead of `iterator`, `counter`
+   - For events: `e` instead of `event`
+   - For elements: `el` instead of `element`
+   - But keep descriptive names for business logic
+
+5. **Optimize HTML/CSS in Dialogs**
+   ```javascript
+   // Instead of inline styles repeated multiple times:
+   // BAD: style="font-size: 16px; color: #333; margin: 10px;"
+   
+   // GOOD: Use CSS classes
+   .meeting-info { font-size: 16px; color: #333; margin: 10px; }
+   ```
+
+6. **Data Structure Optimization**
+   - Use arrays instead of verbose object structures where appropriate
+   - Minimize JSON stringification of large objects
+   - Cache computed values instead of recalculating
+
+### Project File Strategies
+
+1. **Split Large Files**
+   - Separate concerns into different script files
+   - Main.gs - Core functionality and triggers
+   - Utils.gs - Helper functions
+   - UI.gs - User interface functions
+   - Config.gs - Configuration constants
+
+2. **Configuration Management**
+   ```javascript
+   // Create a config object instead of scattered constants
+   const CONFIG = {
+     NOTIFICATION_WINDOW: 6,  // minutes
+     CACHE_DURATION: 600,     // seconds
+     BUSINESS_HOURS: { start: 7, end: 17 },
+     TIMEZONE: 'America/Chicago'
+   };
+   ```
+
+3. **Template Minimization**
+   - Use template literals efficiently
+   - Extract repeated HTML structures into functions
+   - Minify CSS when possible
+   - Use shorthand CSS properties
+
+4. **Error Message Consolidation**
+   ```javascript
+   // Instead of repeating error messages
+   const ERRORS = {
+     NO_CALENDAR: 'Unable to access calendar',
+     NO_EVENTS: 'No upcoming meetings found',
+     TRIGGER_FAIL: 'Failed to create trigger'
+   };
+   ```
+
+5. **Logging Optimization**
+   - Use conditional logging based on debug mode
+   - Avoid verbose console.log statements in production
+   - Create a simple logger function:
+   ```javascript
+   function log(message, level = 'INFO') {
+     if (CONFIG.DEBUG || level === 'ERROR') {
+       console.log(`[${level}] ${message}`);
+     }
+   }
+   ```
+
+### Context Window Best Practices
+
+1. **When Sharing Code**
+   - Only include relevant functions for the current issue
+   - Use comments like `// ... other functions ...` to indicate omissions
+   - Focus on the specific area being discussed
+
+2. **File Updates**
+   - When updating, only show the changed function, not entire file
+   - Use clear markers for where changes occur
+   - Provide context with function names and line numbers
+
+3. **Documentation**
+   - Keep inline documentation focused
+   - Move detailed explanations to separate documentation
+   - Use references instead of repeating explanations
+
+4. **Code Review Strategy**
+   - Review and refactor working code to reduce size
+   - Identify and extract patterns
+   - Remove development/debugging code before finalizing
+
+
+### Memory and Performance Benefits
+
+- Smaller files load faster in the Apps Script editor
+- Reduced memory usage during execution
+- Easier to maintain and debug
+- Faster deployment times
+- More efficient version control
+
+## Implementation Checklist
+
+Before delivering any Google Sheets Script code:
+- [ ] Verified all methods exist in current API
+- [ ] Checked for deprecation warnings
+- [ ] Tested in Google Sheets environment
+- [ ] Added appropriate error handling
+- [ ] Included necessary permissions/scopes
+- [ ] Documented any limitations
+- [ ] Confirmed compatibility with 2025 APIs
+- [ ] Searched for existing solutions
+- [ ] Validated against official documentation
+- [ ] Tested edge cases and error conditions
