@@ -92,29 +92,37 @@ getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
     // Map "Item Name" to "Name" for UI compatibility and ensure all values are strings
     const sanitizedData = data.map(row => {
       const sanitized = {};
-      
+
       // First, add the Name field from Item Name
       if (row['Item Name'] !== undefined) {
         sanitized['Name'] = this.convertToString(row['Item Name']);
       }
-      
+
+      // For internal activities, map "Assigned To" to "Assigned By"
+      if (type === 'internal' && row['Assigned To'] !== undefined) {
+        sanitized['Assigned By'] = this.convertToString(row['Assigned To']);
+      }
+
       // Then add all other fields
       for (const key in row) {
         if (key === 'Item Name') {
           // Skip Item Name as we've already added it as Name
           continue;
+        } else if (type === 'internal' && key === 'Assigned To') {
+          // Skip Assigned To as we've already added it as Assigned By
+          continue;
         } else {
           sanitized[key] = this.convertToString(row[key]);
         }
       }
-      
+
       // Debug: Log first sanitized row
       if (data.indexOf(row) === 0) {
         console.log('First sanitized row:', JSON.stringify(sanitized));
         console.log('Has Name field:', sanitized.hasOwnProperty('Name'));
         console.log('Name value:', sanitized['Name']);
       }
-      
+
       return sanitized;
     });
     
