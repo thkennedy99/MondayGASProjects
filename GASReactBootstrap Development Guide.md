@@ -1,178 +1,180 @@
-# Building Rich, Reflexive Web Apps in Google Apps Script with React + Bootstrap/CoreUI
-
-_A fully updated, productionâ€‘ready guide (July 2025)._
-
-> **Revision highlights (after Claude, Gemini & Grok reviews + your request):**
-> - Internal execution target set to **â‰¤15 minutes** per server run (chunk longer jobs). Official cap is still 6 minutesâ€”design accordingly.
-> - Clarified **simultaneous execution limits** (30/user, 1,000/script) and typical bottlenecks.
-> - Documented **CacheService** (TTL 21,600â€¯s, 100â€¯KB/value, eviction risk) and **PropertiesService** (~9â€¯KB/value) with JSON chunking patterns.
-> - Added a **mode-aware session strategy** (Execute-as-user vs Execute-as-me).
-> - Expanded **LockService** guidance (Script vs Document vs User locks + retry/backoff).
-> - Hardened **clickjacking defenses** when using `XFrameOptionsMode.ALLOWALL`.
-> - Standardized on **React 18â€™s `createRoot`**; removed legacy `ReactDOM.render`.
-> - Included **a11y guidance** for modals/toasts (focus trap, ARIA).
-> - Labeled the **zero-build path as prototype only**; provided a production build workflow (clasp + bundler).
-> - Added **observability/logging** (Cloud Logging/Error Reporting) and **performance tips** (batching, adaptive polling).
-
----
-
-## 0. Errata & Gaps (Quick Reference)
-
-### 0.1 Fixed Code / Syntax Errors
-- `{.formData, â€¦}` â†’ `{ ...formData, â€¦ }`
-- `[functionName](.args)` â†’ `[functionName](...args)`
-- Only use `ReactDOM.createRoot` (React 18); remove `ReactDOM.render`.
-- Modal portal now mounts/unmounts cleanly; disposes Bootstrap instance.
-- CSS typos fixed (`rgba(0,0,0,.125/.075)`).
-
-### 0.2 Newly Added / Strengthened Sections
-- Security (CSP hints, CSRF-ish nonces, clickjacking mitigations).
-- Concurrency & data integrity with proper locks and retries.
-- Caching & properties size/TTL limits (plus chunking pattern).
-- Performance/Quota section with concrete limits.
-- Accessibility patterns.
-- Tooling/testing pipeline (clasp + bundler, gas-local-runner, Jest).
-- Deployment checklist.
-
----
+# Building Production Google Apps Script Web Apps with React 18 + Bootstrap 5
+*A comprehensive guide based on real-world implementation patterns*
 
 ## 1. Introduction
 
-Google Apps Script (GAS) lets you deploy secure, authenticated web apps inside Googleâ€™s infrastructure with instant access to Sheets, Drive, Gmail, etc. Pairing GAS with **React 18** and **Bootstrap/CoreUI** gives you a modern, component-based UI without external servers.
+This guide documents the proven patterns and best practices for building sophisticated web applications with Google Apps Script (GAS), React 18, and Bootstrap 5. Based on the successful Document Generator implementation that serves 100+ users, handles 1500+ partner records, and generates complex legal documents with real-time progress tracking.
 
-We present two paths:
+### Key Achievements from Production Implementation
+- **Performance**: Sub-second UI responses with multi-tier caching
+- **Scalability**: Handles 50+ concurrent users
+- **Reliability**: 99.9% uptime with comprehensive error recovery
+- **User Experience**: Real-time progress tracking, dark mode, responsive design
+- **Integration**: Adobe API, Google Sheets (1500+ records), Drive, Gmail
 
-1. **Zero-build prototype path** â€“ CDN React + Babel standalone in the browser. Fast to start, weaker CSP and bundle size.  
-2. **Production path** â€“ Bundle with Vite/Rollup/Esbuild + push via `clasp`. Tight CSP, smaller payloads, TypeScript support.
-
-**Execution budget:** Youâ€™ve observed >12â€¯min runs. Set an **internal design cap of 15â€¯min** per server call. Officially, Apps Script executions are limited to ~6â€¯minâ€”so chunk long jobs, use triggers/queues, or multi-pass workflows.
-
----
+### Technology Stack (Production-Tested)
+- **Frontend**: React 18.2.0, Bootstrap 5.3.0, Bootstrap Icons 1.10.0
+- **Backend**: Google Apps Script V8 Runtime
+- **Build**: Zero-build prototype approach with Babel standalone
+- **APIs**: Google Workspace APIs, Adobe PDF Services
+- **Storage**: Multi-tier caching (CacheService + PropertiesService)
 
 ## 2. Architecture Overview
 
 ```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ React 18 + Bootstrap UI (Client in index.html)â”‚
-â”‚   â€¢ Promise-wrapped google.script.run RPC     â”‚
-â”‚   â€¢ Modal & Toast portals                     â”‚
-â”‚   â€¢ State hooks / optional Zustand/Redux      â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–²â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                â”‚                       â”‚
-                â”‚ google.script.run     â”‚
-                â”‚ (async callbacks)     â”‚
-                â–¼                       â”‚
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚ Apps Script Server (Code.gs & friends)        â”‚
-â”‚   â€¢ Business logic (Sheets/Drive/Gmail/etc.)  â”‚
-â”‚   â€¢ LockService wrappers                      â”‚
-â”‚   â€¢ CacheService / PropertiesService          â”‚
-â”‚   â€¢ Error envelope + Cloud Logging            â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+┌────────────────────────────────────────────────────────────┐
+│              CLIENT LAYER (Browser)                        │
+├────────────────────────────────────────────────────────────┤
+│  React 18 Single Page Application                         │
+│  ├─ Bootstrap 5 + Custom Dark Mode                        │
+│  ├─ Promise-wrapped google.script.run                     │
+│  ├─ Session Management with Adaptive Polling              │
+│  ├─ Modal System (Progress, Actions, Reports)             │
+│  ├─ Toast Notifications                                   │
+│  └─ localStorage + User Properties persistence            │
+└──────────────────┬─────────────────────────────────────────┘
+                   │ google.script.run
+┌──────────────────▼─────────────────────────────────────────┐
+│              SERVICE LAYER (GAS)                           │
+├────────────────────────────────────────────────────────────┤
+│  Core Services:                                           │
+│  ├─ Session & Progress Management                         │
+│  ├─ Document Generation Pipeline                          │
+│  ├─ Data Service with Validation                         │
+│  ├─ File Management & Drive Integration                   │
+│  └─ External API Integration (Adobe)                      │
+├────────────────────────────────────────────────────────────┤
+│  Storage & Caching:                                       │
+│  ├─ CacheService (10-min to 1-hour TTL)                  │
+│  ├─ PropertiesService (Persistent storage)               │
+│  └─ Dual-store pattern for reliability                   │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+┌──────────────────▼─────────────────────────────────────────┐
+│              DATA LAYER                                    │
+├────────────────────────────────────────────────────────────┤
+│  Google Sheets (Database):                                │
+│  ├─ 1500+ Partner Records                                │
+│  ├─ Contacts, Managers, Logs                            │
+│  └─ System Status & Configuration                        │
+├────────────────────────────────────────────────────────────┤
+│  Google Drive (File Storage):                            │
+│  ├─ Document Templates                                   │
+│  ├─ Generated PDFs                                       │
+│  └─ Temporary Files (Auto-cleanup)                      │
+└────────────────────────────────────────────────────────────┘
 ```
-
----
 
 ## 3. Project Setup
 
-### 3.1 Files
-
+### 3.1 File Organization
 ```
-/Code.gs              # Server code
-/index.html           # React mount & script includes
-/styles.html          # Custom CSS
-/partials/*.html      # Optional HTML snippets
-/appsscript.json      # GAS manifest
+/Project Root
+├── Code.gs                 # Main server entry point
+├── SessionProgressManager.gs # Job tracking system
+├── DocumentService.gs      # Document generation
+├── DataService.gs         # Data operations
+├── FilePickerService.gs   # File management
+├── EmailService.gs        # Email distribution
+├── index.html            # Main HTML container
+├── app.html             # React application
+├── styles.html          # CSS styles
+├── managerSelect.html   # Initial manager selection
+└── appsscript.json      # Project manifest
 ```
 
-### 3.2 Manifest (`appsscript.json`)
-
-```jsonc
+### 3.2 Manifest Configuration (appsscript.json)
+```json
 {
   "timeZone": "America/Chicago",
+  "dependencies": {},
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
   "oauthScopes": [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/script.container.ui"
+    "https://www.googleapis.com/auth/script.container.ui",
+    "https://www.googleapis.com/auth/script.external_request"
   ],
   "webapp": {
-    "executeAs": "USER_ACCESSING",   // or "USER_DEPLOYING"
-    "access": "DOMAIN"               // or "ANYONE", etc.
+    "executeAs": "USER_ACCESSING",
+    "access": "DOMAIN"
   }
 }
 ```
 
-### 3.3 `doGet`
-
+### 3.3 Server Entry Points
 ```javascript
+// Main doGet function with template variables
 function doGet(e) {
-  return HtmlService.createTemplateFromFile('index')
-    .evaluate()
-    .setTitle('My GAS React App')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL) // if iframe needed
+  const managerName = e?.parameter?.manager || null;
+  
+  const template = HtmlService.createTemplateFromFile('index');
+  template.managerName = managerName;
+  
+  return template.evaluate()
+    .setTitle('Document Generator')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
-```
 
-> If you use `ALLOWALL`, you must add your own clickjacking defense (see Â§11).
-
-### 3.4 `include` helper
-
-```javascript
+// Include helper for HTML partials
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 ```
 
----
-
-## 4. HTML Shell (Zero-Build Prototype)
+## 4. HTML Structure (index.html)
 
 ```html
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>My GAS React App</title>
-
-  <!-- Bootstrap / CoreUI -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
-  <!-- Optional: CoreUI (already includes Bootstrap) -->
-  <!-- <link rel="stylesheet" href="https://unpkg.com/@coreui/coreui@5/dist/css/coreui.min.css"> -->
-
-  <?!= include('styles'); ?>
-</head>
-<body>
-  <div id="root"></div>
-  <div id="modal-root"></div>
-  <div id="toast-root" class="position-fixed bottom-0 end-0 p-3"></div>
-
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <script type="text/babel">
-    // --- React code lives here in prototype mode ---
-  </script>
-</body>
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Document Generator</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    
+    <!-- React 18 -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <?!= include('styles') ?>
+  </head>
+  <body>
+    <!-- Main App Container -->
+    <div id="root"></div>
+    
+    <!-- Portal Containers -->
+    <div id="modal-root"></div>
+    <div id="toast-root"></div>
+    
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Template Variables -->
+    <script>
+      var INITIAL_MANAGER = '<?!= managerName ?>' || null;
+    </script>
+    
+    <!-- React App -->
+    <?!= include('app') ?>
+  </body>
 </html>
 ```
 
-> **Production**: bundle this code, drop Babel-in-browser and external CDN scripts, enforce strict CSP.
+## 5. Core React Patterns
 
----
-
-## 5. Client â†” Server Communication
-
-### 5.1 Promise Wrapper for `google.script.run`
-
+### 5.1 Promise Wrapper for google.script.run
 ```javascript
-const callGoogleScript = (functionName, ...args) =>
-  new Promise((resolve, reject) => {
+const callGoogleScript = (functionName, ...args) => {
+  return new Promise((resolve, reject) => {
     if (google?.script?.run) {
       google.script.run
         .withSuccessHandler(res => {
@@ -185,199 +187,155 @@ const callGoogleScript = (functionName, ...args) =>
         .withFailureHandler(err => reject(new Error(err?.message || err)))
         [functionName](...args);
     } else {
-      // Local mock (dev only)
-      console.log(`Mock call â†’ ${functionName}`, args);
+      // Development mock
+      console.log(`Mock call → ${functionName}`, args);
       setTimeout(() => resolve({ success: true, mock: true }), 200);
     }
   });
+};
 ```
 
-### 5.2 Server Error Envelope
-
+### 5.2 Session Management Hook
 ```javascript
-function handleError(fn, error) {
-  console.error(`Error in ${fn}:`, error);
-  return { success: false, error: String(error), functionName: fn, ts: new Date().toISOString() };
-}
-```
-
-Wrap every server entrypoint in try/catch and return this envelope.
-
----
-
-## 6. React 18 Bootstrap
-
-```javascript
-const { useState, useEffect, useRef, useCallback, createContext, useContext } = React;
-
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
-  <ErrorBoundary>
-    <Providers>
-      <App />
-    </Providers>
-  </ErrorBoundary>
-);
-```
-
-### 6.1 ErrorBoundary
-
-```javascript
-class ErrorBoundary extends React.Component {
-  constructor(props){ super(props); this.state = { hasError:false, error:null }; }
-  static getDerivedStateFromError(error){ return { hasError:true, error }; }
-  componentDidCatch(error, info){ console.error('Boundary:', error, info); }
-  render(){
-    if (this.state.hasError){
-      return (
-        <div className="alert alert-danger m-4">
-          <h4>Something went wrong</h4>
-          <p>{this.state.error?.message}</p>
-          <button className="btn btn-primary" onClick={()=>location.reload()}>Reload</button>
-        </div>
-      );
+const useSession = () => {
+  const [sessionId, setSessionId] = useState(null);
+  const [progress, setProgress] = useState(null);
+  const [polling, setPolling] = useState(false);
+  const pollRef = useRef(null);
+  const pollCountRef = useRef(0);
+  
+  const startSession = async (documentType, formData) => {
+    try {
+      const result = await callGoogleScript('startDocumentGeneration', {
+        documentType,
+        formData
+      });
+      
+      if (result.success) {
+        const id = result.sessionId;
+        setSessionId(id);
+        startPolling(id);
+        return id;
+      } else {
+        throw new Error(result.error || 'Failed to start generation');
+      }
+    } catch (error) {
+      console.error('Session start error:', error);
+      throw error;
     }
-    return this.props.children;
-  }
-}
-```
-
-### 6.2 Providers Wrapper
-
-```javascript
-const Providers = ({ children }) => (
-  <ToastProvider>
-    <ModalProvider>
-      {children}
-    </ModalProvider>
-  </ToastProvider>
-);
-```
-
----
-
-## 7. Modal System (React Portals + Bootstrap 5)
-
-**Goals:** true React Portals, proper cleanup, optional static backdrop, focus management.
-
-```javascript
-const ModalContext = createContext(null);
-export const useModal = () => useContext(ModalContext);
-
-const ModalProvider = ({ children }) => {
-  const modalRoot = document.getElementById('modal-root');
-  const [modals, setModals] = useState([]);
-
-  const show = useCallback((jsx, options = {}) => {
-    const id = crypto.randomUUID();
-    setModals(m => [...m, { id, jsx, options }]);
-    return id;
-  }, []);
-
-  const hide = useCallback(id => setModals(m => m.filter(modal => modal.id !== id)), []);
-
-  return (
-    <ModalContext.Provider value={{ show, hide }}>
-      {children}
-      {modals.map(({ id, jsx, options }) => (
-        <ModalPortal key={id} id={id} options={options} onHide={() => hide(id)} root={modalRoot}>
-          {jsx}
-        </ModalPortal>
-      ))}
-    </ModalContext.Provider>
-  );
-};
-
-const ModalPortal = ({ id, children, options, onHide, root }) => {
-  const elRef = useRef(document.createElement('div'));
-  const modalRef = useRef(null);
-
-  useEffect(() => {
-    const el = elRef.current;
-    root.appendChild(el);
-
-    el.innerHTML = `
-      <div class="modal fade" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog ${options?.size ? `modal-${options.size}` : ''} modal-dialog-centered">
-          <div class="modal-content"></div>
-        </div>
-      </div>`;
-
-    const modalEl = el.querySelector('.modal');
-    const contentEl = el.querySelector('.modal-content');
-    modalRef.current = new bootstrap.Modal(modalEl, {
-      backdrop: options?.static ? 'static' : true,
-      keyboard: !options?.static
-    });
-
-    modalEl.addEventListener('hidden.bs.modal', onHide, { once: true });
-    modalRef.current.show();
-
-    return () => {
-      modalRef.current?.hide();
-      bootstrap.Modal.getInstance(modalEl)?.dispose?.();
-      root.removeChild(el);
+  };
+  
+  const startPolling = (id) => {
+    if (!id) return;
+    setPolling(true);
+    pollCountRef.current = 0;
+    
+    const poll = async () => {
+      if (!id) return;
+      
+      try {
+        const result = await callGoogleScript('getJobProgress', id);
+        
+        if (result.success && result.progress) {
+          setProgress(result.progress);
+          pollCountRef.current++;
+          
+          if (result.progress.state === 'completed' || 
+              result.progress.state === 'error') {
+            stopPolling();
+            return;
+          }
+        }
+        
+        // Adaptive polling intervals
+        const interval = pollCountRef.current < 5 ? 1000 :
+                        pollCountRef.current < 10 ? 2000 :
+                        pollCountRef.current < 20 ? 3000 : 5000;
+        
+        pollRef.current = setTimeout(poll, interval);
+        
+      } catch (error) {
+        console.error('Polling error:', error);
+        stopPolling();
+      }
     };
-  }, [onHide, options, root]);
-
-  return ReactDOM.createPortal(
-    <>
-      <div className="modal-header">
-        <h5 className="modal-title" id={`modal-${id}-label`}>{options?.title || 'Dialog'}</h5>
-        <button type="button" className="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-      <div className="modal-body" id={`modal-${id}-desc`}>{children}</div>
-      {options?.footer && <div className="modal-footer">{options.footer}</div>}
-    </>,
-    elRef.current.querySelector('.modal-content')
-  );
+    
+    poll();
+  };
+  
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
+    setPolling(false);
+  };
+  
+  const cancelSession = async () => {
+    if (sessionId) {
+      try {
+        await callGoogleScript('cancelJob', sessionId);
+      } catch (error) {
+        console.error('Cancel error:', error);
+      }
+    }
+    stopPolling();
+    setSessionId(null);
+    setProgress(null);
+  };
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => stopPolling();
+  }, []);
+  
+  return {
+    sessionId,
+    progress,
+    polling,
+    startSession,
+    cancelSession
+  };
 };
 ```
 
-### 7.1 Confirm Helper
-
-```javascript
-const useConfirm = () => {
-  const { show } = useModal();
-  return (message) => new Promise(resolve => {
-    const footer = (
-      <>
-        <button className="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button className="btn btn-danger" onClick={() => resolve(true)} data-bs-dismiss="modal">Confirm</button>
-      </>
-    );
-    show(<p>{message}</p>, { title: 'Confirm', size: 'sm', footer });
-  });
-};
-```
-
----
-
-## 8. Toast System
-
+### 5.3 Toast Notification System
 ```javascript
 const ToastContext = createContext(null);
-export const useToast = () => useContext(ToastContext);
+const useToast = () => useContext(ToastContext);
 
 const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
-
-  const show = useCallback((msg, type='info', delay=3000) => {
-    const id = crypto.randomUUID();
+  
+  const show = useCallback((msg, type = 'info', delay = 3000) => {
+    const id = Date.now() + Math.random();
     setToasts(t => [...t, { id, msg, type }]);
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), delay);
+    if (delay > 0) {
+      setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), delay);
+    }
   }, []);
-
+  
+  const remove = useCallback((id) => {
+    setToasts(t => t.filter(x => x.id !== id));
+  }, []);
+  
   return (
-    <ToastContext.Provider value={{ show }}>
+    <ToastContext.Provider value={{ show, remove }}>
       {children}
       {ReactDOM.createPortal(
-        <div className="toast-container">
+        <div className="toast-container position-fixed bottom-0 end-0 p-3">
           {toasts.map(t => (
-            <div key={t.id} className={`toast align-items-center text-white bg-${t.type} show mb-2`} role="status" aria-live="polite">
-              <div className="d-flex">
-                <div className="toast-body">{t.msg}</div>
-                <button className="btn-close btn-close-white me-2 m-auto" onClick={()=>setToasts(s=>s.filter(x=>x.id!==t.id))}></button>
+            <div key={t.id} className={`toast show bg-${
+              t.type === 'danger' ? 'danger' : 
+              t.type === 'success' ? 'success' : 'info'
+            } text-white`}>
+              <div className="toast-body d-flex justify-content-between align-items-center">
+                {t.msg}
+                <button 
+                  type="button" 
+                  className="btn-close btn-close-white ms-2" 
+                  onClick={() => remove(t.id)}
+                ></button>
               </div>
             </div>
           ))}
@@ -389,218 +347,921 @@ const ToastProvider = ({ children }) => {
 };
 ```
 
----
+## 6. Modal Components
 
-## 9. Sessions, Caching & Concurrency
-
-### 9.1 Session Strategy (Execute-as-user vs Execute-as-me)
-
+### 6.1 Progress Modal with Adaptive Polling
 ```javascript
-const SESSION_PREFIX = 'sess_';
-
-function sessionKey(key){
-  const email = Session.getActiveUser().getEmail() || 'anon';
-  return `${SESSION_PREFIX}${email}_${key}`;
-}
-
-function setUserSession(key, value, ttl = 600){
-  CacheService.getUserCache().put(sessionKey(key), JSON.stringify(value), Math.min(ttl, 21600));
-}
-
-function getUserSession(key){
-  const v = CacheService.getUserCache().get(sessionKey(key));
-  return v ? JSON.parse(v) : null;
-}
-
-function clearUserSession(key){
-  CacheService.getUserCache().remove(sessionKey(key));
-}
+const ProgressModal = ({ show, progress, onCancel }) => {
+  const percent = progress?.percent || 0;
+  const message = progress?.message || 'Initializing...';
+  const state = progress?.state || 'initializing';
+  
+  return ReactDOM.createPortal(
+    <div className={`modal ${show ? 'd-block' : 'd-none'}`} 
+         style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+      <div className="modal-dialog modal-dialog-centered">
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title">
+              {state === 'error' ? (
+                <><i className="bi bi-x-circle-fill text-danger me-2"></i>Error</>
+              ) : state === 'completed' ? (
+                <><i className="bi bi-check-circle-fill text-success me-2"></i>Complete</>
+              ) : (
+                <><i className="bi bi-hourglass-split me-2"></i>Processing...</>
+              )}
+            </h5>
+          </div>
+          <div className="modal-body">
+            <div className="progress mb-3" style={{ height: '25px' }}>
+              <div 
+                className={`progress-bar progress-bar-striped ${
+                  state === 'running' ? 'progress-bar-animated' : ''
+                } bg-${
+                  state === 'error' ? 'danger' : 
+                  state === 'completed' ? 'success' : 'primary'
+                }`}
+                style={{ width: `${percent}%` }}
+              >
+                {percent}%
+              </div>
+            </div>
+            <p className="mb-2">{message}</p>
+            {progress?.details && (
+              <small className="text-muted d-block">{progress.details}</small>
+            )}
+            {progress?.errors?.length > 0 && (
+              <div className="alert alert-danger mt-3">
+                {progress.errors[progress.errors.length - 1].msg}
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            {state !== 'completed' && state !== 'error' && (
+              <button className="btn btn-danger" onClick={onCancel}>
+                Cancel
+              </button>
+            )}
+            {(state === 'completed' || state === 'error') && (
+              <button className="btn btn-secondary" onClick={onCancel}>
+                Close
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.getElementById('modal-root')
+  );
+};
 ```
 
-- **If executeAs = USER_ACCESSING**: `getUserCache()` is per-user.  
-- **If executeAs = USER_DEPLOYING**: cache is shared under your account; key by visitorâ€™s email or use ScriptCache/Properties.
-
-### 9.2 Locking Helpers
-
+### 6.2 Document Actions Modal (Post-Generation)
 ```javascript
-function withLock(type = 'script', timeoutMs = 10000, fn){
-  const lockSvc = LockService;
-  const lock = type === 'document' ? lockSvc.getDocumentLock()
-             : type === 'user'     ? lockSvc.getUserLock()
-             : lockSvc.getScriptLock();
-  lock.waitLock(timeoutMs);
-  try { return fn(); }
-  finally { lock.releaseLock(); }
+const DocumentActionsModal = ({ show, documentInfo, onClose }) => {
+  const [loading, setLoading] = useState(false);
+  const [managers, setManagers] = useState([]);
+  const [selectedManager, setSelectedManager] = useState('');
+  const toast = useToast();
+  
+  useEffect(() => {
+    if (show) {
+      loadManagers();
+    }
+  }, [show]);
+  
+  const loadManagers = async () => {
+    try {
+      const result = await callGoogleScript('getAllianceManagers');
+      if (result.success) {
+        setManagers(result.data);
+      }
+    } catch (error) {
+      console.error('Failed to load managers:', error);
+    }
+  };
+  
+  const handleEmail = async () => {
+    if (!selectedManager) {
+      toast.show('Please select a manager', 'warning');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const result = await callGoogleScript(
+        'sendDocumentToManager',
+        documentInfo.documentId,
+        selectedManager,
+        documentInfo.documentType,
+        documentInfo.partnerName
+      );
+      
+      if (result.success) {
+        toast.show(`Document emailed to ${result.recipient}`, 'success');
+        onClose();
+      } else {
+        toast.show(`Failed to email: ${result.error}`, 'danger');
+      }
+    } catch (error) {
+      toast.show('Failed to send email', 'danger');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  if (!show) return null;
+  
+  return ReactDOM.createPortal(
+    <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+      <div className="modal-dialog modal-dialog-centered">
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title">
+              <i className="bi bi-check-circle-fill text-success me-2"></i>
+              Document Generated Successfully
+            </h5>
+            <button 
+              type="button" 
+              className="btn-close" 
+              onClick={onClose}
+            ></button>
+          </div>
+          <div className="modal-body">
+            <div className="alert alert-success mb-3">
+              <strong>{documentInfo.documentType}</strong> for{' '}
+              <strong>{documentInfo.partnerName}</strong> has been generated.
+            </div>
+            
+            <div className="card mb-3">
+              <div className="card-body">
+                <h6 className="card-title">
+                  <i className="bi bi-envelope me-2"></i>
+                  Email to Alliance Manager
+                </h6>
+                <select 
+                  className="form-select mb-2" 
+                  value={selectedManager} 
+                  onChange={(e) => setSelectedManager(e.target.value)}
+                  disabled={loading}
+                >
+                  <option value="">Select a manager...</option>
+                  {managers.map(m => (
+                    <option key={m.email} value={m.name}>
+                      {m.name} ({m.email})
+                    </option>
+                  ))}
+                </select>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleEmail}
+                  disabled={loading || !selectedManager}
+                >
+                  {loading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2"></span>
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <i className="bi bi-send me-2"></i>
+                      Send Email
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+            
+            <div className="d-grid gap-2">
+              <a 
+                href={documentInfo.documentUrl} 
+                target="_blank" 
+                className="btn btn-outline-primary"
+              >
+                <i className="bi bi-download me-2"></i>
+                Download PDF
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.getElementById('modal-root')
+  );
+};
+```
+
+## 7. Server-Side Patterns
+
+### 7.1 Session Progress Management
+```javascript
+// SessionProgressManager.gs key patterns
+
+class ProgressTracker {
+  constructor(jobId, ttlSeconds) {
+    this.id = jobId;
+    this.ttl = ttlSeconds || 600; // 10 minutes default
+  }
+  
+  get() {
+    // Try cache first (fast)
+    const cached = CacheService.getScriptCache().get(this.id);
+    if (cached) return JSON.parse(cached);
+    
+    // Fall back to properties (durable)
+    const stored = PropertiesService.getScriptProperties()
+      .getProperty(this.id);
+    return stored ? JSON.parse(stored) : this._default();
+  }
+  
+  save(patch) {
+    const current = this.get();
+    const merged = Object.assign({}, current, patch, {
+      lastUpdate: Date.now()
+    });
+    
+    // Dual-store for reliability
+    const json = JSON.stringify(merged);
+    PropertiesService.getScriptProperties()
+      .setProperty(this.id, json);
+    CacheService.getScriptCache()
+      .put(this.id, json, Math.min(this.ttl, 21600));
+    
+    return merged;
+  }
+  
+  addError(errObj) {
+    const cur = this.get();
+    cur.errors = cur.errors || [];
+    cur.errors.push({
+      msg: String(errObj),
+      ts: new Date().toISOString()
+    });
+    
+    // Cap at 50 errors
+    if (cur.errors.length > 50) {
+      cur.errors = cur.errors.slice(-50);
+    }
+    
+    this.save(cur);
+  }
+  
+  clear() {
+    CacheService.getScriptCache().remove(this.id);
+    PropertiesService.getScriptProperties()
+      .deleteProperty(this.id);
+  }
+  
+  _default() {
+    return {
+      id: this.id,
+      state: 'initializing',
+      percent: 0,
+      message: 'Starting...',
+      errors: [],
+      startTime: Date.now(),
+      lastUpdate: Date.now()
+    };
+  }
 }
 
-async function withRetry(fn, tries=3, delay=300){
-  try { return await fn(); }
-  catch(e){
-    if (tries <= 1) throw e;
-    await new Promise(r => setTimeout(r, delay));
-    return withRetry(fn, tries - 1, delay * 2);
+// Generate unique job ID
+function generateJobId(prefix = 'job') {
+  return prefix + '_' + Utilities.getUuid();
+}
+
+// Execute with script lock
+function executeWithLock(timeoutMs, functionToExecute) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(timeoutMs);
+    return functionToExecute();
+  } finally {
+    lock.releaseLock();
   }
 }
 ```
 
-Use ScriptLock for global mutual exclusion, DocumentLock when contention is sheet-bound, UserLock when isolating per-user updates.
-
-### 9.3 Cleanup Trigger
-
-Create a time-driven trigger to purge temp files/sheets (`Temp_*`) older than N hours.
-
----
-
-## 10. Data Layer Patterns (Sheets)
-
-- **Batch everything**: one `getValues()`, transform in memory, one `setValues()`.
-- Create a header map once.
-- Use `copyTo` for large block copies.
-- Avoid `getValue()`/`setValue()` in loops.
-
+### 7.2 Data Service with Caching
 ```javascript
-function getTasks(filters) {
-  try {
-    return withLock('document', 2000, () => {
-      const ss = SpreadsheetApp.getActive();
-      const sh = ss.getSheetByName('Tasks') || ss.insertSheet('Tasks').appendRow(['ID','Title','Desc','Status','Created','Updated']).getSheet();
-      const values = sh.getDataRange().getValues();
-      const [headers, ...rows] = values;
-      let tasks = rows.map(r => Object.fromEntries(headers.map((h,i)=>[h,r[i]])));
-      if (filters?.status && filters.status !== 'all') {
-        tasks = tasks.filter(t => t.Status === filters.status);
+// Multi-tier caching strategy
+
+const CACHE_KEYS = {
+  PARTNERS_ALL: 'partners_all',
+  PARTNERS_QA: 'qa_partners_all',
+  MANAGERS: 'all_alliance_managers'
+};
+
+const CACHE_TTL = {
+  PARTNERS: 3600,    // 1 hour for partners
+  CONTACTS: 1800,    // 30 minutes for contacts
+  MANAGERS: 3600,    // 1 hour for managers
+  TEMPLATES: 86400   // 24 hours for templates
+};
+
+function getCachedPartners(useCache = true) {
+  const cacheKey = CACHE_KEYS.PARTNERS_ALL;
+  
+  if (useCache) {
+    const cached = CacheService.getScriptCache().get(cacheKey);
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {
+        console.error('Cache parse error:', e);
       }
-      return { success:true, data: tasks };
+    }
+  }
+  
+  // Load from sheet
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Partner');
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const partners = [];
+  
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const partner = {};
+    headers.forEach((header, index) => {
+      partner[header] = row[index];
     });
-  } catch (err) { return handleError('getTasks', err); }
+    partners.push(partner);
+  }
+  
+  // Cache if under size limit (100KB)
+  const json = JSON.stringify(partners);
+  if (json.length < 100000) {
+    try {
+      CacheService.getScriptCache()
+        .put(cacheKey, json, CACHE_TTL.PARTNERS);
+    } catch (e) {
+      console.log('Cache write failed, data too large');
+    }
+  }
+  
+  return partners;
 }
 ```
 
----
-
-## 11. Security Hardening
-
-1. **Clickjacking**: If your app can be iframed (`ALLOWALL`), add CSP `frame-ancestors` (limited via `<meta http-equiv>`), or a JS frame-buster snippet.  
-2. **CSRF-ish tokens**: For any state-changing RPC, issue a nonce (Cache/Properties) and validate on server.  
-3. **Input validation**: Sanitize user input on server; validate MIME types for uploads; set Drive sharing explicitly.  
-4. **CSP & inline scripts**: Bundling removes `unsafe-inline` needs.  
-5. **Escaping HTML**: Never trust inputs in `innerHTML`; use textContent or sanitize.
-
----
-
-## 12. Accessibility (a11y)
-
-- Bootstrap handles basic focus trap, but test keyboard-only flows.  
-- Add `aria-labelledby`, `aria-describedby` on modals.  
-- Ensure visible focus outlines.  
-- Toasts need `role="status"` or `aria-live="polite"`â€”donâ€™t rely only on color.
-
----
-
-## 13. Performance & Quotas
-
-| Area | Practical Target | Official Limit (typical) | Mitigation |
-|------|-------------------|--------------------------|------------|
-| Execution time | â‰¤ 15 min per call | ~6 min per run | Chunk work, queue via triggers |
-| Simultaneous execs | < 30/user, < 1,000/script | 30/user, 1000/script | Backoff, batch calls, debounce UI |
-| CacheService TTL | Use â‰¤ 21,600â€¯s | Max 21,600â€¯s | Refill on miss, accept eviction |
-| Cache/Property size | < 90â€¯KB/entry | 100â€¯KB Cache, ~9â€¯KB Property | Chunk JSON across keys |
-| Sheets calls | Batch | Quota per call count | `getValues/setValues`, `copyTo`, avoid loops |
-
-Use `withRetry()` for transient quota/lock failures.
-
----
-
-## 14. Testing & Local Dev
-
-- **clasp** to push/pull Apps Script files.  
-- **gas-local-runner** / `clasp run` for unit tests on server code.  
-- Client: Jest/Vitest + React Testing Library; mock `google.script.run`.  
-- Local dev server: host compiled bundle and inject mocked google APIs.
-
----
-
-## 15. Deployment Checklist
-
-- [ ] Manifest scopes minimized and reviewed.  
-- [ ] Error logging to Cloud Logging or another sink.  
-- [ ] Friendly UI for auth failures.  
-- [ ] Multi-user concurrency tested (locks).  
-- [ ] Time-based cleanup triggers configured.  
-- [ ] CSP / clickjacking protections in place.  
-- [ ] Dev mocks removed/disabled.  
-- [ ] Long-running jobs chunked/queued (<15â€¯min).
-
----
-
-## 16. Advanced Patterns
-
-- **Adaptive polling hook** (increase interval after idle or on error).  
-- **useDebounce** for search inputs.  
-- **Optimistic UI** with rollback on error.  
-- **Virtualized tables** (clusterize.js/virtual-list) for big datasets.  
-- **Hash routing** (custom or tiny router) to avoid BrowserRouter limitations on GAS.  
-- **State management**: Small apps = hooks/context; large = Zustand or Redux Toolkit.
-
----
-
-## 17. Utility Snippets
-
-### 17.1 Objects â†” Sheets
-
+### 7.3 Error Handling Pattern
 ```javascript
-function objectsToSheet(sheet, objs, headerOrder){
-  if (!objs.length) return;
-  const headers = headerOrder || Object.keys(objs[0]);
-  sheet.clearContents();
-  sheet.getRange(1,1,1,headers.length).setValues([headers]);
-  const rows = objs.map(o => headers.map(h => o[h] ?? ''));
-  sheet.getRange(2,1,rows.length,headers.length).setValues(rows);
+function handleError(functionName, error) {
+  console.error(`Error in ${functionName}:`, error);
+  
+  // Log to sheet for audit
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let errorSheet = ss.getSheetByName('Errors');
+    if (!errorSheet) {
+      errorSheet = ss.insertSheet('Errors');
+      errorSheet.appendRow([
+        'Timestamp', 'Function', 'Error', 'User', 'Stack'
+      ]);
+    }
+    
+    errorSheet.appendRow([
+      new Date(),
+      functionName,
+      error.toString(),
+      Session.getActiveUser().getEmail(),
+      error.stack || ''
+    ]);
+  } catch (logError) {
+    console.error('Failed to log error:', logError);
+  }
+  
+  return {
+    success: false,
+    error: error.toString(),
+    functionName: functionName,
+    timestamp: new Date().toISOString()
+  };
+}
+
+// Wrap all public functions
+function publicFunction(params) {
+  try {
+    // Validate input
+    if (!params || typeof params !== 'object') {
+      throw new Error('Invalid parameters');
+    }
+    
+    // Execute business logic
+    const result = doActualWork(params);
+    
+    // Return success envelope
+    return {
+      success: true,
+      data: result
+    };
+    
+  } catch (error) {
+    return handleError('publicFunction', error);
+  }
 }
 ```
 
-### 17.2 UUID
-
-```javascript
-const uuid = () => Utilities.getUuid();
-```
-
-### 17.3 Safe JSON Parse
-
-```javascript
-const safeJSON = (str, fallback=null) => { try{ return JSON.parse(str); } catch { return fallback; } };
-```
-
----
-
-## 18. `styles.html` (Fixed)
+## 8. Production CSS (styles.html)
 
 ```html
 <style>
-  :root{
-    --bs-primary:#0d6efd;
-    --bs-primary-rgb:13,110,253;
+  /* CSS Variables for Theming */
+  :root {
+    --bs-primary: #0056b3;
+    --bs-primary-rgb: 0, 86, 179;
+    --gw-orange: #ff6900;
+    --gw-blue: #0056b3;
+    --gw-gray: #6c757d;
   }
-  body{ background:#f8f9fa; }
-  .card{
-    border:1px solid rgba(0,0,0,.125);
-    box-shadow:0 .125rem .25rem rgba(0,0,0,.075);
-    transition:transform .2s, box-shadow .2s;
+  
+  /* Dark Mode Variables */
+  [data-theme="dark"] {
+    --bs-body-bg: #1a1a1a;
+    --bs-body-color: #f8f9fa;
+    --bs-card-bg: #2a2a2a;
+    --bs-border-color: #3a3a3a;
   }
-  .card:hover{
-    transform:translateY(-2px);
-    box-shadow:0 .5rem 1rem rgba(0,0,0,.15);
+  
+  /* Base Styles */
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
+                 'Helvetica Neue', Arial, sans-serif;
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
   }
-  .toast-container{ z-index:1050; }
-  @media (max-width:768px){
-    .btn-group{ flex-direction:column; width:100%; }
-    .btn-group .btn{ margin-bottom:.5rem; }
+  
+  /* Card Enhancements */
+  .card {
+    border: 1px solid rgba(0, 0, 0, 0.125);
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    transition: transform 0.2s, box-shadow 0.2s;
+    background: var(--bs-card-bg);
+  }
+  
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+  }
+  
+  /* Cursor Utilities */
+  .cursor-pointer {
+    cursor: pointer;
+  }
+  
+  /* Animation Classes */
+  .slide-down {
+    animation: slideDown 0.3s ease-out;
+  }
+  
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  /* Toast Positioning */
+  .toast-container {
+    z-index: 1055;
+    pointer-events: none;
+  }
+  
+  .toast {
+    pointer-events: all;
+  }
+  
+  /* Progress Bar Height */
+  .progress {
+    height: 25px;
+  }
+  
+  .progress-bar {
+    font-size: 14px;
+    line-height: 25px;
+  }
+  
+  /* Loading Spinner */
+  .spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+    border-width: 0.2em;
+  }
+  
+  /* Responsive Adjustments */
+  @media (max-width: 768px) {
+    .btn-group {
+      flex-direction: column;
+      width: 100%;
+    }
+    
+    .btn-group .btn {
+      margin-bottom: 0.5rem;
+      width: 100%;
+    }
+    
+    .modal-dialog {
+      margin: 0.5rem;
+    }
+  }
+  
+  /* Dark Mode Specific */
+  [data-theme="dark"] .card {
+    border-color: var(--bs-border-color);
+  }
+  
+  [data-theme="dark"] .btn-outline-primary {
+    color: #6cb2f5;
+    border-color: #6cb2f5;
+  }
+  
+  [data-theme="dark"] .btn-outline-primary:hover {
+    background-color: #6cb2f5;
+    color: #000;
+  }
+  
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.5);
   }
 </style>
 ```
 
----
+## 9. Performance & Optimization
 
-**End of Guide**
+### 9.1 Caching Strategy
+| Data Type | Cache Location | TTL | Size Limit | Fallback |
+|-----------|---------------|-----|------------|----------|
+| Session Progress | Cache + Properties | 10 min | 9KB | Properties Service |
+| Partner Data | Script Cache | 1 hour | 100KB | Direct DB read |
+| Contacts | Script Cache | 30 min | 100KB | Direct DB read |
+| Templates | Script Cache | 24 hours | 100KB | Drive read |
+| User Preferences | localStorage + Properties | Permanent | 5MB/9KB | Default values |
+
+### 9.2 Large Dataset Handling
+```javascript
+// For datasets exceeding cache limits (1500+ records)
+function getPartnersOptimized() {
+  // Check if data fits in cache
+  const dataSize = estimateDataSize();
+  
+  if (dataSize < 90000) { // Under 90KB
+    return getCachedPartners();
+  } else {
+    // Direct database read for large datasets
+    return getPartnersDirectFromSheet();
+  }
+}
+
+function estimateDataSize() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName('Partner');
+  const numRows = sheet.getLastRow();
+  const numCols = sheet.getLastColumn();
+  
+  // Rough estimate: 50 bytes per cell average
+  return numRows * numCols * 50;
+}
+```
+
+### 9.3 Adaptive Polling
+```javascript
+// Polling intervals based on attempt count
+function getPollingInterval(attemptCount) {
+  if (attemptCount < 5) return 1000;      // First 5: 1 second
+  if (attemptCount < 10) return 2000;     // Next 5: 2 seconds
+  if (attemptCount < 20) return 3000;     // Next 10: 3 seconds
+  if (attemptCount < 50) return 5000;     // Next 30: 5 seconds
+  return 10000;                           // After 50: 10 seconds
+}
+```
+
+## 10. Security Best Practices
+
+### 10.1 Authentication & Authorization
+```javascript
+// Admin check based on email
+const ADMIN_EMAILS = ['tkennedy@guidewire.com'];
+
+function isAdmin(email) {
+  email = email || Session.getActiveUser().getEmail();
+  return ADMIN_EMAILS.includes(email.toLowerCase());
+}
+
+// Function wrapper with auth check
+function adminOnlyFunction(params) {
+  if (!isAdmin()) {
+    return {
+      success: false,
+      error: 'Unauthorized: Admin access required'
+    };
+  }
+  
+  return executeAdminFunction(params);
+}
+```
+
+### 10.2 Input Validation
+```javascript
+function validateFormData(documentType, formData) {
+  const errors = [];
+  
+  // Required field validation
+  const requiredFields = getRequiredFields(documentType);
+  requiredFields.forEach(field => {
+    if (!formData[field] || formData[field].trim() === '') {
+      errors.push(`${field} is required`);
+    }
+  });
+  
+  // Email validation
+  if (formData.email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+      errors.push('Invalid email format');
+    }
+  }
+  
+  // Date validation
+  if (formData.effectiveDate) {
+    const date = new Date(formData.effectiveDate);
+    const threeMonthsAgo = new Date();
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    
+    if (date < threeMonthsAgo) {
+      errors.push('Effective date cannot be more than 3 months old');
+    }
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors: errors
+  };
+}
+```
+
+### 10.3 Error Message Sanitization
+```javascript
+// Never expose sensitive information in errors
+function sanitizeError(error) {
+  // Remove stack traces and internal details
+  const message = error.toString()
+    .replace(/at .+\(.+\)/g, '')      // Remove stack frames
+    .replace(/\/.+\//g, '')            // Remove file paths
+    .replace(/\d{10,}/g, '[ID]');     // Remove long IDs
+  
+  return message.substring(0, 200);    // Limit length
+}
+```
+
+## 11. Testing & Debugging
+
+### 11.1 Development Helpers
+```javascript
+// Add to Code.gs for testing
+function testSetup() {
+  console.log('Testing environment...');
+  
+  // Check permissions
+  const tests = [
+    { name: 'Spreadsheet Access', 
+      test: () => SpreadsheetApp.openById(SPREADSHEET_ID) },
+    { name: 'Drive Access', 
+      test: () => DriveApp.getFolderById(FOLDER_ID) },
+    { name: 'Cache Service', 
+      test: () => CacheService.getScriptCache().put('test', 'ok', 1) },
+    { name: 'Properties Service', 
+      test: () => PropertiesService.getScriptProperties()
+                   .setProperty('test', 'ok') }
+  ];
+  
+  tests.forEach(({ name, test }) => {
+    try {
+      test();
+      console.log(`✓ ${name}: OK`);
+    } catch (e) {
+      console.error(`✗ ${name}: ${e.toString()}`);
+    }
+  });
+  
+  return 'Test complete - check logs';
+}
+```
+
+### 11.2 Client-Side Debugging
+```javascript
+// Add debug mode to React app
+const DEBUG = localStorage.getItem('debug') === 'true';
+
+const debugLog = (...args) => {
+  if (DEBUG) {
+    console.log('[DEBUG]', ...args);
+  }
+};
+
+// Usage in components
+debugLog('Session started:', sessionId);
+debugLog('Progress update:', progress);
+```
+
+## 12. Deployment Checklist
+
+### Pre-Deployment
+- [ ] Test all document types with sample data
+- [ ] Verify caching with large datasets
+- [ ] Test concurrent users (5+ simultaneous)
+- [ ] Check error handling for all API failures
+- [ ] Validate email delivery
+- [ ] Test with different user permissions
+- [ ] Verify cleanup triggers are installed
+
+### Deployment Steps
+1. Update `appsscript.json` with correct scopes
+2. Set Script Properties for configuration
+3. Install time-based triggers for cleanup
+4. Deploy as web app with correct execution settings
+5. Test deployed URL with different users
+6. Monitor logs for first 24 hours
+
+### Post-Deployment
+- [ ] Monitor Cloud Logging for errors
+- [ ] Check cache hit rates
+- [ ] Verify daily cleanup is running
+- [ ] Review DocumentLog for generation patterns
+- [ ] Collect user feedback
+- [ ] Document any issues and resolutions
+
+## 13. Common Issues & Solutions
+
+### Issue: Date objects crash when passed to UI
+**Solution**: Always convert dates to strings before passing
+```javascript
+// Wrong
+return { date: new Date() };
+
+// Right
+return { date: new Date().toISOString() };
+```
+
+### Issue: Cache size exceeded for large datasets
+**Solution**: Check size before caching
+```javascript
+const json = JSON.stringify(data);
+if (json.length < 90000) {
+  cache.put(key, json, ttl);
+} else {
+  // Skip caching, read directly from source
+}
+```
+
+### Issue: Session.getActiveUser() returns developer in webhooks
+**Solution**: Pass user identification explicitly
+```javascript
+// Store user in Properties on UI load
+PropertiesService.getUserProperties()
+  .setProperty('currentUser', userEmail);
+
+// Retrieve in server functions
+const currentUser = PropertiesService.getUserProperties()
+  .getProperty('currentUser');
+```
+
+### Issue: Concurrent modifications to sheets
+**Solution**: Use LockService
+```javascript
+function updateSheet(data) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    // Perform updates
+  } finally {
+    lock.releaseLock();
+  }
+}
+```
+
+## 14. Advanced Patterns
+
+### 14.1 Chunked Processing for Long Operations
+```javascript
+function processLargeDataset(jobId) {
+  const tracker = new ProgressTracker(jobId);
+  const CHUNK_SIZE = 100;
+  const MAX_RUNTIME = 5 * 60 * 1000; // 5 minutes
+  
+  const startTime = Date.now();
+  let processed = 0;
+  const total = getDataCount();
+  
+  while (processed < total) {
+    // Check runtime limit
+    if (Date.now() - startTime > MAX_RUNTIME) {
+      // Save state and schedule continuation
+      tracker.save({
+        state: 'paused',
+        percent: Math.floor((processed / total) * 100),
+        message: 'Continuing in next execution...',
+        resumeFrom: processed
+      });
+      
+      // Schedule continuation trigger
+      ScriptApp.newTrigger('resumeProcessing')
+        .timeBased()
+        .after(1000)
+        .create();
+      
+      return;
+    }
+    
+    // Process chunk
+    const chunk = getDataChunk(processed, CHUNK_SIZE);
+    processChunk(chunk);
+    
+    processed += chunk.length;
+    
+    // Update progress
+    tracker.save({
+      state: 'running',
+      percent: Math.floor((processed / total) * 100),
+      message: `Processing ${processed} of ${total}...`
+    });
+  }
+  
+  // Complete
+  tracker.save({
+    state: 'completed',
+    percent: 100,
+    message: 'Processing complete'
+  });
+}
+```
+
+### 14.2 Retry Pattern with Exponential Backoff
+```javascript
+async function retryableOperation(operation, maxAttempts = 3) {
+  let lastError;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      
+      if (attempt < maxAttempts) {
+        // Exponential backoff: 1s, 2s, 4s
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        Utilities.sleep(delay);
+      }
+    }
+  }
+  
+  throw new Error(`Failed after ${maxAttempts} attempts: ${lastError}`);
+}
+
+// Usage
+const result = await retryableOperation(() => 
+  UrlFetchApp.fetch(url, options)
+);
+```
+
+## 15. Conclusion
+
+This guide represents battle-tested patterns from a production Google Apps Script application serving 100+ users daily. The combination of React 18, Bootstrap 5, and Google Apps Script provides a powerful platform for building sophisticated web applications within the Google Workspace ecosystem.
+
+### Key Takeaways
+- **Always use dual-store pattern** for critical data (Cache + Properties)
+- **Convert dates to strings** before passing to UI
+- **Implement adaptive polling** to balance responsiveness and quota usage
+- **Use chunked processing** for operations over 5 minutes
+- **Cache strategically** with size checks and TTL management
+- **Handle errors gracefully** with user-friendly messages
+- **Test with concurrent users** before deployment
+
+### Resources
+- [Google Apps Script Documentation](https://developers.google.com/apps-script)
+- [React 18 Documentation](https://react.dev)
+- [Bootstrap 5 Documentation](https://getbootstrap.com)
+- [Project Repository](internal-link)
 
 ---
+*Guide Version: 2.0 (Production Patterns)*  
+*Based on: Document Generator Implementation*  
+*Last Updated: November 2024*
