@@ -1186,6 +1186,45 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
 
     console.log('=== CREATE MONDAY ITEM SUCCESS ===');
     console.log('New Item ID:', newItemId);
+
+    // Send email notifications for Marketing boards
+    try {
+      const MARKETING_APPROVAL_BOARD_ID = '9710279044';
+      const MARKETING_CALENDAR_BOARD_ID = '9770467355';
+
+      if (boardId === MARKETING_APPROVAL_BOARD_ID) {
+        console.log('Triggering Marketing Approval notification email...');
+        const emailResult = sendMarketingApprovalNotification({
+          itemName: itemName,
+          columnValues: columnValues,
+          boardId: boardId
+        });
+
+        if (emailResult.success) {
+          console.log('Marketing Approval notification email sent successfully');
+        } else {
+          console.error('Failed to send Marketing Approval notification:', emailResult.error);
+        }
+      } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
+        console.log('Triggering Marketing Calendar notification email...');
+        const emailResult = sendMarketingCalendarNotification({
+          itemName: itemName,
+          columnValues: columnValues,
+          boardId: boardId
+        });
+
+        if (emailResult.success) {
+          console.log('Marketing Calendar notification email sent successfully');
+        } else {
+          console.error('Failed to send Marketing Calendar notification:', emailResult.error);
+        }
+      }
+    } catch (emailError) {
+      // Log email error but don't fail the item creation
+      console.error('Error sending notification email:', emailError);
+      console.error('Item was created successfully, but email notification failed');
+    }
+
     return { success: true, itemId: newItemId };
   } catch (error) {
     console.error('=== CREATE MONDAY ITEM ERROR ===');

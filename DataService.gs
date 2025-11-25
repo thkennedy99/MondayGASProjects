@@ -92,29 +92,37 @@ getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
     // Map "Item Name" to "Name" for UI compatibility and ensure all values are strings
     const sanitizedData = data.map(row => {
       const sanitized = {};
-      
+
       // First, add the Name field from Item Name
       if (row['Item Name'] !== undefined) {
         sanitized['Name'] = this.convertToString(row['Item Name']);
       }
-      
+
+      // For internal activities, map "Assigned To" to "Assigned By"
+      if (type === 'internal' && row['Assigned To'] !== undefined) {
+        sanitized['Assigned By'] = this.convertToString(row['Assigned To']);
+      }
+
       // Then add all other fields
       for (const key in row) {
         if (key === 'Item Name') {
           // Skip Item Name as we've already added it as Name
           continue;
+        } else if (type === 'internal' && key === 'Assigned To') {
+          // Skip Assigned To as we've already added it as Assigned By
+          continue;
         } else {
           sanitized[key] = this.convertToString(row[key]);
         }
       }
-      
+
       // Debug: Log first sanitized row
       if (data.indexOf(row) === 0) {
         console.log('First sanitized row:', JSON.stringify(sanitized));
         console.log('Has Name field:', sanitized.hasOwnProperty('Name'));
         console.log('Name value:', sanitized['Name']);
       }
-      
+
       return sanitized;
     });
     
@@ -381,8 +389,7 @@ getMarketingCalendarData(managerEmail) {
                (allianceManager && allianceManager.includes(managerName.split(' ')[0])); // Check first name
       });
     } else {
-      // For internal activities (GWMondayData), filter ONLY by Owner field
-      // Owner and Assigned By are for display purposes, not for filtering access
+      // For internal activities (GWMondayData), filter by Owner OR Assigned To
       const managerName = this.getManagerName(managerEmail);
 
       console.log(`Filtering internal activities for manager: ${managerEmail}, name: ${managerName}`);
@@ -390,34 +397,43 @@ getMarketingCalendarData(managerEmail) {
 
       const filtered = data.filter(row => {
         const allianceManager = this.getAllianceManagerInternal(row);
+        const owner = row['Owner'] || '';
+        const assignedTo = row['Assigned To'] || '';
 
         // If Alliance Manager is empty, show the activity to all managers
         if (!allianceManager) {
           console.log(`Row with empty Alliance Manager - showing to all managers. Item: ${row['Item Name']}`);
           return true;
         }
-          // Split comma-delimited list into trimmed values
-          const managerList = allianceManager
-            .split(',')
-            .map(m => m.trim().toLowerCase())
-            .filter(Boolean);
 
-          // Compare against possible identifiers for this manager
+        // Helper function to check if manager is in a comma-separated list
+        const isManagerInList = (field) => {
+          if (!field) return false;
+          const fieldStr = field.toString();
+
+          // Split by comma and check each value
+          const values = fieldStr.split(',').map(v => v.trim().toLowerCase()).filter(Boolean);
+
           const nameParts = managerName ? managerName.toLowerCase().split(' ') : [];
           const emailLower = managerEmail.toLowerCase();
 
-          const matches = managerList.some(m =>
-            m === emailLower ||
-            m === managerName?.toLowerCase() ||
-            nameParts.some(part => m.includes(part))
+          return values.some(value =>
+            value === emailLower ||
+            value === managerName?.toLowerCase() ||
+            nameParts.some(part => value.includes(part))
           );
+        };
 
+        // Check if manager is in Owner OR Assigned To fields (handle multi-select dropdowns)
+        const isOwner = isManagerInList(owner);
+        const isAssignedTo = isManagerInList(assignedTo);
 
-        if (matches) {
-          console.log(`Alliance Manager match: "${allianceManager}" matches manager. Item: ${row['Item Name']}`);
+        if (isOwner || isAssignedTo) {
+          console.log(`Match found - Owner: "${owner}", Assigned To: "${assignedTo}". Item: ${row['Item Name']}`);
+          return true;
         }
 
-        return matches;
+        return false;
       });
 
       console.log(`Rows after filtering: ${filtered.length}`);
@@ -505,12 +521,12 @@ getMarketingCalendarData(managerEmail) {
 
   /**
    * Clear all cached data
+   * Note: Delegates to global clearAllCaches() function which properly tracks cache keys
    */
   clearCache() {
     try {
-      this.cache.removeAll();
-      console.log('Cache cleared successfully');
-      return { success: true, message: 'Cache cleared successfully' };
+      // Use the global clearAllCaches function which properly handles cache key tracking
+      return clearAllCaches();
     } catch (error) {
       console.error('Error clearing cache:', error);
       return { success: false, message: String(error.message) };
@@ -840,11 +856,12 @@ getPartnerHeatmap(managerEmail) {
         'Alliance Manager': String(row['AllianceManager'] || ''),
         'Summary of Partner Activities': String(row['Summary of Partner Activities'] || ''),
         'PartnerBoard': String(row['PartnerBoard'] || ''),
-        
+        'MarketingLevel': String(row['MarketingLevel'] || ''),
+
         // Calculated fields for the heatmap
         'healthScore': String(healthScore),
         'healthStatus': String(healthStatus),
-        
+
         // Add placeholder fields that the UI might expect
         'Overdue items': '0',
         'Stuck or Blocked items': status.toLowerCase().includes('blocked') ? '1' : '0',
@@ -1471,80 +1488,114 @@ function getMarketingCalendar(managerEmail) {
 function getPartnerActivityFilterOptions(managerEmail) {
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = spreadsheet.getSheetByName('MondayData');
-    
-    if (!sheet) {
-      console.error('MondayData sheet not found');
-      return { partners: [], statuses: [], owners: [] };
-    }
-    
-    // Get all data from the sheet
-    const dataRange = sheet.getDataRange();
-    const values = dataRange.getValues();
-    
-    if (values.length < 2) {
-      return { partners: [], statuses: [], owners: [] };
-    }
-    
-    // Find column indices
-    const headers = values[0];
-    const partnerIndex = headers.indexOf('Partner Name');
-    const statusIndex = headers.indexOf('Activity Status');
-    const ownerIndex = headers.indexOf('Owner');
-    const allianceManagerIndex = headers.indexOf('Alliance Manager');
-    
+
     // Get manager name for filtering
     const managerName = getManagerName(managerEmail);
-    
+
     // Collect unique values
     const partnersSet = new Set();
     const statusesSet = new Set();
     const ownersSet = new Set();
-    
-    // Process data rows
-    for (let i = 1; i < values.length; i++) {
-      const allianceManager = values[i][allianceManagerIndex];
-      
-      // Only process rows for this manager
-      const isManagerRow = allianceManager === managerEmail || 
-                          allianceManager === managerName ||
-                          (allianceManager && allianceManager.toString().includes(managerName.split(' ')[0]));
-      
-      if (isManagerRow) {
-        // Add partner
-        const partner = values[i][partnerIndex];
-        if (partner && partner.toString().trim()) {
-          partnersSet.add(partner.toString().trim());
-        }
-        
-        // Add status
-        const status = values[i][statusIndex];
-        if (status && status.toString().trim()) {
-          statusesSet.add(status.toString().trim());
-        }
-        
-        // Add owners (handle multiple owners)
-        const owner = values[i][ownerIndex];
-        if (owner) {
-          const ownerStr = owner.toString().trim();
-          // Handle multiple owners separated by commas or semicolons
-          const ownerList = ownerStr.split(/[,;]/).map(o => o.trim()).filter(o => o);
-          ownerList.forEach(o => ownersSet.add(o));
+
+    // ===== STEP 1: Get partners from MondayDashboard sheet filtered by AllianceManager =====
+    const dashboardSheet = spreadsheet.getSheetByName('MondayDashboard');
+
+    if (dashboardSheet) {
+      const dashboardData = dashboardSheet.getDataRange().getValues();
+
+      if (dashboardData.length >= 2) {
+        // Find column indices in MondayDashboard
+        const dashboardHeaders = dashboardData[0];
+        const partnerNameIndex = dashboardHeaders.indexOf('Partner Name');
+        const allianceManagerIndex = dashboardHeaders.indexOf('AllianceManager');
+
+        if (partnerNameIndex !== -1 && allianceManagerIndex !== -1) {
+          // Process dashboard rows to get partners for this manager
+          for (let i = 1; i < dashboardData.length; i++) {
+            const allianceManager = dashboardData[i][allianceManagerIndex];
+
+            // Only process rows for this manager
+            const isManagerRow = allianceManager === managerEmail ||
+                                allianceManager === managerName ||
+                                (allianceManager && allianceManager.toString().includes(managerName.split(' ')[0]));
+
+            if (isManagerRow) {
+              const partnerName = dashboardData[i][partnerNameIndex];
+              if (partnerName && partnerName.toString().trim()) {
+                partnersSet.add(partnerName.toString().trim());
+              }
+            }
+          }
+          console.log(`Found ${partnersSet.size} partners from MondayDashboard for manager: ${managerName}`);
+        } else {
+          console.warn('Partner Name or AllianceManager column not found in MondayDashboard sheet');
         }
       }
+    } else {
+      console.warn('MondayDashboard sheet not found');
     }
-    
+
+    // ===== STEP 2: Get statuses and owners from MondayData sheet =====
+    const mondayDataSheet = spreadsheet.getSheetByName('MondayData');
+
+    if (mondayDataSheet) {
+      const mondayData = mondayDataSheet.getDataRange().getValues();
+
+      if (mondayData.length >= 2) {
+        // Find column indices in MondayData
+        const headers = mondayData[0];
+        const statusIndex = headers.indexOf('Activity Status');
+        const ownerIndex = headers.indexOf('Owner');
+        const allianceManagerIndex = headers.indexOf('Alliance Manager');
+
+        if (allianceManagerIndex !== -1) {
+          // Process data rows
+          for (let i = 1; i < mondayData.length; i++) {
+            const allianceManager = mondayData[i][allianceManagerIndex];
+
+            // Only process rows for this manager
+            const isManagerRow = allianceManager === managerEmail ||
+                                allianceManager === managerName ||
+                                (allianceManager && allianceManager.toString().includes(managerName.split(' ')[0]));
+
+            if (isManagerRow) {
+              // Add status
+              if (statusIndex !== -1) {
+                const status = mondayData[i][statusIndex];
+                if (status && status.toString().trim()) {
+                  statusesSet.add(status.toString().trim());
+                }
+              }
+
+              // Add owners (handle multiple owners)
+              if (ownerIndex !== -1) {
+                const owner = mondayData[i][ownerIndex];
+                if (owner) {
+                  const ownerStr = owner.toString().trim();
+                  // Handle multiple owners separated by commas or semicolons
+                  const ownerList = ownerStr.split(/[,;]/).map(o => o.trim()).filter(o => o);
+                  ownerList.forEach(o => ownersSet.add(o));
+                }
+              }
+            }
+          }
+        }
+      }
+    } else {
+      console.warn('MondayData sheet not found');
+    }
+
     // Convert sets to sorted arrays
     const result = {
       partners: Array.from(partnersSet).sort(),
       statuses: Array.from(statusesSet).sort(),
       owners: Array.from(ownersSet).sort()
     };
-    
+
     console.log(`Filter options - Partners: ${result.partners.length}, Statuses: ${result.statuses.length}, Owners: ${result.owners.length}`);
-    
+
     return result;
-    
+
   } catch (error) {
     console.error('Error getting partner activity filter options:', error);
     return { partners: [], statuses: [], owners: [] };
@@ -1724,17 +1775,34 @@ function getFilteredInternalActivities(managerEmail, filters = {}) {
     const data = getSheetDataAsObjects(sheet);
     const managerName = getManagerName(managerEmail);
 
-    // Filter by manager first
+    // Filter by manager - check if manager is in Owner OR Assigned To (handle multi-select)
     let filtered = data.filter(row => {
-      const owner = row['Owner'];
-      const assignedBy = row['Assigned By'];
+      const owner = row['Owner'] || '';
+      const assignedTo = row['Assigned To'] || '';
+      const allianceManager = row['Alliance Manager'] || '';
 
-      return owner === managerEmail ||
-             owner === managerName ||
-             (owner && owner.toString().includes(managerName.split(' ')[0])) ||
-             assignedBy === managerEmail ||
-             assignedBy === managerName ||
-             (assignedBy && assignedBy.toString().includes(managerName.split(' ')[0]));
+      // Helper function to check if manager is in a comma-separated list
+      const isManagerInList = (field) => {
+        if (!field) return false;
+        const fieldStr = field.toString();
+
+        // Split by comma and check each value
+        const values = fieldStr.split(',').map(v => v.trim());
+
+        return values.some(value => {
+          return value === managerEmail ||
+                 value === managerName ||
+                 value.includes(managerName.split(' ')[0]);
+        });
+      };
+
+      // If Alliance Manager is empty, show to all managers
+      if (!allianceManager || allianceManager.toString().trim() === '') {
+        return true;
+      }
+
+      // Check if current manager is in Owner OR Assigned To fields
+      return isManagerInList(owner) || isManagerInList(assignedTo);
     });
 
     // Apply multiselect filters with OR logic within each filter type
@@ -1788,9 +1856,6 @@ function getFilteredInternalActivities(managerEmail, filters = {}) {
  */
 function getFilteredPartnerActivities(managerEmail, filters = {}) {
   try {
-    console.log('getFilteredPartnerActivities called with manager:', managerEmail);
-    console.log('Filters received:', JSON.stringify(filters));
-
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = spreadsheet.getSheetByName('MondayData');
 
@@ -1800,46 +1865,16 @@ function getFilteredPartnerActivities(managerEmail, filters = {}) {
     }
 
     const data = getSheetDataAsObjects(sheet);
-    console.log('Total rows in MondayData:', data.length);
-
     const managerName = getManagerName(managerEmail);
-    console.log('Manager name resolved to:', managerName);
-    console.log('Manager email:', managerEmail);
 
-    // Log all unique Alliance Manager values in the data
-    const uniqueManagers = [...new Set(data.map(row => row['Alliance Manager']))];
-    console.log('Unique Alliance Manager values in data:', JSON.stringify(uniqueManagers));
-
-    // Filter by manager first with detailed logging
-    let filtered = data.filter((row, index) => {
+    // Filter by manager first
+    let filtered = data.filter((row) => {
       const allianceManager = row['Alliance Manager'];
-
-      // Log first 3 rows for debugging
-      if (index < 3) {
-        console.log(`Row ${index + 1}:`, JSON.stringify({
-          'Item Name': row['Item Name'],
-          'Alliance Manager': allianceManager,
-          'Alliance Manager Type': typeof allianceManager,
-          'Alliance Manager Length': allianceManager ? allianceManager.length : 0
-        }));
-      }
-
       const emailMatch = allianceManager === managerEmail;
       const nameMatch = allianceManager === managerName;
       const firstNameMatch = allianceManager && allianceManager.toString().includes(managerName.split(' ')[0]);
-
-      if (index < 3) {
-        console.log(`  Comparisons:`, {
-          'emailMatch (${allianceManager} === ${managerEmail})': emailMatch,
-          'nameMatch (${allianceManager} === ${managerName})': nameMatch,
-          [`firstNameMatch (includes ${managerName.split(' ')[0]})`]: firstNameMatch
-        });
-      }
-
       return emailMatch || nameMatch || firstNameMatch;
     });
-
-    console.log('After manager filter:', filtered.length, 'rows');
 
     // Apply multiselect filters with OR logic
     // If any filters are active, apply them with OR logic within each filter type
@@ -1884,11 +1919,6 @@ function getFilteredPartnerActivities(managerEmail, filters = {}) {
       }
       return clean;
     });
-
-    console.log('After partner filter:', (filters.partners && filters.partners.length > 0) ? filtered.length : 'skipped', 'rows');
-    console.log('After status filter:', (filters.statuses && filters.statuses.length > 0) ? filtered.length : 'skipped', 'rows');
-    console.log('After owner filter:', (filters.owners && filters.owners.length > 0) ? filtered.length : 'skipped', 'rows');
-    console.log(`Returning ${sanitized.length} filtered partner activities`);
 
     return sanitized;
 
@@ -2229,5 +2259,262 @@ function getBoardStructureForNewActivity(boardId) {
   } catch (error) {
     console.error('Error getting board structure:', error);
     throw error;
+  }
+}
+
+/**
+ * Get internal board configurations from InternalBoards sheet
+ * Returns array of {boardName, boardId} objects
+ */
+function getInternalBoardConfigurations() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const internalBoardsSheet = spreadsheet.getSheetByName('InternalBoards');
+
+    if (!internalBoardsSheet) {
+      console.error('InternalBoards sheet not found');
+      return [];
+    }
+
+    const data = internalBoardsSheet.getDataRange().getValues();
+
+    if (data.length < 2) {
+      console.error('InternalBoards sheet has no data');
+      return [];
+    }
+
+    const headers = data[0];
+    const boardNameIndex = headers.indexOf('BoardName');
+    const idIndex = headers.indexOf('ID');
+
+    if (boardNameIndex === -1 || idIndex === -1) {
+      console.error('InternalBoards sheet missing required columns (BoardName, ID)');
+      return [];
+    }
+
+    const boards = [];
+    for (let i = 1; i < data.length; i++) {
+      const boardName = data[i][boardNameIndex];
+      const boardId = data[i][idIndex];
+
+      if (boardName && boardId) {
+        boards.push({
+          boardName: String(boardName).trim(),
+          boardId: String(boardId).trim()
+        });
+      }
+    }
+
+    console.log(`Loaded ${boards.length} internal boards from InternalBoards sheet`);
+    return boards;
+
+  } catch (error) {
+    console.error('Error getting internal board configurations:', error);
+    return [];
+  }
+}
+
+/**
+ * Validate that all Partner Names in Monday.com match valid partners from Partner sheet A2:A
+ * Returns object with invalid partner names and their locations
+ */
+function validateMondayPartnerNames() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Get valid partner names from Partner sheet (column A, starting from A2)
+    const partnerSheet = spreadsheet.getSheetByName('Partner');
+    if (!partnerSheet) {
+      return { error: 'Partner sheet not found' };
+    }
+
+    const partnerData = partnerSheet.getRange('A2:A' + partnerSheet.getLastRow()).getValues();
+    const validPartnerNames = new Set();
+    partnerData.forEach(row => {
+      if (row[0] && String(row[0]).trim()) {
+        validPartnerNames.add(String(row[0]).trim());
+      }
+    });
+
+    console.log(`Loaded ${validPartnerNames.size} valid partner names from Partner sheet`);
+
+    // Get all partner names from MondayData sheet
+    const mondayDataSheet = spreadsheet.getSheetByName('MondayData');
+    if (!mondayDataSheet) {
+      return { error: 'MondayData sheet not found' };
+    }
+
+    const mondayData = mondayDataSheet.getDataRange().getValues();
+    if (mondayData.length < 2) {
+      return { error: 'MondayData sheet has no data' };
+    }
+
+    const headers = mondayData[0];
+    const partnerNameIndex = headers.indexOf('Partner Name');
+    const itemNameIndex = headers.indexOf('Item Name');
+    const boardNameIndex = headers.indexOf('Board Name');
+    const mondayItemIdIndex = headers.indexOf('Monday Item ID');
+
+    if (partnerNameIndex === -1) {
+      return { error: 'Partner Name column not found in MondayData' };
+    }
+
+    // Track invalid partner names with details
+    const invalidPartners = [];
+    const invalidPartnerCounts = {};
+
+    for (let i = 1; i < mondayData.length; i++) {
+      const partnerName = mondayData[i][partnerNameIndex];
+
+      if (!partnerName || !String(partnerName).trim()) {
+        // Empty partner name
+        invalidPartners.push({
+          row: i + 1,
+          partnerName: '(blank)',
+          itemName: mondayData[i][itemNameIndex] || '',
+          boardName: mondayData[i][boardNameIndex] || '',
+          mondayItemId: mondayData[i][mondayItemIdIndex] || ''
+        });
+        invalidPartnerCounts['(blank)'] = (invalidPartnerCounts['(blank)'] || 0) + 1;
+      } else {
+        const trimmedName = String(partnerName).trim();
+        if (!validPartnerNames.has(trimmedName)) {
+          // Invalid partner name - not in Partner sheet
+          invalidPartners.push({
+            row: i + 1,
+            partnerName: trimmedName,
+            itemName: mondayData[i][itemNameIndex] || '',
+            boardName: mondayData[i][boardNameIndex] || '',
+            mondayItemId: mondayData[i][mondayItemIdIndex] || ''
+          });
+          invalidPartnerCounts[trimmedName] = (invalidPartnerCounts[trimmedName] || 0) + 1;
+        }
+      }
+    }
+
+    const result = {
+      validPartnerCount: validPartnerNames.size,
+      totalActivitiesChecked: mondayData.length - 1,
+      invalidCount: invalidPartners.length,
+      invalidPartners: invalidPartners,
+      invalidPartnerSummary: Object.entries(invalidPartnerCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+      validPartnerNames: Array.from(validPartnerNames).sort()
+    };
+
+    console.log('=== Monday Partner Name Validation Results ===');
+    console.log(`Valid partners in Partner sheet: ${result.validPartnerCount}`);
+    console.log(`Total activities checked: ${result.totalActivitiesChecked}`);
+    console.log(`Invalid partner names found: ${result.invalidCount}`);
+
+    if (result.invalidCount > 0) {
+      console.log('\nInvalid Partner Names Summary:');
+      result.invalidPartnerSummary.forEach(item => {
+        console.log(`  "${item.name}": ${item.count} occurrence(s)`);
+      });
+
+      console.log('\nFirst 10 invalid entries:');
+      result.invalidPartners.slice(0, 10).forEach(item => {
+        console.log(`  Row ${item.row}: "${item.partnerName}" in "${item.itemName}" (Board: ${item.boardName})`);
+      });
+    } else {
+      console.log('✓ All partner names are valid!');
+    }
+
+    return result;
+
+  } catch (error) {
+    console.error('Error validating Monday partner names:', error);
+    return { error: error.message, stack: error.stack };
+  }
+}
+
+/**
+ * Compare Partner Names from MondayData sheet with Partner sheet column A
+ * Returns object with mismatches and validation results
+ */
+function validatePartnerNames() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Get Partner sheet data (column A, starting from A2)
+    const partnerSheet = spreadsheet.getSheetByName('Partner');
+    if (!partnerSheet) {
+      return { error: 'Partner sheet not found' };
+    }
+
+    const partnerData = partnerSheet.getRange('A2:A' + partnerSheet.getLastRow()).getValues();
+    const partnerSheetNames = new Set();
+    partnerData.forEach(row => {
+      if (row[0] && String(row[0]).trim()) {
+        partnerSheetNames.add(String(row[0]).trim());
+      }
+    });
+
+    console.log(`Found ${partnerSheetNames.size} partner names in Partner sheet`);
+
+    // Get Partner Names from MondayData sheet
+    const mondayDataSheet = spreadsheet.getSheetByName('MondayData');
+    if (!mondayDataSheet) {
+      return { error: 'MondayData sheet not found' };
+    }
+
+    const mondayData = mondayDataSheet.getDataRange().getValues();
+    if (mondayData.length < 2) {
+      return { error: 'MondayData sheet has no data' };
+    }
+
+    const headers = mondayData[0];
+    const partnerNameIndex = headers.indexOf('Partner Name');
+
+    if (partnerNameIndex === -1) {
+      return { error: 'Partner Name column not found in MondayData' };
+    }
+
+    const mondayPartnerNames = new Set();
+    for (let i = 1; i < mondayData.length; i++) {
+      const partnerName = mondayData[i][partnerNameIndex];
+      if (partnerName && String(partnerName).trim()) {
+        mondayPartnerNames.add(String(partnerName).trim());
+      }
+    }
+
+    console.log(`Found ${mondayPartnerNames.size} unique partner names in MondayData`);
+
+    // Find partners in Monday but not in Partner sheet
+    const inMondayNotInPartnerSheet = [];
+    mondayPartnerNames.forEach(name => {
+      if (!partnerSheetNames.has(name)) {
+        inMondayNotInPartnerSheet.push(name);
+      }
+    });
+
+    // Find partners in Partner sheet but not in Monday
+    const inPartnerSheetNotInMonday = [];
+    partnerSheetNames.forEach(name => {
+      if (!mondayPartnerNames.has(name)) {
+        inPartnerSheetNotInMonday.push(name);
+      }
+    });
+
+    const result = {
+      partnerSheetCount: partnerSheetNames.size,
+      mondayDataCount: mondayPartnerNames.size,
+      inMondayNotInPartnerSheet: inMondayNotInPartnerSheet.sort(),
+      inPartnerSheetNotInMonday: inPartnerSheetNotInMonday.sort(),
+      allPartnerSheetNames: Array.from(partnerSheetNames).sort(),
+      allMondayDataNames: Array.from(mondayPartnerNames).sort()
+    };
+
+    console.log('=== Partner Name Validation Results ===');
+    console.log(`Partner sheet has ${result.partnerSheetCount} partners`);
+    console.log(`MondayData has ${result.mondayDataCount} unique partner names`);
+    console.log(`Partners in Monday but NOT in Partner sheet (${result.inMondayNotInPartnerSheet.length}):`, result.inMondayNotInPartnerSheet);
+    console.log(`Partners in Partner sheet but NOT in Monday (${result.inPartnerSheetNotInMonday.length}):`, result.inPartnerSheetNotInMonday);
+
+    return result;
+
+  } catch (error) {
+    console.error('Error validating partner names:', error);
+    return { error: error.message, stack: error.stack };
   }
 }

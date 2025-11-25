@@ -2692,15 +2692,29 @@
                     .getMondayBoardUsers(boardId);
                 };
 
-                const handleEdit = (activity) => {
+                const handleEdit = async (activity) => {
                   const boardId = activity['Board ID'];
                   console.log('=== EDIT ITEM DEBUG (Internal Activities) ===');
                   console.log('Item:', activity);
                   console.log('Board ID:', boardId);
-                  console.log('Available columns for this board:', columns);
-                  if (columns && columns.length > 0) {
+
+                  // Load board-specific metadata if not already loaded
+                  if (!columnsByBoard[boardId]) {
+                    console.log('Loading board-specific metadata for editing...');
+                    try {
+                      await loadBoardMetadata(boardId);
+                    } catch (error) {
+                      console.error('Error loading board metadata:', error);
+                      alert('Failed to load board metadata: ' + error.message);
+                      return;
+                    }
+                  }
+
+                  const boardColumns = columnsByBoard[boardId] || [];
+                  console.log('Available columns for this board:', boardColumns);
+                  if (boardColumns.length > 0) {
                     console.log('Column IDs and Names:');
-                    columns.forEach(col => {
+                    boardColumns.forEach(col => {
                       console.log(`  - ${col.title}: ${col.id} (type: ${col.type})`);
                       if (col.settings && col.settings.labels) {
                         console.log(`    Available labels:`, Object.values(col.settings.labels));
@@ -2915,7 +2929,7 @@
                   { key: 'Board Name', label: 'Board' },
                   { key: 'Activity Status', label: 'Status' },
                   { key: 'Owner', label: 'Owner' },
-                  { key: 'Assigned By', label: 'Assigned By' },
+                  { key: 'Assigned By', label: 'Assigned To' },
                   { key: 'Date Due', label: 'Due Date' },
                   { key: 'Importance', label: 'Priority' },
                   { key: 'actions', label: 'Actions' }
@@ -3183,12 +3197,12 @@
                     searchFields: ['Name', 'Item Name', 'Board Name', 'Owner', 'Activity Status']
                   }),
 
-                  // Edit Modal
+                  // Edit Modal - use board-specific columns and users
                   editingItem && React.createElement(EditItemModal, {
                     item: editingItem,
                     boardId: editingItem['Board ID'],
-                    columns: columns,
-                    users: users,
+                    columns: columnsByBoard[editingItem['Board ID']] || [],
+                    users: usersByBoard[editingItem['Board ID']] || [],
                     onClose: () => setEditingItem(null),
                     onSave: handleSaveEdit
                   }),
@@ -3228,7 +3242,7 @@
 
               return React.createElement('div', { className: 'card h-100' },
                 React.createElement('div', { className: 'card-header' },
-                  React.createElement('ul', { 
+                  React.createElement('ul', {
                     className: 'nav nav-tabs card-header-tabs',
                     role: 'tablist'
                   },
@@ -3242,20 +3256,31 @@
                     ),
                     React.createElement('li', { className: 'nav-item' },
                       React.createElement('button', {
-                        className: `nav-link ${activeTab === 'internal' ? 'active' : ''}`,
-                        onClick: () => setActiveTab('internal'),
+                        className: `nav-link ${activeTab === 'heatmap' ? 'active' : ''}`,
+                        onClick: () => setActiveTab('heatmap'),
                         type: 'button',
                         role: 'tab'
-                      }, '🏢 Internal Activities')
+                      }, '🔥 Partner Health Heatmap')
                     )
                   )
                 ),
                 React.createElement('div', { className: 'card-body' },
                   React.createElement('div', { className: 'tab-content' },
-                    activeTab === 'partner' 
+                    activeTab === 'partner'
                       ? React.createElement(PartnerActivities, { manager: manager })
-                      : React.createElement(InternalActivities, { manager: manager })
+                      : React.createElement(PartnerHeatmap, { manager: manager })
                   )
+                )
+              );
+            }
+
+            function InternalActivitiesCard({ manager }) {
+              return React.createElement('div', { className: 'card h-100' },
+                React.createElement('div', { className: 'card-header' },
+                  React.createElement('h5', { className: 'mb-0' }, '🏢 Internal Activities')
+                ),
+                React.createElement('div', { className: 'card-body' },
+                  React.createElement(InternalActivities, { manager: manager })
                 )
               );
             }
@@ -4649,20 +4674,13 @@
                                       </div>
                                   </div>
                                   
-                                  {/* Second Row - Activity Tracker & Partner Heatmap */}
+                                  {/* Second Row - Activity Tracker (with Partner Activities & Partner Health Heatmap tabs) & Internal Activities */}
                                   <div className="row mb-3">
                                       <div className="col-xl-6 mb-3 mb-xl-0">
                                           <ActivityTracker manager={currentManager} />
                                       </div>
                                       <div className="col-xl-6">
-                                          <PartnerHeatmap manager={currentManager} />
-                                      </div>
-                                  </div>
-                                  
-                                  {/* Third Row - General Approvals (full width) */}
-                                  <div className="row">
-                                      <div className="col-12">
-                                          <GeneralApprovals manager={currentManager} />
+                                          <InternalActivitiesCard manager={currentManager} />
                                       </div>
                                   </div>
                               </div>
