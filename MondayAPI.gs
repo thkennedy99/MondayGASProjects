@@ -33,13 +33,24 @@ class MondayAPI {
     
     try {
       const response = UrlFetchApp.fetch(this.apiUrl, options);
-      const result = JSON.parse(response.getContentText());
-      
+      const responseText = response.getContentText();
+      const responseCode = response.getResponseCode();
+
+      console.log(`Debug: Monday API response code: ${responseCode}`);
+      console.log(`Debug: Monday API raw response: ${responseText.substring(0, 1000)}`);
+
+      const result = JSON.parse(responseText);
+
       if (result.errors) {
         console.error('Monday.com API errors:', result.errors);
         throw new Error(result.errors[0].message);
       }
-      
+
+      // Log any warnings or account_id info that might be in the response
+      if (result.account_id) {
+        console.log(`Debug: Monday account_id: ${result.account_id}`);
+      }
+
       return result.data;
     } catch (error) {
       console.error('Monday.com API request failed:', error);
@@ -300,15 +311,21 @@ class MondayAPI {
 
       case 'status':
       case 'color':
-        // Status/color columns - use label name format for better API compatibility
-        // Monday.com API accepts both {index: N} and {label: "Name"} but label format is more reliable
+        // Status/color columns - detailed logging for debugging
+        console.log(`Debug: STATUS COLUMN FORMATTING for columnId="${columnId}"`);
+        console.log(`Debug: Input value: "${value}"`);
+        console.log(`Debug: Settings available: ${!!settings}`);
+        console.log(`Debug: Labels in settings: ${settings && settings.labels ? JSON.stringify(settings.labels) : 'none'}`);
+
         if (settings && settings.labels) {
           const deactivatedLabels = settings.deactivated_labels || [];
+          console.log(`Debug: Deactivated labels: ${JSON.stringify(deactivatedLabels)}`);
 
           // Find all label IDs that match this label name
           const matchingLabelIds = Object.keys(settings.labels).filter(
             id => settings.labels[id] === value
           );
+          console.log(`Debug: Matching label IDs for "${value}": ${JSON.stringify(matchingLabelIds)}`);
 
           // If there are multiple matches, filter out deactivated ones
           if (matchingLabelIds.length > 1) {
@@ -317,7 +334,9 @@ class MondayAPI {
             if (activeLabelId) {
               console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
               // Use label format for better API compatibility
-              return { label: value };
+              const result = { label: value };
+              console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
+              return result;
             } else {
               console.warn(`All matching labels for "${value}" are deactivated`);
               return null;
@@ -331,14 +350,16 @@ class MondayAPI {
             }
             // Single match and not deactivated - use label format
             console.log(`Debug: Using label "${value}" (ID: ${labelId}) for status column`);
-            return { label: value };
+            const result = { label: value };
+            console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
+            return result;
           } else {
-            console.warn(`Label "${value}" not found in column settings`);
+            console.warn(`Label "${value}" not found in column settings. Available labels: ${JSON.stringify(Object.values(settings.labels))}`);
             return null;
           }
         }
         // Fallback if settings not available - return null to prevent errors
-        console.warn(`Status/color column has no settings - cannot format value safely`);
+        console.warn(`Status/color column "${columnId}" has no settings - cannot format value safely`);
         return null;
 
       case 'date':
