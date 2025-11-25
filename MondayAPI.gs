@@ -275,10 +275,25 @@ class MondayAPI {
       }
     `;
 
+    // Monday's API expects each column value to be stringified individually
+    // So we need to stringify each value, then stringify the whole object
+    const stringifiedColumnValues = {};
+    for (const [columnId, value] of Object.entries(columnValues)) {
+      // For primitive values (strings, numbers), keep as-is
+      // For objects/arrays, stringify them
+      if (typeof value === 'object' && value !== null) {
+        stringifiedColumnValues[columnId] = JSON.stringify(value);
+      } else {
+        stringifiedColumnValues[columnId] = value;
+      }
+    }
+
+    console.log('Debug: Stringified column values for API:', JSON.stringify(stringifiedColumnValues));
+
     return this.query(graphqlQuery, {
       boardId: boardId,
       itemId: itemId,
-      columnValues: JSON.stringify(columnValues)
+      columnValues: JSON.stringify(stringifiedColumnValues)
     });
   }
 
@@ -378,15 +393,23 @@ class MondayAPI {
       case 'dropdown':
         // Dropdown expects ids array
         // Helper function to find label ID by name (handles both object and string labels)
+        // Returns the actual label ID (from label.id property if object, or the key if string label)
         const findDropdownLabelId = (labels, searchValue) => {
-          return Object.keys(labels).find(id => {
-            const label = labels[id];
+          for (const key of Object.keys(labels)) {
+            const label = labels[key];
             // Dropdown labels can be objects with {id, name} or simple strings
             if (label && typeof label === 'object' && label.name) {
-              return label.name === searchValue;
+              if (label.name === searchValue) {
+                // Use the label's id property, not the key
+                console.log(`Debug: Found dropdown label "${searchValue}" with id=${label.id} (key=${key})`);
+                return label.id;
+              }
+            } else if (label === searchValue) {
+              // Simple string label - use the key as the ID
+              return parseInt(key);
             }
-            return label === searchValue;
-          });
+          }
+          return null;
         };
 
         // First, check if settings has labels to look up the ID
