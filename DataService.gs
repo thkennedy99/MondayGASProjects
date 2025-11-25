@@ -663,6 +663,7 @@ getMarketingApprovals(managerEmail) {
         'Event URL',
         'Priority',
         'Overall Status',
+        'Funding Type',
         'Owner',
         'AllianceManager',
         'Requesting Department',
