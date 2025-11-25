@@ -275,25 +275,12 @@ class MondayAPI {
       }
     `;
 
-    // Monday's API expects each column value to be stringified individually
-    // So we need to stringify each value, then stringify the whole object
-    const stringifiedColumnValues = {};
-    for (const [columnId, value] of Object.entries(columnValues)) {
-      // For primitive values (strings, numbers), keep as-is
-      // For objects/arrays, stringify them
-      if (typeof value === 'object' && value !== null) {
-        stringifiedColumnValues[columnId] = JSON.stringify(value);
-      } else {
-        stringifiedColumnValues[columnId] = value;
-      }
-    }
-
-    console.log('Debug: Stringified column values for API:', JSON.stringify(stringifiedColumnValues));
+    console.log('Debug: Column values for API:', JSON.stringify(columnValues));
 
     return this.query(graphqlQuery, {
       boardId: boardId,
       itemId: itemId,
-      columnValues: JSON.stringify(stringifiedColumnValues)
+      columnValues: JSON.stringify(columnValues)
     });
   }
 
