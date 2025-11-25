@@ -333,7 +333,13 @@ class MondayAPI {
 
             if (activeLabelId) {
               console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
-              // Use label format for better API compatibility
+              // For default status column (ID: "status"), use index format
+              // For other status/color columns, use label format
+              if (columnId === 'status') {
+                const result = { index: parseInt(activeLabelId) };
+                console.log(`Debug: Using INDEX format for default status column: ${JSON.stringify(result)}`);
+                return result;
+              }
               const result = { label: value };
               console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
               return result;
@@ -348,8 +354,15 @@ class MondayAPI {
               console.warn(`Label "${value}" (ID: ${labelId}) is deactivated`);
               return null;
             }
-            // Single match and not deactivated - use label format
+            // Single match and not deactivated
+            // For default status column (ID: "status"), use index format
+            // For other status/color columns, use label format
             console.log(`Debug: Using label "${value}" (ID: ${labelId}) for status column`);
+            if (columnId === 'status') {
+              const result = { index: parseInt(labelId) };
+              console.log(`Debug: Using INDEX format for default status column: ${JSON.stringify(result)}`);
+              return result;
+            }
             const result = { label: value };
             console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
             return result;
