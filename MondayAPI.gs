@@ -387,11 +387,37 @@ class MondayAPI {
           }
         }
 
-        // Fallback: Handle array of IDs or single ID
+        // Handle array of values (could be string names OR numeric IDs)
         if (Array.isArray(value)) {
-          const ids = value.map(v => parseInt(v)).filter(id => !isNaN(id));
-          return ids.length > 0 ? { ids: ids } : null;
+          const ids = [];
+
+          for (const v of value) {
+            // First, try to look up as string name in settings.labels
+            if (settings && settings.labels && typeof v === 'string') {
+              const labelId = Object.keys(settings.labels).find(
+                id => settings.labels[id] === v
+              );
+              if (labelId) {
+                ids.push(parseInt(labelId));
+                continue;
+              }
+            }
+
+            // Fallback: try to parse as numeric ID
+            const numericId = parseInt(v);
+            if (!isNaN(numericId)) {
+              ids.push(numericId);
+            }
+          }
+
+          if (ids.length > 0) {
+            console.log(`Debug: Dropdown formatted ${value.length} values to IDs: [${ids.join(', ')}]`);
+            return { ids: ids };
+          }
+          console.warn(`Dropdown array values could not be resolved: ${JSON.stringify(value)}`);
+          return null;
         } else if (value) {
+          // Single non-array value - try as numeric ID
           const dropdownId = parseInt(value);
           if (!isNaN(dropdownId)) {
             return { ids: [dropdownId] };

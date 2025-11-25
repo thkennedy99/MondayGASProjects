@@ -1244,9 +1244,9 @@
                     defaultValues['Alliance Manager'] = currentManager;
                   }
 
-                  // Set Overall Status to "Submitted" if not already set
+                  // Set Overall Status to "Sent to Marketing for Approval" if not already set
                   if (!defaultValues['Overall Status']) {
-                    defaultValues['Overall Status'] = 'Submitted';
+                    defaultValues['Overall Status'] = 'Sent to Marketing for Approval';
                   }
 
                   setFormData(prevData => ({ ...prevData, ...defaultValues }));
@@ -4010,7 +4010,7 @@
               const dataWithDefaults = {
                 ...formData,
                 'Create Date': today,
-                'Overall Status': 'Submitted'
+                'Overall Status': 'Sent to Marketing for Approval'
               };
 
               const result = await api.call(
@@ -4153,12 +4153,14 @@
             { name: 'Priority', label: 'Priority', type: 'dropdown', options: getColumnOptions('Priority'), required: true },
             { name: 'AllianceManager', label: 'Alliance Manager', type: 'multi-select', options: allianceManagerOptions || [], required: true },
             { name: 'Partner', label: 'Partner', type: 'dropdown', options: partnerOptions || [], required: false },
+            { name: 'Event URL', label: 'Event URL', type: 'url', required: false },
             { name: 'Requesting Department', label: 'Requesting Department', type: 'dropdown', options: getColumnOptions('Requesting Department'), required: true },
             { name: 'Cost', label: 'Cost', type: 'number', required: false },
             { name: 'Date and Location', label: 'Date', type: 'text', required: false },
             { name: 'Location', label: 'Location', type: 'text', required: false },
             { name: 'Start Date', label: 'Event Date', type: 'date', required: false },
             { name: 'Request Type', label: 'Request Type', type: 'dropdown', options: getColumnOptions('Request Type'), required: true },
+            { name: 'Funding Type', label: 'Funding Type', type: 'dropdown', options: getColumnOptions('Funding Type'), required: false },
             { name: 'Urgency', label: 'Urgency', type: 'dropdown', options: getColumnOptions('Urgency'), required: true },
             { name: 'Number of Meetings or Receptions', label: 'Number of Meetings', type: 'number', required: false },
             { name: 'Total Audience', label: 'Total Audience', type: 'number', required: false },
