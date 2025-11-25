@@ -2133,6 +2133,55 @@ function getBoardColumnsStructure(boardId) {
 }
 
 /**
+ * Print full board schema to console (run from Apps Script editor)
+ * Outputs column names, IDs, types, and all label options for status/dropdown columns
+ * @param {string} boardId - Monday.com board ID (defaults to Marketing Approval board)
+ */
+function printBoardSchema(boardId) {
+  boardId = boardId || '9710279044'; // Default to Marketing Approval board
+
+  console.log('=== BOARD SCHEMA FOR BOARD ID: ' + boardId + ' ===');
+  console.log('Generated: ' + new Date().toISOString());
+  console.log('');
+
+  try {
+    const monday = new MondayAPI();
+    const columns = monday.getBoardColumnsWithSettings(boardId);
+
+    columns.forEach((col, index) => {
+      console.log('---');
+      console.log('Column ' + (index + 1) + ':');
+      console.log('  Name: "' + col.title + '"');
+      console.log('  ID: "' + col.id + '"');
+      console.log('  Type: "' + col.type + '"');
+
+      if (col.settings) {
+        // For status/color columns, show labels
+        if (col.settings.labels && Object.keys(col.settings.labels).length > 0) {
+          console.log('  Labels:');
+          Object.keys(col.settings.labels).sort((a, b) => parseInt(a) - parseInt(b)).forEach(key => {
+            console.log('    "' + key + '": "' + col.settings.labels[key] + '"');
+          });
+        }
+
+        // Show deactivated labels if any
+        if (col.settings.deactivated_labels && col.settings.deactivated_labels.length > 0) {
+          console.log('  Deactivated Labels: [' + col.settings.deactivated_labels.join(', ') + ']');
+        }
+      }
+    });
+
+    console.log('---');
+    console.log('=== END SCHEMA (' + columns.length + ' columns) ===');
+
+    return columns;
+  } catch (error) {
+    console.error('Error printing board schema:', error);
+    throw error;
+  }
+}
+
+/**
  * Get board groups
  * @param {string} boardId - Monday.com board ID
  * @returns {Array} Array of group objects
