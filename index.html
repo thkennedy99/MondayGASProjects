@@ -1244,9 +1244,9 @@
                     defaultValues['Alliance Manager'] = currentManager;
                   }
 
-                  // Set Overall Status to "Sent to Marketing for Approval" if not already set
+                  // Set Overall Status to "Submitted" if not already set
                   if (!defaultValues['Overall Status']) {
-                    defaultValues['Overall Status'] = 'Sent to Marketing for Approval';
+                    defaultValues['Overall Status'] = 'Submitted';
                   }
 
                   setFormData(prevData => ({ ...prevData, ...defaultValues }));
@@ -4010,7 +4010,7 @@
               const dataWithDefaults = {
                 ...formData,
                 'Create Date': today,
-                'Overall Status': 'Sent to Marketing for Approval'
+                'Overall Status': 'Submitted'
               };
 
               const result = await api.call(

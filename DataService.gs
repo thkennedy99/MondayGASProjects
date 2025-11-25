@@ -2156,11 +2156,17 @@ function printBoardSchema(boardId) {
       console.log('  Type: "' + col.type + '"');
 
       if (col.settings) {
-        // For status/color columns, show labels
+        // For status/color columns, show labels (key-value pairs)
         if (col.settings.labels && Object.keys(col.settings.labels).length > 0) {
           console.log('  Labels:');
           Object.keys(col.settings.labels).sort((a, b) => parseInt(a) - parseInt(b)).forEach(key => {
-            console.log('    "' + key + '": "' + col.settings.labels[key] + '"');
+            const labelValue = col.settings.labels[key];
+            // Handle dropdown labels which are objects with id/name properties
+            if (labelValue && typeof labelValue === 'object' && labelValue.name) {
+              console.log('    "' + key + '": "' + labelValue.name + '" (id: ' + labelValue.id + ')');
+            } else {
+              console.log('    "' + key + '": "' + labelValue + '"');
+            }
           });
         }
 

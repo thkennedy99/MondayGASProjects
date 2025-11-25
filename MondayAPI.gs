@@ -376,12 +376,22 @@ class MondayAPI {
 
       case 'dropdown':
         // Dropdown expects ids array
+        // Helper function to find label ID by name (handles both object and string labels)
+        const findDropdownLabelId = (labels, searchValue) => {
+          return Object.keys(labels).find(id => {
+            const label = labels[id];
+            // Dropdown labels can be objects with {id, name} or simple strings
+            if (label && typeof label === 'object' && label.name) {
+              return label.name === searchValue;
+            }
+            return label === searchValue;
+          });
+        };
+
         // First, check if settings has labels to look up the ID
         if (settings && settings.labels && typeof value === 'string') {
           // Try to find the label ID by matching the label name
-          const labelId = Object.keys(settings.labels).find(
-            id => settings.labels[id] === value
-          );
+          const labelId = findDropdownLabelId(settings.labels, value);
           if (labelId) {
             return { ids: [parseInt(labelId)] };
           }
@@ -394,9 +404,7 @@ class MondayAPI {
           for (const v of value) {
             // First, try to look up as string name in settings.labels
             if (settings && settings.labels && typeof v === 'string') {
-              const labelId = Object.keys(settings.labels).find(
-                id => settings.labels[id] === v
-              );
+              const labelId = findDropdownLabelId(settings.labels, v);
               if (labelId) {
                 ids.push(parseInt(labelId));
                 continue;
