@@ -298,8 +298,8 @@ class MondayAPI {
 
       case 'status':
       case 'color':
-        // Status/color columns - use label ID (index) instead of label name
-        // to avoid issues with duplicate label names (active vs deactivated)
+        // Status/color columns - use label name format for better API compatibility
+        // Monday.com API accepts both {index: N} and {label: "Name"} but label format is more reliable
         if (settings && settings.labels) {
           const deactivatedLabels = settings.deactivated_labels || [];
 
@@ -313,8 +313,9 @@ class MondayAPI {
             const activeLabelId = matchingLabelIds.find(id => !deactivatedLabels.includes(id));
 
             if (activeLabelId) {
-              console.log(`Debug: Using label ID ${activeLabelId} for "${value}" (found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
-              return { index: parseInt(activeLabelId) };
+              console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
+              // Use label format for better API compatibility
+              return { label: value };
             } else {
               console.warn(`All matching labels for "${value}" are deactivated`);
               return null;
@@ -326,9 +327,9 @@ class MondayAPI {
               console.warn(`Label "${value}" (ID: ${labelId}) is deactivated`);
               return null;
             }
-            // Single match and not deactivated - can use either label or index
-            // Using index is safer and more explicit
-            return { index: parseInt(labelId) };
+            // Single match and not deactivated - use label format
+            console.log(`Debug: Using label "${value}" (ID: ${labelId}) for status column`);
+            return { label: value };
           } else {
             console.warn(`Label "${value}" not found in column settings`);
             return null;
