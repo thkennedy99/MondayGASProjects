@@ -722,13 +722,9 @@ function deleteMondayItem(itemId, boardId) {
 
     // Full sync of the board from Monday.com to spreadsheet after item deletion
     // This ensures fresh data is available for the UI
+    // Uses global constants from main.gs: MARKETING_APPROVAL_BOARD_ID, MARKETING_CALENDAR_BOARD_ID, GW_BOARD_IDS
     if (boardId) {
       try {
-        const MARKETING_APPROVAL_BOARD_ID = '9710279044';
-        const MARKETING_CALENDAR_BOARD_ID = '9770467355';
-        const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
-        const PARTNER_BOARD_ID = '8463767815';
-
         if (boardId === MARKETING_APPROVAL_BOARD_ID) {
           console.log('Syncing Marketing Approval board after item deletion...');
           syncMarketingApprovalBoard();
@@ -927,12 +923,8 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
 
     // Full sync of the board from Monday.com to spreadsheet after item update
     // This ensures fresh data is available for the UI
+    // Uses global constants from main.gs
     try {
-      const MARKETING_APPROVAL_BOARD_ID = '9710279044';
-      const MARKETING_CALENDAR_BOARD_ID = '9770467355';
-      const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
-      const PARTNER_BOARD_ID = '8463767815';
-
       if (boardId === MARKETING_APPROVAL_BOARD_ID) {
         console.log('Syncing Marketing Approval board after item update...');
         syncMarketingApprovalBoard();
@@ -1364,12 +1356,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
 
     // Full sync of the board from Monday.com to spreadsheet after item creation
     // This ensures fresh data is available for the UI
+    // Uses global constants from main.gs
     try {
-      const MARKETING_APPROVAL_BOARD_ID = '9710279044';
-      const MARKETING_CALENDAR_BOARD_ID = '9770467355';
-      const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
-      const PARTNER_BOARD_ID = '8463767815';
-
       if (boardId === MARKETING_APPROVAL_BOARD_ID) {
         console.log('Syncing Marketing Approval board after item creation...');
         syncMarketingApprovalBoard();

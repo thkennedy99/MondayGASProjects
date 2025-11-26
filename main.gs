@@ -32,6 +32,12 @@ const GW_BOARD_4_ID = '18375013360';
 const GW_BOARD_4_NAME = 'Compliance';
 const GW_MONDAY_SHEET_NAME = 'GWMondayData';
 
+// Array of all GW board IDs for easy lookup
+const GW_BOARD_IDS = [GW_BOARD_1_ID, GW_BOARD_2_ID, GW_BOARD_3_ID, GW_BOARD_4_ID];
+
+// Partner Activities board (MondayData)
+const PARTNER_BOARD_ID = '8463767815';
+
 const MONDAY_API_URL = 'https://api.monday.com/v2';
 
 /**
