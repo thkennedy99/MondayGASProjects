@@ -1898,6 +1898,44 @@ function setupGWMondayDataFormula() {
 }
 
 /**
+ * One-time setup function to create the individual GW board sheets and formula
+ * Run this once to set up the new architecture, then use syncGuidewireBoards() for regular syncs
+ */
+function setupIndividualGWBoardSheets() {
+  try {
+    console.log('=== Setting up Individual GW Board Sheets ===');
+
+    // Step 1: Sync each GW board to its individual sheet (creates sheets if needed)
+    const boardSheets = [
+      { boardId: GW_BOARD_1_ID, sheetName: GW_BOARD_1_SHEET, name: 'Partner Management' },
+      { boardId: GW_BOARD_2_ID, sheetName: GW_BOARD_2_SHEET, name: 'Solution Ops' },
+      { boardId: GW_BOARD_3_ID, sheetName: GW_BOARD_3_SHEET, name: 'Marketing' },
+      { boardId: GW_BOARD_4_ID, sheetName: GW_BOARD_4_SHEET, name: 'Compliance' }
+    ];
+
+    console.log('Creating/syncing individual GW board sheets...');
+    for (const board of boardSheets) {
+      console.log(`Setting up ${board.sheetName} for ${board.name}...`);
+      syncSingleGWBoard(board.boardId);
+    }
+
+    // Step 2: Set up the formula in GWMondayData
+    console.log('Setting up GWMondayData formula...');
+    setupGWMondayDataFormula();
+
+    console.log('=== Individual GW Board Setup Complete ===');
+    console.log('Created sheets: ' + boardSheets.map(b => b.sheetName).join(', '));
+    console.log('GWMondayData now auto-aggregates from these sheets via formula');
+
+    return { success: true, sheetsCreated: boardSheets.map(b => b.sheetName) };
+
+  } catch (error) {
+    console.error('Error setting up individual GW board sheets:', error);
+    throw error;
+  }
+}
+
+/**
  * Sync all individual GW board sheets
  * GWMondayData auto-updates via formula
  */
