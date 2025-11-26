@@ -284,7 +284,10 @@ function syncMarketingBoards() {
         console.error(`Error processing marketing board ${boardConfig.boardName} (${boardConfig.boardId}):`, boardError);
       }
     }
-    
+
+    // Ensure all spreadsheet writes are committed before clearing cache
+    SpreadsheetApp.flush();
+
     // Clear marketing caches to ensure fresh data is loaded after sync
     clearMarketingCaches();
 

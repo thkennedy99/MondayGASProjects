@@ -3313,38 +3313,48 @@
 
             try {
               // If syncFirst is true, sync Monday data to sheets first
+              // IMPORTANT: Wrap in Promise to properly await the sync completion
               if (syncFirst) {
                 console.log('Syncing Marketing boards from Monday...');
-                await window.google.script.run
-                  .withSuccessHandler(() => {
-                    console.log('Marketing boards synced successfully');
-                  })
-                  .withFailureHandler(error => {
-                    console.error('Error syncing boards:', error);
-                    // Continue to load even if sync fails
-                  })
-                  .syncMarketingBoards();
+                await new Promise((resolve, reject) => {
+                  window.google.script.run
+                    .withSuccessHandler(() => {
+                      console.log('Marketing boards synced successfully');
+                      resolve();
+                    })
+                    .withFailureHandler(error => {
+                      console.error('Error syncing boards:', error);
+                      // Continue to load even if sync fails
+                      resolve();
+                    })
+                    .syncMarketingBoards();
+                });
               }
 
-              await window.google.script.run
-                .withSuccessHandler(response => {
-                  console.log('Marketing calendar response:', response);
-                  setCalendarData(response || []);
-                  setLoading(false);
+              // Now fetch the data - sync is complete, data should be in spreadsheet
+              await new Promise((resolve, reject) => {
+                window.google.script.run
+                  .withSuccessHandler(response => {
+                    console.log('Marketing calendar response:', response);
+                    setCalendarData(response || []);
+                    setLoading(false);
 
-                  // Load column metadata for the first board ID we find
-                  if (response && response.length > 0 && response[0]['Board ID']) {
-                    const boardIdValue = response[0]['Board ID'];
-                    setBoardId(boardIdValue);
-                    loadColumnMetadata(boardIdValue);
-                  }
-                })
-                .withFailureHandler(error => {
-                  console.error('Error loading marketing calendar:', error);
-                  setError(error.message);
-                  setLoading(false);
-                })
-                .getMarketingCalendar(manager);
+                    // Load column metadata for the first board ID we find
+                    if (response && response.length > 0 && response[0]['Board ID']) {
+                      const boardIdValue = response[0]['Board ID'];
+                      setBoardId(boardIdValue);
+                      loadColumnMetadata(boardIdValue);
+                    }
+                    resolve(response);
+                  })
+                  .withFailureHandler(error => {
+                    console.error('Error loading marketing calendar:', error);
+                    setError(error.message);
+                    setLoading(false);
+                    reject(error);
+                  })
+                  .getMarketingCalendar(manager);
+              });
             } catch (error) {
               console.error('Error loading marketing calendar:', error);
               setError(error.message);
@@ -4250,36 +4260,46 @@
 
             try {
               // If syncFirst is true, sync Monday data to sheets first
+              // IMPORTANT: Wrap in Promise to properly await the sync completion
               if (syncFirst) {
                 console.log('Syncing Marketing boards from Monday...');
-                await window.google.script.run
-                  .withSuccessHandler(() => {
-                    console.log('Marketing boards synced successfully');
-                  })
-                  .withFailureHandler(error => {
-                    console.error('Error syncing boards:', error);
-                    // Continue to load even if sync fails
-                  })
-                  .syncMarketingBoards();
+                await new Promise((resolve, reject) => {
+                  window.google.script.run
+                    .withSuccessHandler(() => {
+                      console.log('Marketing boards synced successfully');
+                      resolve();
+                    })
+                    .withFailureHandler(error => {
+                      console.error('Error syncing boards:', error);
+                      // Continue to load even if sync fails
+                      resolve();
+                    })
+                    .syncMarketingBoards();
+                });
               }
 
-              const data = await window.google.script.run
-                .withSuccessHandler(response => {
-                  console.log('Marketing approvals response:', response);
-                  setApprovals(response || []);
-                  setLoading(false);
+              // Now fetch the data - sync is complete, data should be in spreadsheet
+              await new Promise((resolve, reject) => {
+                window.google.script.run
+                  .withSuccessHandler(response => {
+                    console.log('Marketing approvals response:', response);
+                    setApprovals(response || []);
+                    setLoading(false);
 
-                  // Load column metadata for the first board ID we find
-                  if (response && response.length > 0 && response[0]['Board ID']) {
-                    loadColumnMetadata(response[0]['Board ID']);
-                  }
-                })
-                .withFailureHandler(error => {
-                  console.error('Error loading marketing approvals:', error);
-                  setError(error.message);
-                  setLoading(false);
-                })
-                .getMarketingApprovals(manager);
+                    // Load column metadata for the first board ID we find
+                    if (response && response.length > 0 && response[0]['Board ID']) {
+                      loadColumnMetadata(response[0]['Board ID']);
+                    }
+                    resolve(response);
+                  })
+                  .withFailureHandler(error => {
+                    console.error('Error loading marketing approvals:', error);
+                    setError(error.message);
+                    setLoading(false);
+                    reject(error);
+                  })
+                  .getMarketingApprovals(manager);
+              });
             } catch (error) {
               console.error('Error loading marketing approvals:', error);
               setError(error.message);
