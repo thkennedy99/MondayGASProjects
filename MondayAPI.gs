@@ -894,7 +894,7 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
     try {
       const MARKETING_APPROVAL_BOARD_ID = '9710279044';
       const MARKETING_CALENDAR_BOARD_ID = '9770467355';
-      const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224'];
+      const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
 
       if (boardId === MARKETING_APPROVAL_BOARD_ID || boardId === MARKETING_CALENDAR_BOARD_ID) {
         console.log('Clearing marketing caches after item update...');
@@ -1319,7 +1319,7 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
     try {
       const MARKETING_APPROVAL_BOARD_ID = '9710279044';
       const MARKETING_CALENDAR_BOARD_ID = '9770467355';
-      const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224'];
+      const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
 
       if (boardId === MARKETING_APPROVAL_BOARD_ID || boardId === MARKETING_CALENDAR_BOARD_ID) {
         console.log('Clearing marketing caches after item creation...');

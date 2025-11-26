@@ -28,6 +28,8 @@ const GW_BOARD_2_ID = '9791272390';
 const GW_BOARD_2_NAME = 'Solution Ops Tracker';
 const GW_BOARD_3_ID = '18374691224';
 const GW_BOARD_3_NAME = 'Marketing Projects';
+const GW_BOARD_4_ID = '18375013360';
+const GW_BOARD_4_NAME = 'Compliance';
 const GW_MONDAY_SHEET_NAME = 'GWMondayData';
 
 const MONDAY_API_URL = 'https://api.monday.com/v2';
@@ -698,6 +700,12 @@ function getGuidewireBoardConfigurations() {
           boardName: GW_BOARD_3_NAME,
           partnerName: 'Guidewire',
           boardId: GW_BOARD_3_ID,
+          targetSheetName: GW_MONDAY_SHEET_NAME
+        },
+        {
+          boardName: GW_BOARD_4_NAME,
+          partnerName: 'Guidewire',
+          boardId: GW_BOARD_4_ID,
           targetSheetName: GW_MONDAY_SHEET_NAME
         }
       ];
