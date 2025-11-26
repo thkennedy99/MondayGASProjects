@@ -973,9 +973,165 @@ function syncAllDataIncludingGuidewire() {
     syncGuidewireBoards();
     
     console.log('Comprehensive sync with Guidewire complete!');
-    
+
   } catch (error) {
     console.error('Error in comprehensive sync with Guidewire:', error);
    // SpreadsheetApp.getUi().alert('Error in comprehensive sync: ' + error.toString());
+  }
+}
+
+/**
+ * Debug function to view cache keys and their data
+ * Run this from Apps Script editor to see what's in the cache
+ */
+function debugViewCache() {
+  const cache = CacheService.getScriptCache();
+  const managers = getManagerList();
+
+  console.log('=== CACHE DEBUG VIEW ===');
+  console.log('Manager list:', managers);
+  console.log('');
+
+  const cacheReport = [];
+
+  // Check marketing approval caches
+  console.log('--- Marketing Approval Caches ---');
+  managers.forEach(email => {
+    const key = `marketing_approvals_${email}`;
+    const value = cache.get(key);
+    if (value) {
+      const data = JSON.parse(value);
+      console.log(`✓ ${key}: ${data.length} items`);
+      cacheReport.push({ key, itemCount: data.length, type: 'marketing_approvals' });
+    } else {
+      console.log(`✗ ${key}: EMPTY`);
+    }
+  });
+
+  // Check all_marketing_approvals
+  const allApprovals = cache.get('all_marketing_approvals');
+  if (allApprovals) {
+    const data = JSON.parse(allApprovals);
+    console.log(`✓ all_marketing_approvals: ${data.length} items`);
+    cacheReport.push({ key: 'all_marketing_approvals', itemCount: data.length, type: 'marketing_approvals' });
+  } else {
+    console.log('✗ all_marketing_approvals: EMPTY');
+  }
+
+  // Check marketing calendar caches
+  console.log('');
+  console.log('--- Marketing Calendar Caches ---');
+  managers.forEach(email => {
+    const key = `marketing_calendar_${email}`;
+    const value = cache.get(key);
+    if (value) {
+      const data = JSON.parse(value);
+      console.log(`✓ ${key}: ${data.length} items`);
+      cacheReport.push({ key, itemCount: data.length, type: 'marketing_calendar' });
+    } else {
+      console.log(`✗ ${key}: EMPTY`);
+    }
+  });
+
+  // Check heatmap caches
+  console.log('');
+  console.log('--- Heatmap Caches ---');
+  managers.forEach(email => {
+    const key = `heatmap_${email}`;
+    const value = cache.get(key);
+    if (value) {
+      const data = JSON.parse(value);
+      console.log(`✓ ${key}: ${data.length} items`);
+      cacheReport.push({ key, itemCount: data.length, type: 'heatmap' });
+    } else {
+      console.log(`✗ ${key}: EMPTY`);
+    }
+  });
+
+  // Check manager partners caches
+  console.log('');
+  console.log('--- Manager Partners Caches ---');
+  managers.forEach(email => {
+    const key = `manager_partners_${email}`;
+    const value = cache.get(key);
+    if (value) {
+      const data = JSON.parse(value);
+      console.log(`✓ ${key}: ${data.length} partners`);
+      cacheReport.push({ key, itemCount: data.length, type: 'manager_partners' });
+    } else {
+      console.log(`✗ ${key}: EMPTY`);
+    }
+  });
+
+  // Check manager name caches
+  console.log('');
+  console.log('--- Manager Name Caches ---');
+  managers.forEach(email => {
+    const key = `manager_name_${email}`;
+    const value = cache.get(key);
+    if (value) {
+      console.log(`✓ ${key}: "${value}"`);
+      cacheReport.push({ key, value, type: 'manager_name' });
+    } else {
+      console.log(`✗ ${key}: EMPTY`);
+    }
+  });
+
+  // Check manager list cache
+  console.log('');
+  console.log('--- Other Caches ---');
+  const managerListCache = cache.get('manager_list');
+  if (managerListCache) {
+    const data = JSON.parse(managerListCache);
+    console.log(`✓ manager_list: ${data.length} managers`);
+    cacheReport.push({ key: 'manager_list', itemCount: data.length, type: 'manager_list' });
+  } else {
+    console.log('✗ manager_list: EMPTY');
+  }
+
+  // Summary
+  console.log('');
+  console.log('=== SUMMARY ===');
+  console.log(`Total cached entries found: ${cacheReport.length}`);
+  console.log(`Managers checked: ${managers.length}`);
+
+  return cacheReport;
+}
+
+/**
+ * Debug function to view a specific cache key's full data
+ * @param {string} cacheKey - The cache key to inspect
+ */
+function debugViewCacheKey(cacheKey) {
+  const cache = CacheService.getScriptCache();
+  const value = cache.get(cacheKey);
+
+  console.log(`=== CACHE KEY: ${cacheKey} ===`);
+
+  if (!value) {
+    console.log('Status: EMPTY/NOT FOUND');
+    return null;
+  }
+
+  try {
+    const data = JSON.parse(value);
+    console.log('Status: FOUND');
+    console.log('Type:', typeof data);
+    console.log('Is Array:', Array.isArray(data));
+
+    if (Array.isArray(data)) {
+      console.log('Item count:', data.length);
+      if (data.length > 0) {
+        console.log('First item keys:', Object.keys(data[0]));
+        console.log('First item:', JSON.stringify(data[0], null, 2));
+      }
+    } else {
+      console.log('Data:', JSON.stringify(data, null, 2));
+    }
+
+    return data;
+  } catch (e) {
+    console.log('Raw value (not JSON):', value);
+    return value;
   }
 }
