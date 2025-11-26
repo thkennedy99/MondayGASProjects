@@ -3,6 +3,77 @@
  */
 
 /**
+ * Sanitize a value for writing to spreadsheet
+ * Handles arrays, objects, dates, and other complex types
+ * This is a global utility function used by all sheet write operations
+ */
+function sanitizeValueForSheet(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  // Handle arrays - extract meaningful values
+  if (Array.isArray(value)) {
+    // If array of objects with 'name' property (like people picker), extract names
+    if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
+      const names = value.map(item => {
+        if (item.name) return item.name;
+        if (item.text) return item.text;
+        if (item.label) return item.label;
+        if (item.value) return item.value;
+        return String(item);
+      }).filter(n => n);
+      return names.join(', ');
+    }
+    // Simple array of strings/numbers
+    return value.map(v => String(v)).join(', ');
+  }
+
+  // Handle objects
+  if (typeof value === 'object') {
+    // Date objects
+    if (value instanceof Date) {
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, '0');
+      const day = String(value.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    // Objects with common value properties
+    if (value.name) return String(value.name);
+    if (value.text) return String(value.text);
+    if (value.label) return String(value.label);
+    if (value.value !== undefined) return String(value.value);
+    if (value.date) return String(value.date);
+
+    // Special handling for file column objects with mondayUrl
+    if (value.mondayUrl !== undefined) {
+      return value.mondayUrl || '';
+    }
+
+    // Fallback: stringify the object
+    try {
+      const stringified = JSON.stringify(value);
+      // If it's just {} or [], return empty
+      if (stringified === '{}' || stringified === '[]') return '';
+      return stringified;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // Handle primitives
+  return String(value);
+}
+
+/**
+ * Sanitize an entire row array before writing to sheet
+ */
+function sanitizeRowForSheet(row) {
+  return row.map(value => sanitizeValueForSheet(value));
+}
+
+/**
  * Parse column value based on type
  */
 function parseColumnValue(columnValue, columnInfo, itemAssets) {
@@ -283,13 +354,16 @@ function writeDataToSheet(sheet, boardStructure, items, isFirstBoard = true, boa
     
     return row;
   });
-  
+
+  // Sanitize all rows before writing to ensure no arrays/objects slip through
+  const sanitizedDataRows = dataRows.map(row => sanitizeRowForSheet(row));
+
   // Write data rows - append to existing data
-  if (dataRows.length > 0) {
+  if (sanitizedDataRows.length > 0) {
     const startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, dataRows.length, headers.length).setValues(dataRows);
+    sheet.getRange(startRow, 1, sanitizedDataRows.length, headers.length).setValues(sanitizedDataRows);
   }
-  
+
   // Note: Post-processing is now handled in the calling function after all boards are processed
 }
 
@@ -495,20 +569,23 @@ function writeDashboardDataToSheet(sheet, boardStructure, items, boardId) {
     
     // Lookup and set Alliance Manager
     row[allianceManagerColumnIndex] = lookupAllianceManager(translatedPartnerName, allianceManagerMap);
-    
+
     return row;
   });
-  
+
+  // Sanitize all rows before writing to ensure no arrays/objects slip through
+  const sanitizedDataRows = dataRows.map(row => sanitizeRowForSheet(row));
+
   // Write data rows
-  if (dataRows.length > 0) {
-    sheet.getRange(2, 1, dataRows.length, headers.length).setValues(dataRows);
+  if (sanitizedDataRows.length > 0) {
+    sheet.getRange(2, 1, sanitizedDataRows.length, headers.length).setValues(sanitizedDataRows);
   }
-  
+
   // Auto-resize columns for better visibility
   for (let i = 1; i <= headers.length; i++) {
     sheet.autoResizeColumn(i);
   }
-  
+
   console.log('Dashboard data processing complete');
 }
 
@@ -663,60 +740,8 @@ function appendItemToSheet(sheetName, itemName, itemId, boardId, boardName, colu
       headerMap[header] = index;
     });
 
-    /**
-     * Sanitize a value for writing to spreadsheet
-     * Handles arrays, objects, dates, and other complex types
-     */
-    const sanitizeValue = (value) => {
-      if (value === null || value === undefined) {
-        return '';
-      }
-
-      // Handle arrays - extract meaningful values
-      if (Array.isArray(value)) {
-        // If array of objects with 'name' property (like people picker), extract names
-        if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
-          const names = value.map(item => {
-            if (item.name) return item.name;
-            if (item.text) return item.text;
-            if (item.label) return item.label;
-            if (item.value) return item.value;
-            return String(item);
-          }).filter(n => n);
-          return names.join(', ');
-        }
-        // Simple array of strings/numbers
-        return value.map(v => String(v)).join(', ');
-      }
-
-      // Handle objects
-      if (typeof value === 'object') {
-        // Date objects
-        if (value instanceof Date) {
-          const year = value.getFullYear();
-          const month = String(value.getMonth() + 1).padStart(2, '0');
-          const day = String(value.getDate()).padStart(2, '0');
-          return `${year}-${month}-${day}`;
-        }
-
-        // Objects with common value properties
-        if (value.name) return String(value.name);
-        if (value.text) return String(value.text);
-        if (value.label) return String(value.label);
-        if (value.value) return String(value.value);
-        if (value.date) return String(value.date);
-
-        // Fallback: stringify the object
-        try {
-          return JSON.stringify(value);
-        } catch (e) {
-          return '';
-        }
-      }
-
-      // Handle primitives
-      return String(value);
-    };
+    // Use global sanitizeValueForSheet function for consistency
+    const sanitizeValue = sanitizeValueForSheet;
 
     // Set standard fields
     if (headerMap['Item Name'] !== undefined) newRow[headerMap['Item Name']] = sanitizeValue(itemName);
