@@ -640,6 +640,7 @@ function sortDataByItemName(sheet) {
 function appendItemToSheet(sheetName, itemName, itemId, boardId, boardName, columnValues) {
   try {
     console.log(`Appending new item to ${sheetName}:`, itemName);
+    console.log('Column values received:', JSON.stringify(columnValues));
 
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = spreadsheet.getSheetByName(sheetName);
@@ -662,11 +663,66 @@ function appendItemToSheet(sheetName, itemName, itemId, boardId, boardName, colu
       headerMap[header] = index;
     });
 
+    /**
+     * Sanitize a value for writing to spreadsheet
+     * Handles arrays, objects, dates, and other complex types
+     */
+    const sanitizeValue = (value) => {
+      if (value === null || value === undefined) {
+        return '';
+      }
+
+      // Handle arrays - extract meaningful values
+      if (Array.isArray(value)) {
+        // If array of objects with 'name' property (like people picker), extract names
+        if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
+          const names = value.map(item => {
+            if (item.name) return item.name;
+            if (item.text) return item.text;
+            if (item.label) return item.label;
+            if (item.value) return item.value;
+            return String(item);
+          }).filter(n => n);
+          return names.join(', ');
+        }
+        // Simple array of strings/numbers
+        return value.map(v => String(v)).join(', ');
+      }
+
+      // Handle objects
+      if (typeof value === 'object') {
+        // Date objects
+        if (value instanceof Date) {
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          return `${year}-${month}-${day}`;
+        }
+
+        // Objects with common value properties
+        if (value.name) return String(value.name);
+        if (value.text) return String(value.text);
+        if (value.label) return String(value.label);
+        if (value.value) return String(value.value);
+        if (value.date) return String(value.date);
+
+        // Fallback: stringify the object
+        try {
+          return JSON.stringify(value);
+        } catch (e) {
+          return '';
+        }
+      }
+
+      // Handle primitives
+      return String(value);
+    };
+
     // Set standard fields
-    if (headerMap['Item Name'] !== undefined) newRow[headerMap['Item Name']] = itemName;
-    if (headerMap['Monday Item ID'] !== undefined) newRow[headerMap['Monday Item ID']] = itemId;
-    if (headerMap['Board ID'] !== undefined) newRow[headerMap['Board ID']] = boardId;
-    if (headerMap['Board Name'] !== undefined) newRow[headerMap['Board Name']] = boardName;
+    if (headerMap['Item Name'] !== undefined) newRow[headerMap['Item Name']] = sanitizeValue(itemName);
+    if (headerMap['Monday Item ID'] !== undefined) newRow[headerMap['Monday Item ID']] = sanitizeValue(itemId);
+    if (headerMap['Board ID'] !== undefined) newRow[headerMap['Board ID']] = sanitizeValue(boardId);
+    if (headerMap['Board Name'] !== undefined) newRow[headerMap['Board Name']] = sanitizeValue(boardName);
     if (headerMap['Partner Name'] !== undefined) newRow[headerMap['Partner Name']] = 'Marketing Team';
 
     // Map column values to headers
@@ -674,9 +730,13 @@ function appendItemToSheet(sheetName, itemName, itemId, boardId, boardName, colu
     Object.entries(columnValues || {}).forEach(([key, value]) => {
       if (value === null || value === undefined || value === '') return;
 
+      // Sanitize the value before writing
+      const sanitizedValue = sanitizeValue(value);
+      console.log(`Processing column "${key}": ${typeof value} -> "${sanitizedValue}"`);
+
       // Try exact match first
       if (headerMap[key] !== undefined) {
-        newRow[headerMap[key]] = value;
+        newRow[headerMap[key]] = sanitizedValue;
         return;
       }
 
@@ -684,7 +744,7 @@ function appendItemToSheet(sheetName, itemName, itemId, boardId, boardName, colu
       const keyNoSpaces = key.replace(/\s+/g, '');
       for (const header of headers) {
         if (header.replace(/\s+/g, '') === keyNoSpaces) {
-          newRow[headerMap[header]] = value;
+          newRow[headerMap[header]] = sanitizedValue;
           return;
         }
       }
@@ -693,11 +753,13 @@ function appendItemToSheet(sheetName, itemName, itemId, boardId, boardName, colu
       const keyLower = key.toLowerCase();
       for (const header of headers) {
         if (header.toLowerCase() === keyLower) {
-          newRow[headerMap[header]] = value;
+          newRow[headerMap[header]] = sanitizedValue;
           return;
         }
       }
     });
+
+    console.log('Row to append:', newRow.slice(0, 15).join(' | ') + '...');
 
     // Append the new row
     sheet.appendRow(newRow);
