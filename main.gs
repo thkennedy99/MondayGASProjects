@@ -26,7 +26,7 @@ const GW_BOARD_1_ID = '9791255941';
 const GW_BOARD_1_NAME = 'Partner Management Tracker';
 const GW_BOARD_2_ID = '9791272390';
 const GW_BOARD_2_NAME = 'Solution Ops Tracker';
-const GW_BOARD_3_ID = '9855494527';
+const GW_BOARD_3_ID = '18374691224';
 const GW_BOARD_3_NAME = 'Marketing Projects';
 const GW_MONDAY_SHEET_NAME = 'GWMondayData';
 
@@ -321,23 +321,16 @@ function syncMondayData() {
       const boardConfig = boardConfigs[i];
       const isFirstBoard = (i === 0);
       const isLastBoard = (i === boardConfigs.length - 1);
-      
-      console.log(`\n=== Processing Board ${i + 1}/${boardConfigs.length}: ${boardConfig.boardName} (Partner: ${boardConfig.partnerName}) ===`);
-      console.log('Board ID:', boardConfig.boardId);
-      
+
+      console.log(`Processing ${i + 1}/${boardConfigs.length}: ${boardConfig.boardName}`);
+
       try {
         // Get board structure (columns)
-        console.log('Fetching board structure...');
         const boardStructure = getBoardStructure(boardConfig.boardId);
-        console.log('Board name:', boardStructure.name);
-        console.log('Number of columns:', boardStructure.columns.length);
-        console.log('Number of groups:', boardStructure.groups.length);
-        console.log('Groups:', boardStructure.groups.map(g => `${g.title} (${g.id})`).join(', '));
-        
+
         // Get all items from the board
         const items = getAllBoardItems(boardConfig.boardId);
-        console.log(`Items retrieved for ${boardConfig.boardName}: ${items.length}`);
-        
+
         // Process and write data to sheet
         if (items.length > 0) {
           // Add board info to each item for identification
@@ -346,11 +339,9 @@ function syncMondayData() {
             item.boardName = boardConfig.boardName;
             item.boardId = boardConfig.boardId;
           });
-          
+
           writeDataToSheet(sheet, boardStructure, items, isFirstBoard, boardConfig);
           totalItems += items.length;
-        } else {
-          console.log(`No items found on board: ${boardConfig.boardName}`);
         }
         
         // Mark all boards as processed if this is the last board
@@ -472,12 +463,12 @@ function makeApiRequest(query) {
     muteHttpExceptions: true
   };
   
-  console.log('Making API request...');
+ // console.log('Making API request...');
   const response = UrlFetchApp.fetch(MONDAY_API_URL, options);
   const responseCode = response.getResponseCode();
   const responseText = response.getContentText();
   
-  console.log('Response code:', responseCode);
+ // console.log('Response code:', responseCode);
   
   if (responseCode !== 200) {
     console.error('HTTP Error:', responseCode);
@@ -548,26 +539,73 @@ function removeHourlyTrigger() {
 }
 
 function getGuidewireBoardConfigurations() {
-  return [
-    {
-      boardName: GW_BOARD_1_NAME,
-      partnerName: 'Guidewire',
-      boardId: GW_BOARD_1_ID,
-      targetSheetName: GW_MONDAY_SHEET_NAME
-    },
-    {
-      boardName: GW_BOARD_2_NAME,
-      partnerName: 'Guidewire',
-      boardId: GW_BOARD_2_ID,
-      targetSheetName: GW_MONDAY_SHEET_NAME
-    },
-    {
-      boardName: GW_BOARD_3_NAME,
-      partnerName: 'Guidewire',
-      boardId: GW_BOARD_3_ID,
-      targetSheetName: GW_MONDAY_SHEET_NAME
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const internalBoardsSheet = spreadsheet.getSheetByName('InternalBoards');
+
+    if (!internalBoardsSheet) {
+      console.error('InternalBoards sheet not found, using fallback configuration');
+      // Fallback to hardcoded values if sheet doesn't exist
+      return [
+        {
+          boardName: GW_BOARD_1_NAME,
+          partnerName: 'Guidewire',
+          boardId: GW_BOARD_1_ID,
+          targetSheetName: GW_MONDAY_SHEET_NAME
+        },
+        {
+          boardName: GW_BOARD_2_NAME,
+          partnerName: 'Guidewire',
+          boardId: GW_BOARD_2_ID,
+          targetSheetName: GW_MONDAY_SHEET_NAME
+        },
+        {
+          boardName: GW_BOARD_3_NAME,
+          partnerName: 'Guidewire',
+          boardId: GW_BOARD_3_ID,
+          targetSheetName: GW_MONDAY_SHEET_NAME
+        }
+      ];
     }
-  ];
+
+    const data = internalBoardsSheet.getDataRange().getValues();
+
+    if (data.length < 2) {
+      console.error('InternalBoards sheet has no data, using fallback configuration');
+      return [];
+    }
+
+    const headers = data[0];
+    const boardNameIndex = headers.indexOf('BoardName');
+    const idIndex = headers.indexOf('ID');
+
+    if (boardNameIndex === -1 || idIndex === -1) {
+      console.error('InternalBoards sheet missing required columns (BoardName, ID)');
+      return [];
+    }
+
+    const boards = [];
+    for (let i = 1; i < data.length; i++) {
+      const boardName = data[i][boardNameIndex];
+      const boardId = data[i][idIndex];
+
+      if (boardName && boardId) {
+        boards.push({
+          boardName: String(boardName).trim(),
+          partnerName: 'Guidewire',
+          boardId: String(boardId).trim(),
+          targetSheetName: GW_MONDAY_SHEET_NAME
+        });
+      }
+    }
+
+    console.log(`Loaded ${boards.length} internal boards from InternalBoards sheet for sync`);
+    return boards;
+
+  } catch (error) {
+    console.error('Error reading InternalBoards sheet:', error);
+    return [];
+  }
 }
 
 /**
