@@ -37,23 +37,26 @@ function getBoardStructure(boardId = BOARD_ID) {
 
 /**
  * Get all items from the board with pagination
+ * No artificial limits - fetches all items using cursor-based pagination
  */
 function getAllBoardItems(boardId = BOARD_ID) {
   let allItems = [];
   let cursor = null;
   let hasMore = true;
   let pageCount = 0;
-  
+  const MAX_ITEMS = 10000; // Safety limit to prevent infinite loops
+  const PAGE_SIZE = 100; // Larger page size for faster fetching
+
   console.log(`Starting to fetch all board items for board ${boardId}...`);
-  
-  while (hasMore && allItems.length < 200) { // Stop at 200 as a safety measure
+
+  while (hasMore && allItems.length < MAX_ITEMS) {
     pageCount++;
     console.log(`\nFetching page ${pageCount} for board ${boardId}...`);
-    
-    // Query without subitems - using a smaller page size for better control
-    const query = cursor ? 
-      `query { next_items_page(cursor: "${cursor}", limit: 25) { cursor items { id name group { id title } column_values { id type text value } assets { id name url public_url } } } }` :
-      `query { boards(ids: [${boardId}]) { items_page(limit: 25) { cursor items { id name group { id title } column_values { id type text value } assets { id name url public_url } } } } }`;
+
+    // Query without subitems - using larger page size for efficiency
+    const query = cursor ?
+      `query { next_items_page(cursor: "${cursor}", limit: ${PAGE_SIZE}) { cursor items { id name group { id title } column_values { id type text value } assets { id name url public_url } } } }` :
+      `query { boards(ids: [${boardId}]) { items_page(limit: ${PAGE_SIZE}) { cursor items { id name group { id title } column_values { id type text value } assets { id name url public_url } } } } }`;
     
     try {
       const response = makeApiRequest(query);
