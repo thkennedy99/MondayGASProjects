@@ -1111,7 +1111,7 @@
     function App() {
       // Determine initial tab based on boardId from URL
       const getInitialTab = () => {
-        if (editBoardIdFromUrl === MARKETING_CALENDAR_BOARD_ID) {
+        if (String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID) {
           return 'calendar';
         }
         return 'approvals';
@@ -1132,10 +1132,10 @@
 
       // Debug logging for deep link
       useEffect(() => {
-        console.log('App: editItemIdFromUrl =', editItemIdFromUrl);
-        console.log('App: editBoardIdFromUrl =', editBoardIdFromUrl);
+        console.log('App: editItemIdFromUrl =', editItemIdFromUrl, typeof editItemIdFromUrl);
+        console.log('App: editBoardIdFromUrl =', editBoardIdFromUrl, typeof editBoardIdFromUrl);
         console.log('App: MARKETING_APPROVAL_BOARD_ID =', MARKETING_APPROVAL_BOARD_ID);
-        console.log('App: Board ID match for approvals?', editBoardIdFromUrl === MARKETING_APPROVAL_BOARD_ID);
+        console.log('App: Board ID match for approvals?', String(editBoardIdFromUrl) === MARKETING_APPROVAL_BOARD_ID);
         console.log('App: autoEditItemId state =', autoEditItemId);
       }, []);
 
@@ -1231,7 +1231,7 @@
                     filterOptions={filterOptions.approvalFilters || {}}
                     columns={approvalColumns}
                     onRefresh={loadData}
-                    autoEditItemId={editBoardIdFromUrl === MARKETING_APPROVAL_BOARD_ID ? autoEditItemId : null}
+                    autoEditItemId={String(editBoardIdFromUrl) === MARKETING_APPROVAL_BOARD_ID ? autoEditItemId : null}
                     onAutoEditHandled={handleAutoEditHandled}
                   />
                 )}
@@ -1241,7 +1241,7 @@
                     filterOptions={filterOptions.calendarFilters || {}}
                     columns={calendarColumns}
                     onRefresh={loadData}
-                    autoEditItemId={editBoardIdFromUrl === MARKETING_CALENDAR_BOARD_ID ? autoEditItemId : null}
+                    autoEditItemId={String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID ? autoEditItemId : null}
                     onAutoEditHandled={handleAutoEditHandled}
                   />
                 )}
