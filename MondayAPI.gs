@@ -1678,8 +1678,11 @@ function syncMarketingApprovalBoard() {
   try {
     console.log('Starting Marketing Approval Board sync...');
 
-    const boardId = CONFIG.MARKETING_APPROVAL_BOARD_ID;
-    const targetSheetName = CONFIG.MARKETING_APPROVAL_SHEET_NAME || 'MarketingApproval';
+    // Use the global constants from main.gs
+    const boardId = MARKETING_APPROVAL_BOARD_ID;  // '9710279044'
+    const targetSheetName = MARKETING_APPROVAL_SHEET_NAME || 'MarketingApproval';
+
+    console.log(`Using board ID: ${boardId}, target sheet: ${targetSheetName}`);
 
     // Get or create the target sheet
     const targetSheet = getOrCreateSheet(targetSheetName);
@@ -1731,8 +1734,11 @@ function syncMarketingCalendarBoard() {
   try {
     console.log('Starting Marketing Calendar Board sync...');
 
-    const boardId = CONFIG.MARKETING_CALENDAR_BOARD_ID;
-    const targetSheetName = CONFIG.MARKETING_CALENDAR_SHEET_NAME || 'MarketingCalendar';
+    // Use the global constants from main.gs
+    const boardId = MARKETING_CALENDAR_BOARD_ID;  // '9770467355'
+    const targetSheetName = MARKETING_CALENDAR_SHEET_NAME || 'MarketingCalendar';
+
+    console.log(`Using board ID: ${boardId}, target sheet: ${targetSheetName}`);
 
     // Get or create the target sheet
     const targetSheet = getOrCreateSheet(targetSheetName);
