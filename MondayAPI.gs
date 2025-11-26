@@ -333,13 +333,7 @@ class MondayAPI {
 
             if (activeLabelId) {
               console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
-              // For default status column (ID: "status"), use index format
-              // For other status/color columns, use label format
-              if (columnId === 'status') {
-                const result = { index: parseInt(activeLabelId) };
-                console.log(`Debug: Using INDEX format for default status column: ${JSON.stringify(result)}`);
-                return result;
-              }
+              // Always use label format for all status columns (more reliable across Monday.com API versions)
               const result = { label: value };
               console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
               return result;
@@ -355,14 +349,8 @@ class MondayAPI {
               return null;
             }
             // Single match and not deactivated
-            // For default status column (ID: "status"), use index format
-            // For other status/color columns, use label format
+            // Always use label format for all status columns (more reliable across Monday.com API versions)
             console.log(`Debug: Using label "${value}" (ID: ${labelId}) for status column`);
-            if (columnId === 'status') {
-              const result = { index: parseInt(labelId) };
-              console.log(`Debug: Using INDEX format for default status column: ${JSON.stringify(result)}`);
-              return result;
-            }
             const result = { label: value };
             console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
             return result;
@@ -1276,8 +1264,7 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         const emailResult = sendMarketingApprovalNotification({
           itemName: itemName,
           columnValues: columnValues,
-          boardId: boardId,
-          itemId: newItemId
+          boardId: boardId
         });
 
         if (emailResult.success) {
@@ -1290,8 +1277,7 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         const emailResult = sendMarketingCalendarNotification({
           itemName: itemName,
           columnValues: columnValues,
-          boardId: boardId,
-          itemId: newItemId
+          boardId: boardId
         });
 
         if (emailResult.success) {
