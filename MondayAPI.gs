@@ -333,8 +333,9 @@ class MondayAPI {
 
             if (activeLabelId) {
               console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
-              // Always use label format for all status columns (more reliable across Monday.com API versions)
-              const result = { label: value };
+              // MUST use index format when there are duplicate labels (one deactivated, one active)
+              // Using label format would match the deactivated one first
+              const result = { index: parseInt(activeLabelId) };
               console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
               return result;
             } else {
@@ -348,8 +349,7 @@ class MondayAPI {
               console.warn(`Label "${value}" (ID: ${labelId}) is deactivated`);
               return null;
             }
-            // Single match and not deactivated
-            // Always use label format for all status columns (more reliable across Monday.com API versions)
+            // Single match and not deactivated - safe to use label format
             console.log(`Debug: Using label "${value}" (ID: ${labelId}) for status column`);
             const result = { label: value };
             console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
