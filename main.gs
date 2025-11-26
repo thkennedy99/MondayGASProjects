@@ -336,6 +336,92 @@ function clearMarketingCaches() {
 }
 
 /**
+ * Clear all activity-related caches (partner and internal activities)
+ * This ensures that fresh data is loaded after syncing from Monday.com
+ */
+function clearActivityCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    // Activity caches use pattern: activity_${type}_${manager}_${hash}
+    // Since we can't predict all hash values, we need to clear by pattern
+    // However, GAS doesn't support pattern-based removal, so we track common patterns
+
+    managers.forEach(managerEmail => {
+      // Clear partner activity caches (various pagination/filter combinations)
+      // We'll clear the most common patterns
+      for (let page = 1; page <= 10; page++) {
+        cacheKeysToRemove.push(`activity_partner_${managerEmail}_page${page}`);
+        cacheKeysToRemove.push(`activity_internal_${managerEmail}_page${page}`);
+      }
+      // Also try common hash patterns (these are the default/common requests)
+      cacheKeysToRemove.push(`activity_partner_${managerEmail}_recent`);
+      cacheKeysToRemove.push(`activity_internal_${managerEmail}_recent`);
+    });
+
+    // Remove all cache keys
+    if (cacheKeysToRemove.length > 0) {
+      // GAS removeAll can handle up to ~100 keys, so batch if needed
+      const batchSize = 100;
+      for (let i = 0; i < cacheKeysToRemove.length; i += batchSize) {
+        const batch = cacheKeysToRemove.slice(i, i + batchSize);
+        cache.removeAll(batch);
+      }
+      console.log(`Cleared ${cacheKeysToRemove.length} activity cache keys`);
+    }
+
+    console.log('Activity caches cleared successfully');
+
+  } catch (error) {
+    console.error('Error clearing activity caches:', error);
+  }
+}
+
+/**
+ * Clear partner heatmap caches
+ * This ensures that fresh data is loaded after syncing from Monday.com
+ */
+function clearHeatmapCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      cacheKeysToRemove.push(`heatmap_${managerEmail}`);
+    });
+
+    // Also clear any general heatmap cache keys
+    cacheKeysToRemove.push('heatmap_all');
+    cacheKeysToRemove.push('partner_heatmap_all');
+
+    if (cacheKeysToRemove.length > 0) {
+      cache.removeAll(cacheKeysToRemove);
+      console.log(`Cleared ${cacheKeysToRemove.length} heatmap cache keys`);
+    }
+
+    console.log('Heatmap caches cleared successfully');
+
+  } catch (error) {
+    console.error('Error clearing heatmap caches:', error);
+  }
+}
+
+/**
+ * Clear ALL data caches (marketing, activities, heatmap)
+ * Call this for comprehensive cache invalidation
+ */
+function clearAllDataCaches() {
+  console.log('Clearing all data caches...');
+  clearMarketingCaches();
+  clearActivityCaches();
+  clearHeatmapCaches();
+  console.log('All data caches cleared');
+}
+
+/**
  * Main function to sync Monday.com data to Google Sheets (Dashboard first, then Data)
  */
 function syncMondayData() {
@@ -434,9 +520,14 @@ function syncMondayData() {
     console.log(`Marketing boards synced separately`);
 
    // STAGE 4: Sync Guidewire Boards
-    syncGuidewireBoards();   
- 
-    
+    syncGuidewireBoards();
+
+    // Clear partner activity and heatmap caches after sync
+    // (Marketing and GW caches are cleared in their respective sync functions)
+    console.log('\n=== Clearing Partner Activity and Heatmap Caches ===');
+    clearActivityCaches();
+    clearHeatmapCaches();
+
   } catch (error) {
     console.error('Error syncing Monday data:', error);
   //  SpreadsheetApp.getUi().alert('Error: ' + error.toString());
@@ -761,6 +852,10 @@ function syncGuidewireBoards() {
     } else {
       console.log('No items found on any Guidewire boards');
     }
+
+    // Clear internal activity caches after GW boards sync
+    console.log('Clearing internal activity caches...');
+    clearActivityCaches();
 
   } catch (error) {
     console.error('Error syncing Guidewire boards:', error);

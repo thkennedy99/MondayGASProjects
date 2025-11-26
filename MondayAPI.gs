@@ -889,19 +889,23 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
     // Update using the Monday API
     const result = monday.updateMultipleColumns(boardId, itemId, columnValues);
 
-    // Clear marketing caches when a marketing item is updated
+    // Clear relevant caches when an item is updated
     // This ensures fresh data is loaded after the sync
     try {
       const MARKETING_APPROVAL_BOARD_ID = '9710279044';
       const MARKETING_CALENDAR_BOARD_ID = '9770467355';
+      const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224'];
 
       if (boardId === MARKETING_APPROVAL_BOARD_ID || boardId === MARKETING_CALENDAR_BOARD_ID) {
         console.log('Clearing marketing caches after item update...');
         clearMarketingCaches();
+      } else if (GW_BOARD_IDS.includes(boardId)) {
+        console.log('Clearing activity caches after GW item update...');
+        clearActivityCaches();
       }
     } catch (cacheError) {
       // Log cache error but don't fail the update
-      console.error('Error clearing marketing caches:', cacheError);
+      console.error('Error clearing caches:', cacheError);
     }
 
     return { success: true, result: DataService.ensureSerializable(result) };
@@ -1308,6 +1312,25 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
       // Log email error but don't fail the item creation
       console.error('Error sending notification email:', emailError);
       console.error('Item was created successfully, but email notification failed');
+    }
+
+    // Clear relevant caches when an item is created
+    // This ensures fresh data is loaded after the sync
+    try {
+      const MARKETING_APPROVAL_BOARD_ID = '9710279044';
+      const MARKETING_CALENDAR_BOARD_ID = '9770467355';
+      const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224'];
+
+      if (boardId === MARKETING_APPROVAL_BOARD_ID || boardId === MARKETING_CALENDAR_BOARD_ID) {
+        console.log('Clearing marketing caches after item creation...');
+        clearMarketingCaches();
+      } else if (GW_BOARD_IDS.includes(boardId)) {
+        console.log('Clearing activity caches after GW item creation...');
+        clearActivityCaches();
+      }
+    } catch (cacheError) {
+      // Log cache error but don't fail the item creation
+      console.error('Error clearing caches:', cacheError);
     }
 
     return { success: true, itemId: newItemId };
