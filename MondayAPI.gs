@@ -734,9 +734,11 @@ function deleteMondayItem(itemId, boardId) {
           syncMarketingCalendarBoard();
           console.log('Marketing Calendar board sync complete');
         } else if (GW_BOARD_IDS.includes(boardId)) {
-          console.log('Syncing Internal Activities (GW boards) after item deletion...');
-          syncInternalActivitiesData();
-          console.log('Internal Activities sync complete');
+          // Sync only the specific GW board that was affected
+          console.log(`Syncing single GW board ${boardId} after item deletion...`);
+          syncSingleGWBoard(boardId);
+          aggregateGWBoardsToMain();
+          console.log('GW board sync complete');
         } else if (boardId === PARTNER_BOARD_ID) {
           // For partner board, sync just the partner activities
           console.log('Syncing Partner Activities board after item deletion...');
@@ -934,9 +936,11 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
         syncMarketingCalendarBoard();
         console.log('Marketing Calendar board sync complete');
       } else if (GW_BOARD_IDS.includes(boardId)) {
-        console.log('Syncing Internal Activities (GW boards) after item update...');
-        syncInternalActivitiesData();
-        console.log('Internal Activities sync complete');
+        // Sync only the specific GW board that was affected
+        console.log(`Syncing single GW board ${boardId} after item update...`);
+        syncSingleGWBoard(boardId);
+        aggregateGWBoardsToMain();
+        console.log('GW board sync complete');
       } else if (boardId === PARTNER_BOARD_ID) {
         // For partner board, sync just the partner activities
         console.log('Syncing Partner Activities board after item update...');
@@ -1367,9 +1371,11 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         syncMarketingCalendarBoard();
         console.log('Marketing Calendar board sync complete');
       } else if (GW_BOARD_IDS.includes(boardId)) {
-        console.log('Syncing Internal Activities (GW boards) after item creation...');
-        syncInternalActivitiesData();
-        console.log('Internal Activities sync complete');
+        // Sync only the specific GW board that was affected
+        console.log(`Syncing single GW board ${boardId} after item creation...`);
+        syncSingleGWBoard(boardId);
+        aggregateGWBoardsToMain();
+        console.log('GW board sync complete');
       } else if (boardId === PARTNER_BOARD_ID) {
         // For partner board, sync just the partner activities
         console.log('Syncing Partner Activities board after item creation...');
@@ -1800,6 +1806,143 @@ function syncInternalActivitiesData() {
     return { success: true };
   } catch (error) {
     console.error('Error syncing Internal Activities:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sync a single GW board to its individual sheet tab
+ * @param {string} boardId - The GW board ID to sync
+ * @returns {Object} Result with success status
+ */
+function syncSingleGWBoard(boardId) {
+  try {
+    const sheetName = GW_BOARD_SHEET_MAP[boardId];
+    const boardName = GW_BOARD_NAME_MAP[boardId];
+
+    if (!sheetName) {
+      throw new Error(`Unknown GW board ID: ${boardId}`);
+    }
+
+    console.log(`Syncing GW board ${boardId} (${boardName}) to sheet ${sheetName}...`);
+
+    // Get or create the target sheet
+    const targetSheet = getOrCreateSheet(sheetName);
+
+    // Clear existing data from row 2 onwards
+    clearSheetData(targetSheet);
+
+    // Get board structure (columns)
+    const boardStructure = getBoardStructure(boardId);
+    console.log(`Board: ${boardStructure.name}, Columns: ${boardStructure.columns.length}`);
+
+    // Get all items from the board
+    const items = getAllBoardItems(boardId);
+    console.log(`Items retrieved: ${items.length}`);
+
+    // Process and write data to sheet
+    if (items.length > 0) {
+      items.forEach(item => {
+        item.boardName = boardName;
+        item.boardId = boardId;
+      });
+
+      writeDataToSheet(targetSheet, boardStructure, items, true, {
+        boardName: boardName,
+        boardId: boardId,
+        targetSheetName: sheetName
+      });
+    }
+
+    console.log(`GW board ${boardId} sync complete - ${items.length} items`);
+    return { success: true, itemCount: items.length };
+
+  } catch (error) {
+    console.error(`Error syncing GW board ${boardId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Aggregate all individual GW board sheets into GWMondayData
+ * Call this after syncing individual boards if you need the combined view
+ */
+function aggregateGWBoardsToMain() {
+  try {
+    console.log('Aggregating individual GW board sheets to GWMondayData...');
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const mainSheet = getOrCreateSheet(GW_MONDAY_SHEET_NAME);
+
+    // Clear the main sheet
+    clearSheetData(mainSheet);
+
+    const allSheets = [GW_BOARD_1_SHEET, GW_BOARD_2_SHEET, GW_BOARD_3_SHEET, GW_BOARD_4_SHEET];
+    let isFirstSheet = true;
+    let totalRows = 0;
+
+    for (const sheetName of allSheets) {
+      const sourceSheet = spreadsheet.getSheetByName(sheetName);
+      if (!sourceSheet) {
+        console.log(`Sheet ${sheetName} not found, skipping`);
+        continue;
+      }
+
+      const lastRow = sourceSheet.getLastRow();
+      const lastCol = sourceSheet.getLastColumn();
+
+      if (lastRow < 1 || lastCol < 1) {
+        console.log(`Sheet ${sheetName} is empty, skipping`);
+        continue;
+      }
+
+      if (isFirstSheet) {
+        // Copy headers from first sheet
+        const headers = sourceSheet.getRange(1, 1, 1, lastCol).getValues();
+        mainSheet.getRange(1, 1, 1, lastCol).setValues(headers);
+        isFirstSheet = false;
+      }
+
+      if (lastRow > 1) {
+        // Copy data rows (skip header)
+        const data = sourceSheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+        const mainLastRow = mainSheet.getLastRow();
+        mainSheet.getRange(mainLastRow + 1, 1, data.length, lastCol).setValues(data);
+        totalRows += data.length;
+        console.log(`Copied ${data.length} rows from ${sheetName}`);
+      }
+    }
+
+    console.log(`Aggregation complete - ${totalRows} total rows in GWMondayData`);
+    return { success: true, totalRows: totalRows };
+
+  } catch (error) {
+    console.error('Error aggregating GW boards:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sync all individual GW board sheets (faster than syncing all at once)
+ * Then aggregate to GWMondayData
+ */
+function syncAllGWBoardsIndividually() {
+  try {
+    console.log('=== Syncing all GW boards individually ===');
+
+    // Sync each board to its individual sheet
+    for (const boardId of GW_BOARD_IDS) {
+      syncSingleGWBoard(boardId);
+    }
+
+    // Aggregate to main sheet
+    aggregateGWBoardsToMain();
+
+    console.log('=== All GW boards synced ===');
+    return { success: true };
+
+  } catch (error) {
+    console.error('Error syncing all GW boards:', error);
     throw error;
   }
 }

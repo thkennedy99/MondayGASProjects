@@ -24,16 +24,36 @@ const MARKETING_CALENDAR_BOARD_ID = '9770467355';
 const MARKETING_CALENDAR_SHEET_NAME = 'MarketingCalendar';
 const GW_BOARD_1_ID = '9791255941';
 const GW_BOARD_1_NAME = 'Partner Management Tracker';
+const GW_BOARD_1_SHEET = 'GW_PartnerMgmt';
 const GW_BOARD_2_ID = '9791272390';
 const GW_BOARD_2_NAME = 'Solution Ops Tracker';
+const GW_BOARD_2_SHEET = 'GW_SolutionOps';
 const GW_BOARD_3_ID = '18374691224';
 const GW_BOARD_3_NAME = 'Marketing Projects';
+const GW_BOARD_3_SHEET = 'GW_Marketing';
 const GW_BOARD_4_ID = '18375013360';
 const GW_BOARD_4_NAME = 'Compliance';
+const GW_BOARD_4_SHEET = 'GW_Compliance';
 const GW_MONDAY_SHEET_NAME = 'GWMondayData';
 
 // Array of all GW board IDs for easy lookup
 const GW_BOARD_IDS = [GW_BOARD_1_ID, GW_BOARD_2_ID, GW_BOARD_3_ID, GW_BOARD_4_ID];
+
+// Map of GW board IDs to their sheet names
+const GW_BOARD_SHEET_MAP = {
+  [GW_BOARD_1_ID]: GW_BOARD_1_SHEET,
+  [GW_BOARD_2_ID]: GW_BOARD_2_SHEET,
+  [GW_BOARD_3_ID]: GW_BOARD_3_SHEET,
+  [GW_BOARD_4_ID]: GW_BOARD_4_SHEET
+};
+
+// Map of GW board IDs to their names
+const GW_BOARD_NAME_MAP = {
+  [GW_BOARD_1_ID]: GW_BOARD_1_NAME,
+  [GW_BOARD_2_ID]: GW_BOARD_2_NAME,
+  [GW_BOARD_3_ID]: GW_BOARD_3_NAME,
+  [GW_BOARD_4_ID]: GW_BOARD_4_NAME
+};
 
 // Partner Activities board (MondayData)
 const PARTNER_BOARD_ID = '8463767815';
