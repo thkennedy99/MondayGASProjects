@@ -223,19 +223,15 @@
     const MARKETING_APPROVAL_BOARD_ID = '9710279044';
     const MARKETING_CALENDAR_BOARD_ID = '9770467355';
 
-    // Parse URL parameters
-    function getUrlParams() {
-      const params = {};
-      const searchParams = new URLSearchParams(window.location.search);
-      searchParams.forEach((value, key) => {
-        params[key] = value;
-      });
-      return params;
-    }
+    // Get configuration injected from server-side template
+    const appConfig = <?= appConfig ?>;
+    const editItemIdFromUrl = appConfig.editItemId || null;
+    const editBoardIdFromUrl = appConfig.editBoardId || null;
 
-    const urlParams = getUrlParams();
-    const editItemIdFromUrl = urlParams.editItemId || null;
-    const editBoardIdFromUrl = urlParams.editBoardId || null;
+    console.log('App config loaded:', appConfig);
+    if (editItemIdFromUrl) {
+      console.log('Deep link detected - editItemId:', editItemIdFromUrl, 'editBoardId:', editBoardIdFromUrl);
+    }
 
     // API wrapper for Google Apps Script calls
     const api = {

@@ -26,10 +26,15 @@ function doGet(e) {
     const params = {
       page: e.parameter.page || 'main',
       manager: e.parameter.manager || Session.getActiveUser().getEmail(),
-      token: e.parameter.token || null
+      token: e.parameter.token || null,
+      editItemId: e.parameter.editItemId || null,
+      editBoardId: e.parameter.editBoardId || null
     };
 
     console.log('doGet called with page:', params.page);
+    if (params.editItemId) {
+      console.log('Deep link edit request - itemId:', params.editItemId, 'boardId:', params.editBoardId);
+    }
 
     // Initialize session
     const session = initializeSession(params.manager, params.token);
@@ -53,7 +58,9 @@ function doGet(e) {
       environment: CONFIG.DEBUG_MODE ? 'development' : 'production',
       version: CONFIG.VERSION,
       apiEndpoint: CONFIG.MONDAY_API_URL,
-      page: params.page
+      page: params.page,
+      editItemId: params.editItemId,
+      editBoardId: params.editBoardId
     });
 
     // Return HTML output
