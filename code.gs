@@ -23,17 +23,32 @@ const CONFIG = {
  */
 function doGet(e) {
   try {
+    // Get raw manager parameter from webhook (could be name or email)
+    const rawManager = e.parameter.manager || '';
+
+    // Convert manager name to email if needed
+    // Webhook passes name like "Tim Kennedy", need to look up email
+    let managerEmail = '';
+    if (rawManager) {
+      if (rawManager.includes('@')) {
+        // Already an email - normalize to lowercase
+        managerEmail = rawManager.trim().toLowerCase();
+      } else {
+        // It's a name - look up the email
+        managerEmail = getManagerEmailByName(rawManager);
+        console.log(`Converted manager name "${rawManager}" to email "${managerEmail}"`);
+      }
+    }
+
     const params = {
       page: e.parameter.page || 'main',
-      // Manager selection is now handled by UI dropdown - don't use Session.getActiveUser()
-      // which returns developer email when "Execute as: Me" is set
-      manager: e.parameter.manager || '',
+      manager: managerEmail,
       token: e.parameter.token || null,
       editItemId: e.parameter.editItemId || null,
       editBoardId: e.parameter.editBoardId || null
     };
 
-    console.log('doGet called with page:', params.page);
+    console.log('doGet called with page:', params.page, 'manager:', params.manager);
     if (params.editItemId) {
       console.log('Deep link edit request - itemId:', params.editItemId, 'boardId:', params.editBoardId);
     }
