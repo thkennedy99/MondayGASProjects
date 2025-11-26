@@ -9,6 +9,7 @@
  * @param {string} itemDetails.itemName - Name of the item
  * @param {Object} itemDetails.columnValues - Column values from the form
  * @param {string} itemDetails.boardId - Board ID
+ * @param {string} itemDetails.itemId - Monday Item ID
  * @returns {Object} Result of email send operation
  */
 function sendMarketingApprovalNotification(itemDetails) {
@@ -90,7 +91,12 @@ function sendMarketingCalendarNotification(itemDetails) {
  * Uses Guidewire brand colors: Blue (#00739d), Navy (#034e6a)
  */
 function buildMarketingApprovalEmailHtml(itemDetails) {
-  const { itemName, columnValues } = itemDetails;
+  const { itemName, columnValues, boardId, itemId } = itemDetails;
+
+  // Build Monday.com link to open item in the board view
+  const mondayBoardUrl = itemId
+    ? `https://guidewire-technology-alliances.monday.com/boards/${boardId || '9710279044'}/views/207296946/pulses/${itemId}`
+    : `https://guidewire-technology-alliances.monday.com/boards/${boardId || '9710279044'}/views/207296946`;
   const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMMM d, yyyy');
 
   // Build item details table
@@ -179,6 +185,15 @@ function buildMarketingApprovalEmailHtml(itemDetails) {
                   ${itemName}
                 </h2>
               </div>
+            </td>
+          </tr>
+
+          <!-- View in Monday Button -->
+          <tr>
+            <td style="padding: 0 30px 20px 30px; text-align: center;">
+              <a href="${mondayBoardUrl}" style="display: inline-block; background: linear-gradient(135deg, #00739d 0%, #034e6a 100%); color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+                📋 View Request in Monday.com
+              </a>
             </td>
           </tr>
 

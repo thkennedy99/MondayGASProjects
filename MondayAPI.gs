@@ -1276,7 +1276,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         const emailResult = sendMarketingApprovalNotification({
           itemName: itemName,
           columnValues: columnValues,
-          boardId: boardId
+          boardId: boardId,
+          itemId: newItemId
         });
 
         if (emailResult.success) {
@@ -1289,7 +1290,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         const emailResult = sendMarketingCalendarNotification({
           itemName: itemName,
           columnValues: columnValues,
-          boardId: boardId
+          boardId: boardId,
+          itemId: newItemId
         });
 
         if (emailResult.success) {
