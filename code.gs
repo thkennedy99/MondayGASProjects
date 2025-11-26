@@ -51,8 +51,7 @@ function doGet(e) {
     // Create HTML template
     const template = HtmlService.createTemplateFromFile(templateName);
 
-    // Inject configuration
-    template.appConfig = JSON.stringify({
+     const configData = {
       user: session.user,
       token: session.token,
       environment: CONFIG.DEBUG_MODE ? 'development' : 'production',
@@ -61,7 +60,12 @@ function doGet(e) {
       page: params.page,
       editItemId: params.editItemId,
       editBoardId: params.editBoardId
-    });
+    };
+
+    // Assign as string (legacy support)
+    template.appConfig = JSON.stringify(configData);
+    // Assign as raw object (for safer template injection)
+    template.configData = configData;
 
     // Return HTML output
     return template.evaluate()
@@ -72,10 +76,7 @@ function doGet(e) {
 
   } catch (error) {
     console.error('Error in doGet:', error);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    // Return more detailed error for debugging
-    return createErrorResponse('Application initialization failed: ' + error.message, 500);
+    return createErrorResponse('Application initialization failed', 500);
   }
 }
 
