@@ -1270,6 +1270,7 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
     console.log('New Item ID:', newItemId);
 
     // Send email notifications for Marketing boards
+     // Send email notifications for Marketing boards
     try {
       const MARKETING_APPROVAL_BOARD_ID = '9710279044';
       const MARKETING_CALENDAR_BOARD_ID = '9770467355';
@@ -1279,7 +1280,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         const emailResult = sendMarketingApprovalNotification({
           itemName: itemName,
           columnValues: columnValues,
-          boardId: boardId
+          boardId: boardId,
+          itemId: newItemId
         });
 
         if (emailResult.success) {
@@ -1292,7 +1294,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         const emailResult = sendMarketingCalendarNotification({
           itemName: itemName,
           columnValues: columnValues,
-          boardId: boardId
+          boardId: boardId,
+          itemId: newItemId
         });
 
         if (emailResult.success) {
@@ -1305,21 +1308,6 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
       // Log email error but don't fail the item creation
       console.error('Error sending notification email:', emailError);
       console.error('Item was created successfully, but email notification failed');
-    }
-
-    // Clear marketing caches when a marketing item is created
-    // This ensures fresh data is loaded after the sync
-    try {
-      const MARKETING_APPROVAL_BOARD_ID = '9710279044';
-      const MARKETING_CALENDAR_BOARD_ID = '9770467355';
-
-      if (boardId === MARKETING_APPROVAL_BOARD_ID || boardId === MARKETING_CALENDAR_BOARD_ID) {
-        console.log('Clearing marketing caches after item creation...');
-        clearMarketingCaches();
-      }
-    } catch (cacheError) {
-      // Log cache error but don't fail the item creation
-      console.error('Error clearing marketing caches:', cacheError);
     }
 
     return { success: true, itemId: newItemId };
