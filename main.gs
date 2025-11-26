@@ -283,11 +283,55 @@ function syncMarketingBoards() {
       }
     }
     
+    // Clear marketing caches to ensure fresh data is loaded after sync
+    clearMarketingCaches();
+
     console.log('Marketing boards sync complete');
-    
+
   } catch (error) {
     console.error('Error syncing marketing boards:', error);
    // SpreadsheetApp.getUi().alert('Error syncing marketing boards: ' + error.toString());
+  }
+}
+
+/**
+ * Clear all marketing-related caches (approvals and calendar)
+ * This ensures that fresh data is loaded after syncing from Monday.com
+ */
+function clearMarketingCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+
+    // Get list of all managers to clear their specific cache keys
+    const managers = getManagerList();
+
+    // Build list of cache keys to clear
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      // Clear marketing approvals cache for each manager
+      cacheKeysToRemove.push(`marketing_approvals_${managerEmail}`);
+      // Clear marketing calendar cache for each manager
+      cacheKeysToRemove.push(`marketing_calendar_${managerEmail}`);
+    });
+
+    // Also clear any general marketing cache keys
+    cacheKeysToRemove.push('marketing_approvals_all');
+    cacheKeysToRemove.push('marketing_calendar_all');
+    cacheKeysToRemove.push('all_marketing_approvals');
+    cacheKeysToRemove.push('all_marketing_calendar');
+
+    // Remove all cache keys (GAS allows removing up to 100 keys at once)
+    if (cacheKeysToRemove.length > 0) {
+      cache.removeAll(cacheKeysToRemove);
+      console.log(`Cleared ${cacheKeysToRemove.length} marketing cache keys`);
+    }
+
+    console.log('Marketing caches cleared successfully');
+
+  } catch (error) {
+    console.error('Error clearing marketing caches:', error);
+    // Don't throw - cache clearing failure shouldn't break the sync
   }
 }
 
