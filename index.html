@@ -4626,13 +4626,58 @@
         // Main App Component
           const App = () => {
               const [darkMode, setDarkMode] = useState(false);
-              const [currentManager, setCurrentManager] = useState(window.appConfig?.user || '');
+              const [currentManager, setCurrentManager] = useState('');
+              const [managerList, setManagerList] = useState([]);
+              const [loadingManagers, setLoadingManagers] = useState(true);
               const [loading, setLoading] = useState(false);
-              
+
+              // Load manager list on mount
+              useEffect(() => {
+                  google.script.run
+                      .withSuccessHandler((managers) => {
+                          console.log('Manager list loaded:', managers);
+                          setManagerList(managers || []);
+                          setLoadingManagers(false);
+
+                          // Try to restore saved manager from localStorage
+                          try {
+                              const savedManager = localStorage.getItem('selectedManager');
+                              if (savedManager && managers && managers.includes(savedManager)) {
+                                  setCurrentManager(savedManager);
+                              } else if (managers && managers.length > 0) {
+                                  // Default to first manager if no saved selection
+                                  setCurrentManager(managers[0]);
+                              }
+                          } catch (e) {
+                              if (managers && managers.length > 0) {
+                                  setCurrentManager(managers[0]);
+                              }
+                          }
+                      })
+                      .withFailureHandler((error) => {
+                          console.error('Error loading managers:', error);
+                          setLoadingManagers(false);
+                          // Fall back to appConfig user if manager list fails
+                          setCurrentManager(window.appConfig?.user || '');
+                      })
+                      .getManagerList();
+              }, []);
+
+              // Save manager selection to localStorage
+              useEffect(() => {
+                  if (currentManager) {
+                      try {
+                          localStorage.setItem('selectedManager', currentManager);
+                      } catch (e) {
+                          // Handle localStorage errors
+                      }
+                  }
+              }, [currentManager]);
+
               useEffect(() => {
                   // Apply dark mode
                   document.documentElement.setAttribute('data-bs-theme', darkMode ? 'dark' : 'light');
-                  
+
                   // Save preference
                   try {
                       localStorage.setItem('darkMode', darkMode);
@@ -4640,7 +4685,7 @@
                       // Handle localStorage errors
                   }
               }, [darkMode]);
-              
+
               useEffect(() => {
                   // Load dark mode preference
                   try {
@@ -4650,17 +4695,24 @@
                       // Handle localStorage errors
                   }
               }, []);
-              
+
               const toggleDarkMode = () => {
                   setDarkMode(!darkMode);
               };
-              
+
+              const handleManagerChange = (e) => {
+                  const newManager = e.target.value;
+                  setCurrentManager(newManager);
+                  // Reload the page with new manager to refresh all data
+                  // Or trigger a refresh of all child components
+              };
+
               const handleRefresh = async () => {
                   setLoading(true);
                   // Trigger refresh in child components
                   setTimeout(() => setLoading(false), 1000);
               };
-              
+
               return (
                   <AppContext.Provider value={{ currentManager, darkMode }}>
                       <div className="app-container">
@@ -4672,10 +4724,31 @@
                                       Alliance Manager Portal
                                   </a>
                                   <div className="d-flex align-items-center gap-3">
-                                      <span className="text-white small">
-                                          {currentManager}
-                                      </span>
-                                      <button 
+                                      {/* Manager Selector Dropdown */}
+                                      <div className="d-flex align-items-center">
+                                          <label className="text-white small me-2" htmlFor="managerSelect">
+                                              <i className="bi bi-person-circle me-1"></i>
+                                              Manager:
+                                          </label>
+                                          {loadingManagers ? (
+                                              <span className="text-white-50 small">Loading...</span>
+                                          ) : (
+                                              <select
+                                                  id="managerSelect"
+                                                  className="form-select form-select-sm"
+                                                  style={{ minWidth: '200px', maxWidth: '300px' }}
+                                                  value={currentManager}
+                                                  onChange={handleManagerChange}
+                                              >
+                                                  {managerList.map((manager) => (
+                                                      <option key={manager} value={manager}>
+                                                          {manager}
+                                                      </option>
+                                                  ))}
+                                              </select>
+                                          )}
+                                      </div>
+                                      <button
                                           className="theme-toggle"
                                           onClick={toggleDarkMode}
                                           title={darkMode ? 'Light Mode' : 'Dark Mode'}

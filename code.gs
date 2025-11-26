@@ -25,7 +25,9 @@ function doGet(e) {
   try {
     const params = {
       page: e.parameter.page || 'main',
-      manager: e.parameter.manager || Session.getActiveUser().getEmail(),
+      // Manager selection is now handled by UI dropdown - don't use Session.getActiveUser()
+      // which returns developer email when "Execute as: Me" is set
+      manager: e.parameter.manager || '',
       token: e.parameter.token || null,
       editItemId: e.parameter.editItemId || null,
       editBoardId: e.parameter.editBoardId || null
