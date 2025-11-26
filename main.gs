@@ -338,6 +338,91 @@ function clearMarketingCaches() {
 }
 
 /**
+ * Clear only Marketing Approval caches
+ * Use this for targeted cache invalidation when only approvals are affected
+ */
+function clearMarketingApprovalCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      cacheKeysToRemove.push(`marketing_approvals_${managerEmail}`);
+    });
+
+    cacheKeysToRemove.push('marketing_approvals_all');
+    cacheKeysToRemove.push('all_marketing_approvals');
+
+    if (cacheKeysToRemove.length > 0) {
+      cache.removeAll(cacheKeysToRemove);
+      console.log(`Cleared ${cacheKeysToRemove.length} marketing approval cache keys`);
+    }
+
+  } catch (error) {
+    console.error('Error clearing marketing approval caches:', error);
+  }
+}
+
+/**
+ * Clear only Marketing Calendar caches
+ * Use this for targeted cache invalidation when only calendar is affected
+ */
+function clearMarketingCalendarCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      cacheKeysToRemove.push(`marketing_calendar_${managerEmail}`);
+    });
+
+    cacheKeysToRemove.push('marketing_calendar_all');
+    cacheKeysToRemove.push('all_marketing_calendar');
+
+    if (cacheKeysToRemove.length > 0) {
+      cache.removeAll(cacheKeysToRemove);
+      console.log(`Cleared ${cacheKeysToRemove.length} marketing calendar cache keys`);
+    }
+
+  } catch (error) {
+    console.error('Error clearing marketing calendar caches:', error);
+  }
+}
+
+/**
+ * Clear only Internal Activity caches (GW boards)
+ * Use this for targeted cache invalidation when only internal activities are affected
+ */
+function clearInternalActivityCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      for (let page = 1; page <= 10; page++) {
+        cacheKeysToRemove.push(`activity_internal_${managerEmail}_page${page}`);
+      }
+      cacheKeysToRemove.push(`activity_internal_${managerEmail}_recent`);
+    });
+
+    if (cacheKeysToRemove.length > 0) {
+      const batchSize = 100;
+      for (let i = 0; i < cacheKeysToRemove.length; i += batchSize) {
+        const batch = cacheKeysToRemove.slice(i, i + batchSize);
+        cache.removeAll(batch);
+      }
+      console.log(`Cleared ${cacheKeysToRemove.length} internal activity cache keys`);
+    }
+
+  } catch (error) {
+    console.error('Error clearing internal activity caches:', error);
+  }
+}
+
+/**
  * Clear all activity-related caches (partner and internal activities)
  * This ensures that fresh data is loaded after syncing from Monday.com
  */

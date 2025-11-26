@@ -889,19 +889,22 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
     // Update using the Monday API
     const result = monday.updateMultipleColumns(boardId, itemId, columnValues);
 
-    // Clear relevant caches when an item is updated
-    // This ensures fresh data is loaded after the sync
+    // Clear only the specific cache type for the board where item was updated
+    // This is more efficient than clearing all caches
     try {
       const MARKETING_APPROVAL_BOARD_ID = '9710279044';
       const MARKETING_CALENDAR_BOARD_ID = '9770467355';
       const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
 
-      if (boardId === MARKETING_APPROVAL_BOARD_ID || boardId === MARKETING_CALENDAR_BOARD_ID) {
-        console.log('Clearing marketing caches after item update...');
-        clearMarketingCaches();
+      if (boardId === MARKETING_APPROVAL_BOARD_ID) {
+        console.log('Clearing marketing approval caches after item update...');
+        clearMarketingApprovalCaches();
+      } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
+        console.log('Clearing marketing calendar caches after item update...');
+        clearMarketingCalendarCaches();
       } else if (GW_BOARD_IDS.includes(boardId)) {
-        console.log('Clearing activity caches after GW item update...');
-        clearActivityCaches();
+        console.log('Clearing internal activity caches after GW item update...');
+        clearInternalActivityCaches();
       }
     } catch (cacheError) {
       // Log cache error but don't fail the update
@@ -1314,19 +1317,22 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
       console.error('Item was created successfully, but email notification failed');
     }
 
-    // Clear relevant caches when an item is created
-    // This ensures fresh data is loaded after the sync
+    // Clear only the specific cache type for the board where item was created
+    // This is more efficient than clearing all caches
     try {
       const MARKETING_APPROVAL_BOARD_ID = '9710279044';
       const MARKETING_CALENDAR_BOARD_ID = '9770467355';
       const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
 
-      if (boardId === MARKETING_APPROVAL_BOARD_ID || boardId === MARKETING_CALENDAR_BOARD_ID) {
-        console.log('Clearing marketing caches after item creation...');
-        clearMarketingCaches();
+      if (boardId === MARKETING_APPROVAL_BOARD_ID) {
+        console.log('Clearing marketing approval caches after item creation...');
+        clearMarketingApprovalCaches();
+      } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
+        console.log('Clearing marketing calendar caches after item creation...');
+        clearMarketingCalendarCaches();
       } else if (GW_BOARD_IDS.includes(boardId)) {
-        console.log('Clearing activity caches after GW item creation...');
-        clearActivityCaches();
+        console.log('Clearing internal activity caches after GW item creation...');
+        clearInternalActivityCaches();
       }
     } catch (cacheError) {
       // Log cache error but don't fail the item creation
