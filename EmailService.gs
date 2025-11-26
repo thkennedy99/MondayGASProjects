@@ -197,7 +197,14 @@ function buildMarketingApprovalEmailHtml(itemDetails) {
             </td>
           </tr>
 
-
+          <!-- View in Monday Button -->
+          <tr>
+            <td style="padding: 0 30px 10px 30px; text-align: center;">
+              <a href="${mondayBoardUrl}" style="display: inline-block; background: linear-gradient(135deg, #00739d 0%, #034e6a 100%); color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+                📋 View in Monday.com
+              </a>
+            </td>
+          </tr>
 
           <!-- Edit in Portal Button -->
           <tr>
@@ -262,8 +269,8 @@ function buildMarketingCalendarEmailHtml(itemDetails) {
 
   // Build Marketing Manager Portal link with deep link to edit this item
   const portalEditUrl = itemId
-    ? `https://script.google.com/a/macros/guidewire.com/s/AKfycbws76mywSxgOcVNWcYZ5SsPXMLQG3JCIR9mYIbzxOPMkDguQtOVaHxWuBa3EmfxZlkF/exec?page=marketingmanager&editItemId=${itemId}&editBoardId=${actualBoardId}`
-    : `https://script.google.com/a/macros/guidewire.com/s/AKfycbws76mywSxgOcVNWcYZ5SsPXMLQG3JCIR9mYIbzxOPMkDguQtOVaHxWuBa3EmfxZlkF/exec?page=marketingmanager`;
+    ? `https://script.google.com/a/macros/guidewire.com/s/AKfycbyjf46mo1ApBnirDnxmh_9igX15IHnJkS__iaEEncYpK9r_3c0v7RGj9OIw6-AXWw6U/exec?page=marketingmanager&editItemId=${itemId}&editBoardId=${actualBoardId}`
+    : `https://script.google.com/a/macros/guidewire.com/s/AKfycbyjf46mo1ApBnirDnxmh_9igX15IHnJkS__iaEEncYpK9r_3c0v7RGj9OIw6-AXWw6U/exec?page=marketingmanager`;
 
   const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMMM d, yyyy');
 
