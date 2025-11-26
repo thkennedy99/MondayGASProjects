@@ -724,17 +724,25 @@
 
       // Auto-open edit modal if itemId is provided via URL
       useEffect(() => {
-        if (autoEditItemId && data.length > 0 && !editingItem) {
-          const itemToEdit = data.find(item =>
-            String(item['Monday Item ID']) === String(autoEditItemId)
-          );
+        if (autoEditItemId && data.length > 0) {
+          console.log('Looking for item to auto-edit:', autoEditItemId);
+          console.log('Data has', data.length, 'items');
+          console.log('Sample item IDs:', data.slice(0, 5).map(i => i['Monday Item ID']));
+
+          const itemToEdit = data.find(item => {
+            const itemId = String(item['Monday Item ID'] || '');
+            return itemId === String(autoEditItemId);
+          });
+
           if (itemToEdit) {
-            console.log('Auto-opening edit modal for item:', autoEditItemId);
+            console.log('Found item to auto-edit:', itemToEdit['Item Name']);
             setEditingItem(itemToEdit);
             if (onAutoEditHandled) onAutoEditHandled();
+          } else {
+            console.log('Item not found in data. Looking for ID:', autoEditItemId);
           }
         }
-      }, [autoEditItemId, data, editingItem, onAutoEditHandled]);
+      }, [autoEditItemId, data, onAutoEditHandled]);
 
       // Apply filters (OR within, AND between)
       const filteredData = useMemo(() => {
@@ -919,17 +927,24 @@
 
       // Auto-open edit modal if itemId is provided via URL
       useEffect(() => {
-        if (autoEditItemId && data.length > 0 && !editingItem) {
-          const itemToEdit = data.find(item =>
-            String(item['Monday Item ID']) === String(autoEditItemId)
-          );
+        if (autoEditItemId && data.length > 0) {
+          console.log('Calendar: Looking for item to auto-edit:', autoEditItemId);
+          console.log('Calendar data has', data.length, 'items');
+
+          const itemToEdit = data.find(item => {
+            const itemId = String(item['Monday Item ID'] || '');
+            return itemId === String(autoEditItemId);
+          });
+
           if (itemToEdit) {
-            console.log('Auto-opening edit modal for calendar item:', autoEditItemId);
+            console.log('Calendar: Found item to auto-edit:', itemToEdit['Item Name']);
             setEditingItem(itemToEdit);
             if (onAutoEditHandled) onAutoEditHandled();
+          } else {
+            console.log('Calendar: Item not found in data. Looking for ID:', autoEditItemId);
           }
         }
-      }, [autoEditItemId, data, editingItem, onAutoEditHandled]);
+      }, [autoEditItemId, data, onAutoEditHandled]);
 
       // Apply filters (OR within, AND between)
       const filteredData = useMemo(() => {
@@ -1114,6 +1129,15 @@
         calendarFilters: {}
       });
       const [autoEditItemId, setAutoEditItemId] = useState(editItemIdFromUrl);
+
+      // Debug logging for deep link
+      useEffect(() => {
+        console.log('App: editItemIdFromUrl =', editItemIdFromUrl);
+        console.log('App: editBoardIdFromUrl =', editBoardIdFromUrl);
+        console.log('App: MARKETING_APPROVAL_BOARD_ID =', MARKETING_APPROVAL_BOARD_ID);
+        console.log('App: Board ID match for approvals?', editBoardIdFromUrl === MARKETING_APPROVAL_BOARD_ID);
+        console.log('App: autoEditItemId state =', autoEditItemId);
+      }, []);
 
       useEffect(() => {
         loadData();
