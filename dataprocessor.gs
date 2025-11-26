@@ -153,11 +153,11 @@ function parseColumnValue(columnValue, columnInfo, itemAssets) {
  */
 function writeDataToSheet(sheet, boardStructure, items, isFirstBoard = true, boardConfig = null) {
   if (!items || items.length === 0) return;
-  
+
   // Create a map of column ID to column info for parsing
   const columnInfoMap = new Map();
   let scopeDocColumnIndex = -1;
-  
+
   boardStructure.columns.forEach(col => {
     columnInfoMap.set(col.id, {
       title: col.title,
@@ -165,31 +165,64 @@ function writeDataToSheet(sheet, boardStructure, items, isFirstBoard = true, boa
       settings_str: col.settings_str
     });
   });
-  
-  // Get column headers - include Item Name, Group, Board Name, Partner Name, Monday Item ID, and Board ID as first columns
-  const headers = ['Item Name', 'Group', 'Board Name', 'Partner Name', 'Monday Item ID', 'Board ID'];
+
+  let headers;
+  let publicUrlColumnIndex;
+  let allianceManagerColumnIndex;
+
+  // If not first board, read existing headers from sheet
+  if (!isFirstBoard) {
+    const existingHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    headers = existingHeaders;
+
+    // Find the column indexes from existing headers
+    publicUrlColumnIndex = headers.indexOf('Scope Document Public URL');
+    allianceManagerColumnIndex = headers.indexOf('Alliance Manager');
+  } else {
+    // Get column headers - include Item Name, Group, Board Name, Partner Name, Monday Item ID, and Board ID as first columns
+    headers = ['Item Name', 'Group', 'Board Name', 'Partner Name', 'Monday Item ID', 'Board ID'];
+  }
+
   const columnMap = new Map();
-  
+
   // Add other columns from board structure
   boardStructure.columns.forEach(col => {
     if (col.type !== 'name') { // Skip the name column as we already have Item Name
-      headers.push(col.title);
-      const index = headers.length - 1;
-      columnMap.set(col.id, index);
-      
-      // Track the Scope Document column index
-      if (col.title === 'Scope Document') {
-        scopeDocColumnIndex = index;
+      // Skip if column title already exists in headers (prevents duplicates like Partner Name)
+      if (!headers.includes(col.title)) {
+        // Only add to headers array if this is the first board
+        if (isFirstBoard) {
+          headers.push(col.title);
+          const index = headers.length - 1;
+          columnMap.set(col.id, index);
+
+          // Track the Scope Document column index
+          if (col.title === 'Scope Document') {
+            scopeDocColumnIndex = index;
+          }
+        }
+        // If not first board and column doesn't exist in sheet, skip it
+      } else {
+        // Column already exists in headers, map the column ID to existing index
+        const existingIndex = headers.indexOf(col.title);
+        columnMap.set(col.id, existingIndex);
+
+        // Track the Scope Document column index
+        if (col.title === 'Scope Document') {
+          scopeDocColumnIndex = existingIndex;
+        }
       }
     }
   });
-  
-  // Add columns for Public URLs and Alliance Manager at the end
-  headers.push('Scope Document Public URL');
-  const publicUrlColumnIndex = headers.length - 1;
-  
-  headers.push('Alliance Manager');
-  const allianceManagerColumnIndex = headers.length - 1;
+
+  // Add columns for Public URLs and Alliance Manager at the end (only for first board)
+  if (isFirstBoard) {
+    headers.push('Scope Document Public URL');
+    publicUrlColumnIndex = headers.length - 1;
+
+    headers.push('Alliance Manager');
+    allianceManagerColumnIndex = headers.length - 1;
+  }
   
   // Get alliance manager lookup map
   const allianceManagerMap = getAllianceManagerLookup();
