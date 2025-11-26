@@ -72,7 +72,10 @@ function doGet(e) {
 
   } catch (error) {
     console.error('Error in doGet:', error);
-    return createErrorResponse('Application initialization failed', 500);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    // Return more detailed error for debugging
+    return createErrorResponse('Application initialization failed: ' + error.message, 500);
   }
 }
 

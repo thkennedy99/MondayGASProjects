@@ -224,8 +224,9 @@
     window.MARKETING_CALENDAR_BOARD_ID = '9770467355';
 
     // Get configuration injected from server-side template
-    // Use <?!= ?> (with !) to output raw JSON without HTML escaping
-    window.appConfig = <?!= appConfig ?>;
+    // Use fallback '{}' in case appConfig is undefined
+    window.appConfig = <?!= appConfig || '{}' ?>;
+
     console.log('DEBUG: typeof window.appConfig =', typeof window.appConfig);
     console.log('DEBUG: window.appConfig.editItemId =', window.appConfig.editItemId);
     window.editItemIdFromUrl = window.appConfig.editItemId || null;
