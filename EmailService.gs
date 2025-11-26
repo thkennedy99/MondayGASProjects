@@ -93,12 +93,19 @@ function sendMarketingCalendarNotification(itemDetails) {
  */
 function buildMarketingApprovalEmailHtml(itemDetails) {
   const { itemName, columnValues, boardId, itemId } = itemDetails;
+  const actualBoardId = boardId || '9710279044';
 
   // Build Monday.com link to open the item directly
   // Format: /boards/BOARD_ID/pulses/ITEM_ID opens the item in Monday's item view
   const mondayBoardUrl = itemId
-    ? `https://guidewire-technology-alliances.monday.com/boards/${boardId || '9710279044'}/pulses/${itemId}`
-    : `https://guidewire-technology-alliances.monday.com/boards/${boardId || '9710279044'}`;
+    ? `https://guidewire-technology-alliances.monday.com/boards/${actualBoardId}/pulses/${itemId}`
+    : `https://guidewire-technology-alliances.monday.com/boards/${actualBoardId}`;
+
+  // Build Marketing Manager Portal link with deep link to edit this item
+  const portalEditUrl = itemId
+    ? `https://script.google.com/a/macros/guidewire.com/s/AKfycbyjf46mo1ApBnirDnxmh_9igX15IHnJkS__iaEEncYpK9r_3c0v7RGj9OIw6-AXWw6U/exec?page=marketingmanager&editItemId=${itemId}&editBoardId=${actualBoardId}`
+    : `https://script.google.com/a/macros/guidewire.com/s/AKfycbyjf46mo1ApBnirDnxmh_9igX15IHnJkS__iaEEncYpK9r_3c0v7RGj9OIw6-AXWw6U/exec?page=marketingmanager`;
+
   const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMMM d, yyyy');
 
   // Build item details table
@@ -192,9 +199,18 @@ function buildMarketingApprovalEmailHtml(itemDetails) {
 
           <!-- View in Monday Button -->
           <tr>
-            <td style="padding: 0 30px 20px 30px; text-align: center;">
+            <td style="padding: 0 30px 10px 30px; text-align: center;">
               <a href="${mondayBoardUrl}" style="display: inline-block; background: linear-gradient(135deg, #00739d 0%, #034e6a 100%); color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">
-                📋 View Request in Monday.com
+                📋 View in Monday.com
+              </a>
+            </td>
+          </tr>
+
+          <!-- Edit in Portal Button -->
+          <tr>
+            <td style="padding: 0 30px 20px 30px; text-align: center;">
+              <a href="${portalEditUrl}" style="display: inline-block; background: linear-gradient(135deg, #28a745 0%, #218838 100%); color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+                ✏️ Edit in Marketing Manager Portal
               </a>
             </td>
           </tr>
@@ -243,7 +259,19 @@ function buildMarketingApprovalEmailHtml(itemDetails) {
  * Uses Guidewire brand colors: Blue (#00739d), Navy (#034e6a)
  */
 function buildMarketingCalendarEmailHtml(itemDetails) {
-  const { itemName, columnValues } = itemDetails;
+  const { itemName, columnValues, boardId, itemId } = itemDetails;
+  const actualBoardId = boardId || '9770467355';
+
+  // Build Monday.com link to open the item directly
+  const mondayBoardUrl = itemId
+    ? `https://guidewire-technology-alliances.monday.com/boards/${actualBoardId}/pulses/${itemId}`
+    : `https://guidewire-technology-alliances.monday.com/boards/${actualBoardId}`;
+
+  // Build Marketing Manager Portal link with deep link to edit this item
+  const portalEditUrl = itemId
+    ? `https://script.google.com/a/macros/guidewire.com/s/AKfycbyjf46mo1ApBnirDnxmh_9igX15IHnJkS__iaEEncYpK9r_3c0v7RGj9OIw6-AXWw6U/exec?page=marketingmanager&editItemId=${itemId}&editBoardId=${actualBoardId}`
+    : `https://script.google.com/a/macros/guidewire.com/s/AKfycbyjf46mo1ApBnirDnxmh_9igX15IHnJkS__iaEEncYpK9r_3c0v7RGj9OIw6-AXWw6U/exec?page=marketingmanager`;
+
   const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMMM d, yyyy');
 
   // Build item details table
@@ -339,6 +367,24 @@ function buildMarketingCalendarEmailHtml(itemDetails) {
                   ${itemName}
                 </h2>
               </div>
+            </td>
+          </tr>
+
+          <!-- View in Monday Button -->
+          <tr>
+            <td style="padding: 0 30px 10px 30px; text-align: center;">
+              <a href="${mondayBoardUrl}" style="display: inline-block; background: linear-gradient(135deg, #00739d 0%, #034e6a 100%); color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+                📋 View in Monday.com
+              </a>
+            </td>
+          </tr>
+
+          <!-- Edit in Portal Button -->
+          <tr>
+            <td style="padding: 0 30px 20px 30px; text-align: center;">
+              <a href="${portalEditUrl}" style="display: inline-block; background: linear-gradient(135deg, #28a745 0%, #218838 100%); color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+                ✏️ Edit in Marketing Manager Portal
+              </a>
             </td>
           </tr>
 

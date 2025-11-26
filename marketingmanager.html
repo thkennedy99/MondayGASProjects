@@ -223,6 +223,20 @@
     const MARKETING_APPROVAL_BOARD_ID = '9710279044';
     const MARKETING_CALENDAR_BOARD_ID = '9770467355';
 
+    // Parse URL parameters
+    function getUrlParams() {
+      const params = {};
+      const searchParams = new URLSearchParams(window.location.search);
+      searchParams.forEach((value, key) => {
+        params[key] = value;
+      });
+      return params;
+    }
+
+    const urlParams = getUrlParams();
+    const editItemIdFromUrl = urlParams.editItemId || null;
+    const editBoardIdFromUrl = urlParams.editBoardId || null;
+
     // API wrapper for Google Apps Script calls
     const api = {
       call: function(functionName, ...args) {
@@ -702,7 +716,7 @@
     }
 
     // Marketing Approvals Tab Component
-    function MarketingApprovalsTab({ data, filterOptions, columns, onRefresh }) {
+    function MarketingApprovalsTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
       const [fundingTypes, setFundingTypes] = useState([]);
       const [overallStatuses, setOverallStatuses] = useState([]);
       const [allianceManagers, setAllianceManagers] = useState([]);
@@ -711,6 +725,20 @@
       const [editingItem, setEditingItem] = useState(null);
       const [deletingItem, setDeletingItem] = useState(null);
       const [showAddModal, setShowAddModal] = useState(false);
+
+      // Auto-open edit modal if itemId is provided via URL
+      useEffect(() => {
+        if (autoEditItemId && data.length > 0 && !editingItem) {
+          const itemToEdit = data.find(item =>
+            String(item['Monday Item ID']) === String(autoEditItemId)
+          );
+          if (itemToEdit) {
+            console.log('Auto-opening edit modal for item:', autoEditItemId);
+            setEditingItem(itemToEdit);
+            if (onAutoEditHandled) onAutoEditHandled();
+          }
+        }
+      }, [autoEditItemId, data, editingItem, onAutoEditHandled]);
 
       // Apply filters (OR within, AND between)
       const filteredData = useMemo(() => {
@@ -885,13 +913,27 @@
     }
 
     // Marketing Calendar Tab Component
-    function MarketingCalendarTab({ data, filterOptions, columns, onRefresh }) {
+    function MarketingCalendarTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
       const [partners, setPartners] = useState([]);
       const [owners, setOwners] = useState([]);
       const [activityTypes, setActivityTypes] = useState([]);
       const [editingItem, setEditingItem] = useState(null);
       const [deletingItem, setDeletingItem] = useState(null);
       const [showAddModal, setShowAddModal] = useState(false);
+
+      // Auto-open edit modal if itemId is provided via URL
+      useEffect(() => {
+        if (autoEditItemId && data.length > 0 && !editingItem) {
+          const itemToEdit = data.find(item =>
+            String(item['Monday Item ID']) === String(autoEditItemId)
+          );
+          if (itemToEdit) {
+            console.log('Auto-opening edit modal for calendar item:', autoEditItemId);
+            setEditingItem(itemToEdit);
+            if (onAutoEditHandled) onAutoEditHandled();
+          }
+        }
+      }, [autoEditItemId, data, editingItem, onAutoEditHandled]);
 
       // Apply filters (OR within, AND between)
       const filteredData = useMemo(() => {
@@ -1056,7 +1098,15 @@
 
     // Main App Component
     function App() {
-      const [activeTab, setActiveTab] = useState('approvals');
+      // Determine initial tab based on boardId from URL
+      const getInitialTab = () => {
+        if (editBoardIdFromUrl === MARKETING_CALENDAR_BOARD_ID) {
+          return 'calendar';
+        }
+        return 'approvals';
+      };
+
+      const [activeTab, setActiveTab] = useState(getInitialTab());
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
       const [approvalsData, setApprovalsData] = useState([]);
@@ -1067,10 +1117,16 @@
         approvalFilters: {},
         calendarFilters: {}
       });
+      const [autoEditItemId, setAutoEditItemId] = useState(editItemIdFromUrl);
 
       useEffect(() => {
         loadData();
       }, []);
+
+      const handleAutoEditHandled = () => {
+        // Clear the auto-edit item ID after it's been handled
+        setAutoEditItemId(null);
+      };
 
       const loadData = async () => {
         setLoading(true);
@@ -1155,6 +1211,8 @@
                     filterOptions={filterOptions.approvalFilters || {}}
                     columns={approvalColumns}
                     onRefresh={loadData}
+                    autoEditItemId={editBoardIdFromUrl === MARKETING_APPROVAL_BOARD_ID ? autoEditItemId : null}
+                    onAutoEditHandled={handleAutoEditHandled}
                   />
                 )}
                 {activeTab === 'calendar' && (
@@ -1163,6 +1221,8 @@
                     filterOptions={filterOptions.calendarFilters || {}}
                     columns={calendarColumns}
                     onRefresh={loadData}
+                    autoEditItemId={editBoardIdFromUrl === MARKETING_CALENDAR_BOARD_ID ? autoEditItemId : null}
+                    onAutoEditHandled={handleAutoEditHandled}
                   />
                 )}
               </div>
