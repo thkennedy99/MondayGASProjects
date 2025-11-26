@@ -562,23 +562,34 @@ getMarketingApprovals(managerEmail) {
     const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
     const cache = CacheService.getScriptCache();
     const cacheKey = `marketing_approvals_${normalizedEmail}`;
+
+    console.log(`=== getMarketingApprovals TRACE ===`);
+    console.log(`Manager email: ${managerEmail}`);
+    console.log(`Normalized email: ${normalizedEmail}`);
+    console.log(`Cache key: ${cacheKey}`);
+
     const cached = cache.get(cacheKey);
 
     if (cached) {
-      return JSON.parse(cached);
+      const cachedData = JSON.parse(cached);
+      console.log(`*** CACHE HIT *** - Returning ${cachedData.length} items from cache`);
+      console.log(`First cached item: ${cachedData[0] ? cachedData[0]['Item Name'] : 'none'}`);
+      return cachedData;
     }
+
+    console.log(`*** CACHE MISS *** - Reading from spreadsheet`);
 
     const sheet = this.spreadsheet.getSheetByName('MarketingApproval');
     if (!sheet) {
       console.log('MarketingApproval sheet not found');
       return [];
     }
-    
+
     const data = this.getSheetData(sheet);
     const managerName = this.getManagerName(managerEmail);
 
     console.log(`Getting marketing approvals for: ${managerEmail} / ${managerName}`);
-    console.log(`Total marketing approval rows: ${data.length}`);
+    console.log(`Total marketing approval rows from sheet: ${data.length}`);
 
     // Log sample data to see what we're working with
     if (data.length > 0) {
@@ -1243,6 +1254,86 @@ function getGeneralApprovals(managerEmail) {
   } catch (error) {
     console.error('Error in getGeneralApprovals:', error);
     return DataService.ensureSerializable([]);
+  }
+}
+
+/**
+ * Debug function to get marketing approvals BYPASSING CACHE
+ * Run this to see what data is actually in the spreadsheet
+ */
+function getMarketingApprovalsNoCache(managerEmail) {
+  try {
+    console.log('=== getMarketingApprovalsNoCache (BYPASSING CACHE) ===');
+    console.log(`Manager email: ${managerEmail}`);
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MarketingApproval');
+
+    if (!sheet) {
+      console.log('MarketingApproval sheet not found');
+      return { error: 'Sheet not found', data: [] };
+    }
+
+    // Get raw sheet data
+    const range = sheet.getDataRange();
+    const values = range.getValues();
+
+    console.log(`Total rows in sheet (including header): ${values.length}`);
+
+    if (values.length < 2) {
+      return { error: 'No data rows', data: [], rowCount: values.length };
+    }
+
+    const headers = values[0];
+    console.log('Headers:', headers.join(', '));
+
+    // Find Item Name column
+    const itemNameIndex = headers.indexOf('Item Name');
+    console.log(`Item Name column index: ${itemNameIndex}`);
+
+    // Get all item names from the sheet
+    const itemNames = [];
+    for (let i = 1; i < values.length; i++) {
+      const itemName = itemNameIndex >= 0 ? values[i][itemNameIndex] : values[i][0];
+      if (itemName && String(itemName).trim() !== '') {
+        itemNames.push(String(itemName).trim());
+      }
+    }
+
+    console.log(`Total items in sheet: ${itemNames.length}`);
+    console.log('Item names (first 10):', itemNames.slice(0, 10).join(', '));
+    console.log('Item names (last 5):', itemNames.slice(-5).join(', '));
+
+    // Now compare with what getMarketingApprovals returns
+    const service = new DataService();
+
+    // Temporarily clear the cache to force a fresh read
+    const cache = CacheService.getScriptCache();
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
+    const cacheKey = `marketing_approvals_${normalizedEmail}`;
+
+    console.log('');
+    console.log('Checking current cache state...');
+    const currentCache = cache.get(cacheKey);
+    if (currentCache) {
+      const cachedData = JSON.parse(currentCache);
+      console.log(`Cache contains ${cachedData.length} items`);
+      console.log('Cached items (first 5):', cachedData.slice(0, 5).map(i => i['Item Name']).join(', '));
+    } else {
+      console.log('Cache is EMPTY');
+    }
+
+    return {
+      sheetRowCount: values.length - 1,
+      itemsInSheet: itemNames.length,
+      itemNames: itemNames,
+      cacheExists: !!currentCache,
+      cachedItemCount: currentCache ? JSON.parse(currentCache).length : 0
+    };
+
+  } catch (error) {
+    console.error('Error in getMarketingApprovalsNoCache:', error);
+    return { error: error.message };
   }
 }
 
