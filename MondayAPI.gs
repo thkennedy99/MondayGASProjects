@@ -1317,6 +1317,57 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
       console.error('Item was created successfully, but email notification failed');
     }
 
+    // Append item directly to spreadsheet to bypass Monday.com API propagation delay
+    // This ensures the UI can display the new item immediately
+    try {
+      const MARKETING_APPROVAL_BOARD_ID = '9710279044';
+      const MARKETING_CALENDAR_BOARD_ID = '9770467355';
+      const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
+
+      if (boardId === MARKETING_APPROVAL_BOARD_ID) {
+        console.log('Appending new item directly to MarketingApproval sheet...');
+        appendItemToSheet(
+          'MarketingApproval',
+          itemName,
+          newItemId,
+          boardId,
+          'Marketing Events Approval Requests',
+          columnValues
+        );
+      } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
+        console.log('Appending new item directly to MarketingCalendar sheet...');
+        appendItemToSheet(
+          'MarketingCalendar',
+          itemName,
+          newItemId,
+          boardId,
+          'Marketing Event Calendar',
+          columnValues
+        );
+      } else if (GW_BOARD_IDS.includes(boardId)) {
+        console.log('Appending new item directly to GWMondayData sheet...');
+        // Determine board name based on ID
+        const boardNames = {
+          '9791255941': 'Partner Management Tracker',
+          '9791272390': 'Solution Ops Tracker',
+          '18374691224': 'Marketing Projects',
+          '18375013360': 'Compliance'
+        };
+        appendItemToSheet(
+          'GWMondayData',
+          itemName,
+          newItemId,
+          boardId,
+          boardNames[boardId] || 'GW Board',
+          columnValues
+        );
+      }
+    } catch (appendError) {
+      // Log append error but don't fail the item creation
+      console.error('Error appending item to sheet:', appendError);
+      console.error('Item was created in Monday.com, but direct sheet append failed');
+    }
+
     // Clear only the specific cache type for the board where item was created
     // This is more efficient than clearing all caches
     try {

@@ -2199,8 +2199,9 @@
               console.log('New activity created:', newActivityData);
               setShowAddModal(false);
               setSelectedPartnerForAdd(null);
-              // Reload activities with sync to get the new item from Monday
-              await loadActivities(true);
+              // Reload activities WITHOUT sync - item is directly appended to spreadsheet
+              // Syncing would overwrite with stale data from Monday.com API
+              await loadActivities(false);
             };
 
             // Rest of your component code (columns, renderRow, etc.)
@@ -2827,8 +2828,9 @@
                   setShowAddModal(false);
                   setSelectedBoardForAdd(null);
 
-                  // Reload activities with sync to get the new item
-                  await loadActivities(true);
+                  // Reload activities WITHOUT sync - item is directly appended to spreadsheet
+                  // Syncing would overwrite with stale data from Monday.com API
+                  await loadActivities(false);
                 };
 
                 // Filter handlers
@@ -3430,8 +3432,9 @@
           };
 
           const handleCreate = async (newItemData) => {
-            // Reload calendar data to get the new item with all calculated fields
-            await loadCalendarData(true);
+            // Reload calendar data WITHOUT sync - item is directly appended to spreadsheet
+            // Syncing would overwrite with stale data from Monday.com API
+            await loadCalendarData(false);
             setAddingItem(false);
           };
 
@@ -4377,8 +4380,9 @@
           };
 
           const handleSaveNew = async (newItemData) => {
-            // Reload approvals after adding new item with sync
-            await loadApprovals(true);
+            // Reload approvals WITHOUT sync - item is directly appended to spreadsheet
+            // Syncing would overwrite with stale data from Monday.com API
+            await loadApprovals(false);
             setShowAddModal(false);
           };
 

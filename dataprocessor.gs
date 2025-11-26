@@ -607,10 +607,10 @@ function translatePartnerNames() {
 function sortDataByItemName(sheet) {
   try {
     console.log('Sorting data by Item Name (column A)...');
-    
+
     const lastRow = sheet.getLastRow();
     const lastColumn = sheet.getLastColumn();
-    
+
     if (lastRow > 1) {
       const dataRange = sheet.getRange(2, 1, lastRow - 1, lastColumn);
       dataRange.sort({column: 1, ascending: true});
@@ -618,9 +618,98 @@ function sortDataByItemName(sheet) {
     } else {
       console.log('No data to sort');
     }
-    
+
   } catch (error) {
     console.error('Error sorting data:', error);
     // Don't throw - allow sync to continue
+  }
+}
+
+/**
+ * Append a newly created item directly to the spreadsheet
+ * This bypasses the Monday.com API delay for immediate UI updates
+ *
+ * @param {string} sheetName - Name of the target sheet (e.g., 'MarketingApproval')
+ * @param {string} itemName - Name of the new item
+ * @param {string} itemId - Monday.com item ID
+ * @param {string} boardId - Monday.com board ID
+ * @param {string} boardName - Name of the board
+ * @param {Object} columnValues - Column values from the create form
+ * @returns {boolean} Success status
+ */
+function appendItemToSheet(sheetName, itemName, itemId, boardId, boardName, columnValues) {
+  try {
+    console.log(`Appending new item to ${sheetName}:`, itemName);
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName(sheetName);
+
+    if (!sheet) {
+      console.error(`Sheet not found: ${sheetName}`);
+      return false;
+    }
+
+    // Get existing headers
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    console.log('Sheet headers:', headers.join(', '));
+
+    // Create new row array
+    const newRow = new Array(headers.length).fill('');
+
+    // Map standard columns
+    const headerMap = {};
+    headers.forEach((header, index) => {
+      headerMap[header] = index;
+    });
+
+    // Set standard fields
+    if (headerMap['Item Name'] !== undefined) newRow[headerMap['Item Name']] = itemName;
+    if (headerMap['Monday Item ID'] !== undefined) newRow[headerMap['Monday Item ID']] = itemId;
+    if (headerMap['Board ID'] !== undefined) newRow[headerMap['Board ID']] = boardId;
+    if (headerMap['Board Name'] !== undefined) newRow[headerMap['Board Name']] = boardName;
+    if (headerMap['Partner Name'] !== undefined) newRow[headerMap['Partner Name']] = 'Marketing Team';
+
+    // Map column values to headers
+    // Handle various column name formats (with and without spaces)
+    Object.entries(columnValues || {}).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === '') return;
+
+      // Try exact match first
+      if (headerMap[key] !== undefined) {
+        newRow[headerMap[key]] = value;
+        return;
+      }
+
+      // Try with spaces removed
+      const keyNoSpaces = key.replace(/\s+/g, '');
+      for (const header of headers) {
+        if (header.replace(/\s+/g, '') === keyNoSpaces) {
+          newRow[headerMap[header]] = value;
+          return;
+        }
+      }
+
+      // Try case-insensitive match
+      const keyLower = key.toLowerCase();
+      for (const header of headers) {
+        if (header.toLowerCase() === keyLower) {
+          newRow[headerMap[header]] = value;
+          return;
+        }
+      }
+    });
+
+    // Append the new row
+    sheet.appendRow(newRow);
+
+    // Ensure the write is committed
+    SpreadsheetApp.flush();
+
+    console.log(`Successfully appended item "${itemName}" to ${sheetName}`);
+    return true;
+
+  } catch (error) {
+    console.error('Error appending item to sheet:', error);
+    return false;
   }
 }
