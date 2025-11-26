@@ -45,15 +45,13 @@ static ensureSerializable(data) {
 
 /**
  * Get activity data (partner or internal)
+ * Caching disabled - always reads fresh data from spreadsheet
  */
 getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
-  const cacheKey = `activity_${type}_${manager}_${this.hashParams(filters, sort, pagination)}`;
-  const cached = this.cache.get(cacheKey);
-  
-  if (cached && !CONFIG.DEBUG_MODE) {
-    return JSON.parse(cached);
-  }
-  
+  console.log(`=== getActivityData (NO CACHE) ===`);
+  console.log(`Type: ${type}, Manager: ${manager}`);
+  console.log(`Reading directly from spreadsheet (caching disabled)`);
+
   try {
     const sheet = this.spreadsheet.getSheetByName(type === 'partner' ? 'MondayData' : 'GWMondayData');
     if (!sheet) throw new Error(`Sheet not found: ${type === 'partner' ? 'MondayData' : 'GWMondayData'}`);
@@ -139,10 +137,8 @@ getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
     if (result.data.length > 0) {
       console.log('First row keys:', Object.keys(result.data[0]));
     }
-    
-    // Cache result
-    this.cache.put(cacheKey, JSON.stringify(result), CONFIG.CACHE_DURATION);
-    
+
+    // Caching disabled - always return fresh data from spreadsheet
     return result;
     
   } catch (error) {
@@ -154,15 +150,12 @@ getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
 // Inside the DataService class definition, add this method:
 getMarketingCalendarData(managerEmail) {
   try {
-    // Normalize email to lowercase for consistent cache key
+    // Normalize email to lowercase
     const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
-    const cache = CacheService.getScriptCache();
-    const cacheKey = `marketing_calendar_${normalizedEmail}`;
-    const cached = cache.get(cacheKey);
 
-    if (cached) {
-      return JSON.parse(cached);
-    }
+    console.log(`=== getMarketingCalendarData (NO CACHE) ===`);
+    console.log(`Manager email: ${managerEmail}`);
+    console.log(`Reading directly from spreadsheet (caching disabled)`);
 
     const sheet = this.spreadsheet.getSheetByName('MarketingCalendar');
     if (!sheet) {
@@ -287,10 +280,10 @@ getMarketingCalendarData(managerEmail) {
     });
     
     console.log(`Returning ${calendarData.length} marketing calendar entries`);
-    
-    cache.put(cacheKey, JSON.stringify(calendarData), CONFIG.CACHE_DURATION);
+
+    // Caching disabled - always return fresh data from spreadsheet
     return calendarData;
-    
+
   } catch (error) {
     console.error('Error getting marketing calendar data:', error);
     throw error;
@@ -558,26 +551,13 @@ getMarketingCalendarData(managerEmail) {
  */
 getMarketingApprovals(managerEmail) {
   try {
-    // Normalize email to lowercase for consistent cache key
+    // Normalize email to lowercase
     const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
-    const cache = CacheService.getScriptCache();
-    const cacheKey = `marketing_approvals_${normalizedEmail}`;
 
-    console.log(`=== getMarketingApprovals TRACE ===`);
+    console.log(`=== getMarketingApprovals (NO CACHE) ===`);
     console.log(`Manager email: ${managerEmail}`);
     console.log(`Normalized email: ${normalizedEmail}`);
-    console.log(`Cache key: ${cacheKey}`);
-
-    const cached = cache.get(cacheKey);
-
-    if (cached) {
-      const cachedData = JSON.parse(cached);
-      console.log(`*** CACHE HIT *** - Returning ${cachedData.length} items from cache`);
-      console.log(`First cached item: ${cachedData[0] ? cachedData[0]['Item Name'] : 'none'}`);
-      return cachedData;
-    }
-
-    console.log(`*** CACHE MISS *** - Reading from spreadsheet`);
+    console.log(`Reading directly from spreadsheet (caching disabled)`);
 
     const sheet = this.spreadsheet.getSheetByName('MarketingApproval');
     if (!sheet) {
@@ -770,10 +750,10 @@ getMarketingApprovals(managerEmail) {
     });
     
     console.log('Sample approval:', approvals[0] ? JSON.stringify(Object.keys(approvals[0])) : 'No approvals');
-    
-    cache.put(cacheKey, JSON.stringify(approvals), CONFIG.CACHE_DURATION);
+
+    // Caching disabled - always return fresh data from spreadsheet
     return approvals;
-    
+
   } catch (error) {
     console.error('Error in getMarketingApprovals:', error);
     return [];
@@ -783,19 +763,16 @@ getMarketingApprovals(managerEmail) {
 
   /**
  * Get partner heatmap data
+ * Caching disabled - always reads fresh data from spreadsheet
  */
 getPartnerHeatmap(managerEmail) {
   try {
-    // Normalize email to lowercase for consistent cache key
+    // Normalize email to lowercase
     const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
-    // Initialize cache properly
-    const cache = CacheService.getScriptCache();
-    const cacheKey = `heatmap_${normalizedEmail}`;
-    const cached = cache.get(cacheKey);
 
-    if (cached) {
-      return JSON.parse(cached);
-    }
+    console.log(`=== getPartnerHeatmap (NO CACHE) ===`);
+    console.log(`Manager email: ${managerEmail}`);
+    console.log(`Reading directly from spreadsheet (caching disabled)`);
 
     const sheet = this.spreadsheet.getSheetByName('MondayDashboard');
     if (!sheet) {
@@ -896,10 +873,10 @@ getPartnerHeatmap(managerEmail) {
     if (heatmapData.length > 0) {
       console.log('Sample heatmap entry:', JSON.stringify(heatmapData[0]));
     }
-    
-    cache.put(cacheKey, JSON.stringify(heatmapData), CONFIG.CACHE_DURATION);
+
+    // Caching disabled - always return fresh data from spreadsheet
     return heatmapData;
-    
+
   } catch (error) {
     console.error('Error in getPartnerHeatmap:', error);
     return [];

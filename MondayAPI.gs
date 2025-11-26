@@ -712,11 +712,47 @@ function updateMondayItem(itemId, boardId, updates) {
 
 /**
  * Delete Monday.com item
+ * @param {string} itemId - Monday.com item ID to delete
+ * @param {string} boardId - Board ID where the item belongs (for post-delete sync)
  */
-function deleteMondayItem(itemId) {
+function deleteMondayItem(itemId, boardId) {
   try {
     const monday = new MondayAPI();
     const result = monday.deleteItem(itemId);
+
+    // Full sync of the board from Monday.com to spreadsheet after item deletion
+    // This ensures fresh data is available for the UI
+    if (boardId) {
+      try {
+        const MARKETING_APPROVAL_BOARD_ID = '9710279044';
+        const MARKETING_CALENDAR_BOARD_ID = '9770467355';
+        const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
+        const PARTNER_BOARD_ID = '8463767815';
+
+        if (boardId === MARKETING_APPROVAL_BOARD_ID) {
+          console.log('Syncing Marketing Approval board after item deletion...');
+          syncMarketingApprovalBoard();
+          console.log('Marketing Approval board sync complete');
+        } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
+          console.log('Syncing Marketing Calendar board after item deletion...');
+          syncMarketingCalendarBoard();
+          console.log('Marketing Calendar board sync complete');
+        } else if (GW_BOARD_IDS.includes(boardId)) {
+          console.log('Syncing Internal Activities (GW boards) after item deletion...');
+          syncInternalActivitiesData();
+          console.log('Internal Activities sync complete');
+        } else if (boardId === PARTNER_BOARD_ID) {
+          // For partner board, sync just the partner activities
+          console.log('Syncing Partner Activities board after item deletion...');
+          syncPartnerActivitiesData();
+          console.log('Partner Activities sync complete');
+        }
+      } catch (syncError) {
+        // Log sync error but don't fail the delete
+        console.error('Error syncing board after item deletion:', syncError);
+      }
+    }
+
     return { success: true, result };
 
   } catch (error) {
@@ -889,26 +925,35 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
     // Update using the Monday API
     const result = monday.updateMultipleColumns(boardId, itemId, columnValues);
 
-    // Clear only the specific cache type for the board where item was updated
-    // This is more efficient than clearing all caches
+    // Full sync of the board from Monday.com to spreadsheet after item update
+    // This ensures fresh data is available for the UI
     try {
       const MARKETING_APPROVAL_BOARD_ID = '9710279044';
       const MARKETING_CALENDAR_BOARD_ID = '9770467355';
       const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
+      const PARTNER_BOARD_ID = '8463767815';
 
       if (boardId === MARKETING_APPROVAL_BOARD_ID) {
-        console.log('Clearing marketing approval caches after item update...');
-        clearMarketingApprovalCaches();
+        console.log('Syncing Marketing Approval board after item update...');
+        syncMarketingApprovalBoard();
+        console.log('Marketing Approval board sync complete');
       } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
-        console.log('Clearing marketing calendar caches after item update...');
-        clearMarketingCalendarCaches();
+        console.log('Syncing Marketing Calendar board after item update...');
+        syncMarketingCalendarBoard();
+        console.log('Marketing Calendar board sync complete');
       } else if (GW_BOARD_IDS.includes(boardId)) {
-        console.log('Clearing internal activity caches after GW item update...');
-        clearInternalActivityCaches();
+        console.log('Syncing Internal Activities (GW boards) after item update...');
+        syncInternalActivitiesData();
+        console.log('Internal Activities sync complete');
+      } else if (boardId === PARTNER_BOARD_ID) {
+        // For partner board, sync just the partner activities
+        console.log('Syncing Partner Activities board after item update...');
+        syncPartnerActivitiesData();
+        console.log('Partner Activities sync complete');
       }
-    } catch (cacheError) {
-      // Log cache error but don't fail the update
-      console.error('Error clearing caches:', cacheError);
+    } catch (syncError) {
+      // Log sync error but don't fail the update
+      console.error('Error syncing board after item update:', syncError);
     }
 
     return { success: true, result: DataService.ensureSerializable(result) };
@@ -1317,77 +1362,36 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
       console.error('Item was created successfully, but email notification failed');
     }
 
-    // Append item directly to spreadsheet to bypass Monday.com API propagation delay
-    // This ensures the UI can display the new item immediately
+    // Full sync of the board from Monday.com to spreadsheet after item creation
+    // This ensures fresh data is available for the UI
     try {
       const MARKETING_APPROVAL_BOARD_ID = '9710279044';
       const MARKETING_CALENDAR_BOARD_ID = '9770467355';
       const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
+      const PARTNER_BOARD_ID = '8463767815';
 
       if (boardId === MARKETING_APPROVAL_BOARD_ID) {
-        console.log('Appending new item directly to MarketingApproval sheet...');
-        appendItemToSheet(
-          'MarketingApproval',
-          itemName,
-          newItemId,
-          boardId,
-          'Marketing Events Approval Requests',
-          columnValues
-        );
+        console.log('Syncing Marketing Approval board after item creation...');
+        syncMarketingApprovalBoard();
+        console.log('Marketing Approval board sync complete');
       } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
-        console.log('Appending new item directly to MarketingCalendar sheet...');
-        appendItemToSheet(
-          'MarketingCalendar',
-          itemName,
-          newItemId,
-          boardId,
-          'Marketing Event Calendar',
-          columnValues
-        );
+        console.log('Syncing Marketing Calendar board after item creation...');
+        syncMarketingCalendarBoard();
+        console.log('Marketing Calendar board sync complete');
       } else if (GW_BOARD_IDS.includes(boardId)) {
-        console.log('Appending new item directly to GWMondayData sheet...');
-        // Determine board name based on ID
-        const boardNames = {
-          '9791255941': 'Partner Management Tracker',
-          '9791272390': 'Solution Ops Tracker',
-          '18374691224': 'Marketing Projects',
-          '18375013360': 'Compliance'
-        };
-        appendItemToSheet(
-          'GWMondayData',
-          itemName,
-          newItemId,
-          boardId,
-          boardNames[boardId] || 'GW Board',
-          columnValues
-        );
+        console.log('Syncing Internal Activities (GW boards) after item creation...');
+        syncInternalActivitiesData();
+        console.log('Internal Activities sync complete');
+      } else if (boardId === PARTNER_BOARD_ID) {
+        // For partner board, sync just the partner activities
+        console.log('Syncing Partner Activities board after item creation...');
+        syncPartnerActivitiesData();
+        console.log('Partner Activities sync complete');
       }
-    } catch (appendError) {
-      // Log append error but don't fail the item creation
-      console.error('Error appending item to sheet:', appendError);
-      console.error('Item was created in Monday.com, but direct sheet append failed');
-    }
-
-    // Clear only the specific cache type for the board where item was created
-    // This is more efficient than clearing all caches
-    try {
-      const MARKETING_APPROVAL_BOARD_ID = '9710279044';
-      const MARKETING_CALENDAR_BOARD_ID = '9770467355';
-      const GW_BOARD_IDS = ['9791255941', '9791272390', '18374691224', '18375013360'];
-
-      if (boardId === MARKETING_APPROVAL_BOARD_ID) {
-        console.log('Clearing marketing approval caches after item creation...');
-        clearMarketingApprovalCaches();
-      } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
-        console.log('Clearing marketing calendar caches after item creation...');
-        clearMarketingCalendarCaches();
-      } else if (GW_BOARD_IDS.includes(boardId)) {
-        console.log('Clearing internal activity caches after GW item creation...');
-        clearInternalActivityCaches();
-      }
-    } catch (cacheError) {
-      // Log cache error but don't fail the item creation
-      console.error('Error clearing caches:', cacheError);
+    } catch (syncError) {
+      // Log sync error but don't fail the item creation
+      console.error('Error syncing board after item creation:', syncError);
+      console.error('Item was created in Monday.com, but board sync failed');
     }
 
     return { success: true, itemId: newItemId };
@@ -1804,4 +1808,180 @@ function syncInternalActivitiesData() {
     console.error('Error syncing Internal Activities:', error);
     throw error;
   }
+}
+
+/**
+ * Sync a single partner's board data
+ * Deletes all rows for the specified partner from MondayData sheet
+ * and syncs only that partner's board from Monday.com
+ * @param {string} partnerName - The partner name to sync
+ * @returns {Object} Result with success status and sync details
+ */
+function syncSinglePartnerBoard(partnerName) {
+  try {
+    console.log(`=== Syncing Single Partner Board: ${partnerName} ===`);
+
+    if (!partnerName || partnerName.trim() === '') {
+      throw new Error('Partner name is required');
+    }
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Step 1: Get the board configuration for this partner from MondayDashboard
+    const dashboardSheet = spreadsheet.getSheetByName('MondayDashboard');
+    if (!dashboardSheet) {
+      throw new Error('MondayDashboard sheet not found');
+    }
+
+    const headerRow = dashboardSheet.getRange(1, 1, 1, dashboardSheet.getLastColumn()).getValues()[0];
+    const partnerNameIndex = headerRow.indexOf('Partner Name');
+    const partnerBoardIndex = headerRow.indexOf('PartnerBoard');
+
+    if (partnerNameIndex === -1 || partnerBoardIndex === -1) {
+      throw new Error('Required columns (Partner Name, PartnerBoard) not found in MondayDashboard');
+    }
+
+    const lastRow = dashboardSheet.getLastRow();
+    const dataRange = dashboardSheet.getRange(2, 1, lastRow - 1, dashboardSheet.getLastColumn());
+    const dashboardData = dataRange.getValues();
+
+    // Find the partner's board configuration
+    let partnerBoardId = null;
+    for (const row of dashboardData) {
+      const rowPartnerName = row[partnerNameIndex];
+      if (rowPartnerName && rowPartnerName.toString().toLowerCase().trim() === partnerName.toLowerCase().trim()) {
+        partnerBoardId = row[partnerBoardIndex];
+        break;
+      }
+    }
+
+    if (!partnerBoardId) {
+      throw new Error(`Board ID not found for partner: ${partnerName}`);
+    }
+
+    console.log(`Found board ID for partner ${partnerName}: ${partnerBoardId}`);
+
+    // Step 2: Delete all rows for this partner from MondayData sheet
+    const mondayDataSheet = spreadsheet.getSheetByName('MondayData');
+    if (!mondayDataSheet) {
+      throw new Error('MondayData sheet not found');
+    }
+
+    const mondayDataHeaders = mondayDataSheet.getRange(1, 1, 1, mondayDataSheet.getLastColumn()).getValues()[0];
+    const partnerColumnIndex = mondayDataHeaders.indexOf('Partner Name');
+
+    if (partnerColumnIndex === -1) {
+      console.log('Partner Name column not found in MondayData, trying Board ID column');
+    }
+
+    const boardIdColumnIndex = mondayDataHeaders.indexOf('Board ID');
+
+    // Get all data from MondayData
+    const mondayDataLastRow = mondayDataSheet.getLastRow();
+    if (mondayDataLastRow > 1) {
+      const mondayDataRange = mondayDataSheet.getRange(2, 1, mondayDataLastRow - 1, mondayDataSheet.getLastColumn());
+      const mondayDataValues = mondayDataRange.getValues();
+
+      // Find and delete rows that match this partner (delete from bottom to top to preserve row indices)
+      const rowsToDelete = [];
+      for (let i = mondayDataValues.length - 1; i >= 0; i--) {
+        let shouldDelete = false;
+
+        // Check by Partner Name column
+        if (partnerColumnIndex !== -1) {
+          const rowPartnerName = mondayDataValues[i][partnerColumnIndex];
+          if (rowPartnerName && rowPartnerName.toString().toLowerCase().trim() === partnerName.toLowerCase().trim()) {
+            shouldDelete = true;
+          }
+        }
+
+        // Also check by Board ID
+        if (!shouldDelete && boardIdColumnIndex !== -1) {
+          const rowBoardId = mondayDataValues[i][boardIdColumnIndex];
+          if (rowBoardId && rowBoardId.toString() === partnerBoardId.toString()) {
+            shouldDelete = true;
+          }
+        }
+
+        if (shouldDelete) {
+          rowsToDelete.push(i + 2); // +2 because data starts at row 2 and i is 0-indexed
+        }
+      }
+
+      console.log(`Found ${rowsToDelete.length} rows to delete for partner ${partnerName}`);
+
+      // Delete rows from bottom to top
+      for (const rowIndex of rowsToDelete) {
+        mondayDataSheet.deleteRow(rowIndex);
+      }
+
+      console.log(`Deleted ${rowsToDelete.length} rows from MondayData`);
+    }
+
+    // Step 3: Sync only this partner's board from Monday.com
+    console.log(`Syncing board ${partnerBoardId} for partner ${partnerName}...`);
+
+    // Get board structure
+    const boardStructure = getBoardStructure(partnerBoardId);
+
+    // Get all items from the board
+    const items = getAllBoardItems(partnerBoardId);
+
+    console.log(`Retrieved ${items.length} items from board ${partnerBoardId}`);
+
+    if (items.length > 0) {
+      // Add board info to each item for identification
+      items.forEach(item => {
+        item.partnerName = partnerName;
+        item.boardName = `${partnerName} Board`;
+        item.boardId = partnerBoardId;
+      });
+
+      // Get the sheet again (in case structure changed)
+      const sheet = spreadsheet.getSheetByName('MondayData');
+
+      // Find the last row with data
+      const lastDataRow = sheet.getLastRow();
+
+      // Create board config for writeDataToSheet
+      const boardConfig = {
+        boardName: `${partnerName} Board`,
+        partnerName: partnerName,
+        boardId: partnerBoardId,
+        targetSheetName: 'MondayData'
+      };
+
+      // Append data to the sheet (not overwrite - since we only deleted this partner's rows)
+      writeDataToSheet(sheet, boardStructure, items, lastDataRow === 1, boardConfig);
+
+      console.log(`Synced ${items.length} items for partner ${partnerName}`);
+    }
+
+    console.log(`=== Single Partner Board Sync Complete: ${partnerName} ===`);
+
+    return {
+      success: true,
+      partnerName: partnerName,
+      boardId: partnerBoardId,
+      itemsSynced: items.length
+    };
+
+  } catch (error) {
+    console.error(`Error syncing partner board for ${partnerName}:`, error);
+    return {
+      success: false,
+      partnerName: partnerName,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Delete partner activities from MondayData and sync that partner's board
+ * This is the function to call when a change is made to a partner board
+ * @param {string} partnerName - The partner name whose data should be refreshed
+ */
+function refreshPartnerData(partnerName) {
+  console.log(`Refreshing partner data for: ${partnerName}`);
+  return syncSinglePartnerBoard(partnerName);
 }
