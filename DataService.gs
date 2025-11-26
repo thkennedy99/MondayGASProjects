@@ -566,82 +566,19 @@ getMarketingApprovals(managerEmail) {
     }
 
     const data = this.getSheetData(sheet);
-    const managerName = this.getManagerName(managerEmail);
 
-    console.log(`Getting marketing approvals for: ${managerEmail} / ${managerName}`);
+    console.log(`Getting ALL marketing approvals (no manager filter)`);
     console.log(`Total marketing approval rows from sheet: ${data.length}`);
 
     // Log sample data to see what we're working with
     if (data.length > 0) {
       console.log('Sample row columns:', Object.keys(data[0]));
-      console.log('Sample row AllianceManager:', data[0]['AllianceManager']);
-      console.log('Sample row Alliance Manager (with space):', data[0]['Alliance Manager']);
-      console.log('Sample row Owner:', data[0]['Owner']);
-      console.log('Sample row Overall Status:', data[0]['Overall Status']);
     }
 
-    // Filter by Alliance Manager column and approval status (handles both 'AllianceManager' and 'Alliance Manager')
-    let managerMatchCount = 0;
-    let statusFilteredCount = 0;
+    // Return all rows without manager filtering
+    const filtered = data;
 
-    const filtered = data.filter((row, index) => {
-      // Check if this approval belongs to the manager
-      const allianceManager = this.getAllianceManager(row);
-      const owner = row['Owner'];
-
-      const matchesManager =
-        allianceManager === managerEmail ||
-        allianceManager === managerName ||
-        (allianceManager && allianceManager.includes(managerName.split(' ')[0])) ||
-        owner === managerEmail ||
-        owner === managerName ||
-        (owner && owner.includes(managerName.split(' ')[0]));
-
-      // Log first few rows for debugging
-      if (index < 3) {
-        console.log(`Row ${index}: AllianceManager="${allianceManager}", Owner="${owner}", matchesManager=${matchesManager}`);
-      }
-
-      if (matchesManager) {
-        managerMatchCount++;
-      }
-
-      if (!matchesManager) return false;
-      
-      // Check for pending approval status - using the Overall Status column
-      const overallStatus = String(row['Overall Status'] || '').toLowerCase();
-
-      // Consider it pending if it's not fully approved or rejected
-      const isPending =
-        !overallStatus.includes('final approval') &&
-        !overallStatus.includes('rejected') &&
-        !overallStatus.includes('completed') &&
-        !overallStatus.includes('cancelled');
-
-      // Also check individual decision columns
-      const ericDecision = String(row['Eric Decision'] || '').toLowerCase();
-      const marketingDecision = String(row['Marketing Decision'] || '').toLowerCase();
-      const willDecision = String(row['Will Decision'] || '').toLowerCase();
-
-      // If any decision is explicitly pending or not yet made, include it
-      const hasOutstandingDecision =
-        !ericDecision || ericDecision.includes('pending') || ericDecision.includes('send back') ||
-        !marketingDecision || marketingDecision.includes('pending') || marketingDecision.includes('send back') ||
-        !willDecision || willDecision.includes('pending') || willDecision.includes('send back');
-
-      const passesStatusFilter = isPending || hasOutstandingDecision;
-
-      // Log first matching manager row to see status filtering
-      if (matchesManager && statusFilteredCount < 3) {
-        console.log(`Manager match ${statusFilteredCount}: OverallStatus="${overallStatus}", isPending=${isPending}, hasOutstanding=${hasOutstandingDecision}, passesFilter=${passesStatusFilter}`);
-        statusFilteredCount++;
-      }
-
-      return matchesManager && passesStatusFilter;
-    });
-
-    console.log(`Manager matches found: ${managerMatchCount}`);
-    console.log(`Filtered to ${filtered.length} pending approvals`);
+    console.log(`Returning all ${filtered.length} marketing approvals`);
     
     // Convert all values to strings and add calculated fields
     const approvals = filtered.map(row => {
