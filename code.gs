@@ -26,36 +26,56 @@ function doGet(e) {
     const params = {
       page: e.parameter.page || 'main',
       manager: e.parameter.manager || Session.getActiveUser().getEmail(),
-      token: e.parameter.token || null
+      token: e.parameter.token || null,
+      editItemId: e.parameter.editItemId || null,
+      editBoardId: e.parameter.editBoardId || null
     };
-    
-   console.log('1');
-    
+
+    console.log('doGet called with page:', params.page);
+    if (params.editItemId) {
+      console.log('Deep link edit request - itemId:', params.editItemId, 'boardId:', params.editBoardId);
+    }
+
     // Initialize session
     const session = initializeSession(params.manager, params.token);
-    console.log('2');
+
+    // Determine which template to use based on page parameter
+    let templateName = 'index';
+    let pageTitle = CONFIG.APP_NAME;
+
+    if (params.page === 'marketingmanager') {
+      templateName = 'marketingmanager';
+      pageTitle = 'Marketing Manager - ' + CONFIG.APP_NAME;
+    }
+
     // Create HTML template
-    const template = HtmlService.createTemplateFromFile('index');
-    console.log('3');
+    const template = HtmlService.createTemplateFromFile(templateName);
+
     // Inject configuration
     template.appConfig = JSON.stringify({
       user: session.user,
       token: session.token,
       environment: CONFIG.DEBUG_MODE ? 'development' : 'production',
       version: CONFIG.VERSION,
-      apiEndpoint: CONFIG.MONDAY_API_URL
+      apiEndpoint: CONFIG.MONDAY_API_URL,
+      page: params.page,
+      editItemId: params.editItemId,
+      editBoardId: params.editBoardId
     });
-    console.log('4');
+
     // Return HTML output
     return template.evaluate()
-      .setTitle(CONFIG.APP_NAME)
+      .setTitle(pageTitle)
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setFaviconUrl('https://www.guidewire.com/favicon.ico');
-      
+
   } catch (error) {
     console.error('Error in doGet:', error);
-    return createErrorResponse('Application initialization failed', 500);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    // Return more detailed error for debugging
+    return createErrorResponse('Application initialization failed: ' + error.message, 500);
   }
 }
 

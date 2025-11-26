@@ -33,13 +33,24 @@ class MondayAPI {
     
     try {
       const response = UrlFetchApp.fetch(this.apiUrl, options);
-      const result = JSON.parse(response.getContentText());
-      
+      const responseText = response.getContentText();
+      const responseCode = response.getResponseCode();
+
+      console.log(`Debug: Monday API response code: ${responseCode}`);
+      console.log(`Debug: Monday API raw response: ${responseText.substring(0, 1000)}`);
+
+      const result = JSON.parse(responseText);
+
       if (result.errors) {
         console.error('Monday.com API errors:', result.errors);
         throw new Error(result.errors[0].message);
       }
-      
+
+      // Log any warnings or account_id info that might be in the response
+      if (result.account_id) {
+        console.log(`Debug: Monday account_id: ${result.account_id}`);
+      }
+
       return result.data;
     } catch (error) {
       console.error('Monday.com API request failed:', error);
@@ -275,6 +286,8 @@ class MondayAPI {
       }
     `;
 
+    console.log('Debug: Column values for API:', JSON.stringify(columnValues));
+
     return this.query(graphqlQuery, {
       boardId: boardId,
       itemId: itemId,
@@ -298,23 +311,38 @@ class MondayAPI {
 
       case 'status':
       case 'color':
-        // Status/color columns - use label ID (index) instead of label name
-        // to avoid issues with duplicate label names (active vs deactivated)
+        // Status/color columns - detailed logging for debugging
+        console.log(`Debug: STATUS COLUMN FORMATTING for columnId="${columnId}"`);
+        console.log(`Debug: Input value: "${value}"`);
+        console.log(`Debug: Settings available: ${!!settings}`);
+        console.log(`Debug: Labels in settings: ${settings && settings.labels ? JSON.stringify(settings.labels) : 'none'}`);
+
         if (settings && settings.labels) {
           const deactivatedLabels = settings.deactivated_labels || [];
+          console.log(`Debug: Deactivated labels: ${JSON.stringify(deactivatedLabels)}`);
 
           // Find all label IDs that match this label name
           const matchingLabelIds = Object.keys(settings.labels).filter(
             id => settings.labels[id] === value
           );
+          console.log(`Debug: Matching label IDs for "${value}": ${JSON.stringify(matchingLabelIds)}`);
 
           // If there are multiple matches, filter out deactivated ones
           if (matchingLabelIds.length > 1) {
             const activeLabelId = matchingLabelIds.find(id => !deactivatedLabels.includes(id));
 
             if (activeLabelId) {
-              console.log(`Debug: Using label ID ${activeLabelId} for "${value}" (found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
-              return { index: parseInt(activeLabelId) };
+              console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
+              // For default status column (ID: "status"), use index format
+              // For other status/color columns, use label format
+              if (columnId === 'status') {
+                const result = { index: parseInt(activeLabelId) };
+                console.log(`Debug: Using INDEX format for default status column: ${JSON.stringify(result)}`);
+                return result;
+              }
+              const result = { label: value };
+              console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
+              return result;
             } else {
               console.warn(`All matching labels for "${value}" are deactivated`);
               return null;
@@ -326,16 +354,25 @@ class MondayAPI {
               console.warn(`Label "${value}" (ID: ${labelId}) is deactivated`);
               return null;
             }
-            // Single match and not deactivated - can use either label or index
-            // Using index is safer and more explicit
-            return { index: parseInt(labelId) };
+            // Single match and not deactivated
+            // For default status column (ID: "status"), use index format
+            // For other status/color columns, use label format
+            console.log(`Debug: Using label "${value}" (ID: ${labelId}) for status column`);
+            if (columnId === 'status') {
+              const result = { index: parseInt(labelId) };
+              console.log(`Debug: Using INDEX format for default status column: ${JSON.stringify(result)}`);
+              return result;
+            }
+            const result = { label: value };
+            console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
+            return result;
           } else {
-            console.warn(`Label "${value}" not found in column settings`);
+            console.warn(`Label "${value}" not found in column settings. Available labels: ${JSON.stringify(Object.values(settings.labels))}`);
             return null;
           }
         }
         // Fallback if settings not available - return null to prevent errors
-        console.warn(`Status/color column has no settings - cannot format value safely`);
+        console.warn(`Status/color column "${columnId}" has no settings - cannot format value safely`);
         return null;
 
       case 'date':
@@ -376,22 +413,64 @@ class MondayAPI {
 
       case 'dropdown':
         // Dropdown expects ids array
+        // Helper function to find label ID by name (handles both object and string labels)
+        // Returns the actual label ID (from label.id property if object, or the key if string label)
+        const findDropdownLabelId = (labels, searchValue) => {
+          for (const key of Object.keys(labels)) {
+            const label = labels[key];
+            // Dropdown labels can be objects with {id, name} or simple strings
+            if (label && typeof label === 'object' && label.name) {
+              if (label.name === searchValue) {
+                // Use the label's id property, not the key
+                console.log(`Debug: Found dropdown label "${searchValue}" with id=${label.id} (key=${key})`);
+                return label.id;
+              }
+            } else if (label === searchValue) {
+              // Simple string label - use the key as the ID
+              return parseInt(key);
+            }
+          }
+          return null;
+        };
+
         // First, check if settings has labels to look up the ID
         if (settings && settings.labels && typeof value === 'string') {
           // Try to find the label ID by matching the label name
-          const labelId = Object.keys(settings.labels).find(
-            id => settings.labels[id] === value
-          );
+          const labelId = findDropdownLabelId(settings.labels, value);
           if (labelId) {
             return { ids: [parseInt(labelId)] };
           }
         }
 
-        // Fallback: Handle array of IDs or single ID
+        // Handle array of values (could be string names OR numeric IDs)
         if (Array.isArray(value)) {
-          const ids = value.map(v => parseInt(v)).filter(id => !isNaN(id));
-          return ids.length > 0 ? { ids: ids } : null;
+          const ids = [];
+
+          for (const v of value) {
+            // First, try to look up as string name in settings.labels
+            if (settings && settings.labels && typeof v === 'string') {
+              const labelId = findDropdownLabelId(settings.labels, v);
+              if (labelId) {
+                ids.push(parseInt(labelId));
+                continue;
+              }
+            }
+
+            // Fallback: try to parse as numeric ID
+            const numericId = parseInt(v);
+            if (!isNaN(numericId)) {
+              ids.push(numericId);
+            }
+          }
+
+          if (ids.length > 0) {
+            console.log(`Debug: Dropdown formatted ${value.length} values to IDs: [${ids.join(', ')}]`);
+            return { ids: ids };
+          }
+          console.warn(`Dropdown array values could not be resolved: ${JSON.stringify(value)}`);
+          return null;
         } else if (value) {
+          // Single non-array value - try as numeric ID
           const dropdownId = parseInt(value);
           if (!isNaN(dropdownId)) {
             return { ids: [dropdownId] };
@@ -1197,7 +1276,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         const emailResult = sendMarketingApprovalNotification({
           itemName: itemName,
           columnValues: columnValues,
-          boardId: boardId
+          boardId: boardId,
+          itemId: newItemId
         });
 
         if (emailResult.success) {
@@ -1210,7 +1290,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         const emailResult = sendMarketingCalendarNotification({
           itemName: itemName,
           columnValues: columnValues,
-          boardId: boardId
+          boardId: boardId,
+          itemId: newItemId
         });
 
         if (emailResult.success) {

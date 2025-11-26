@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Marketing Manager Portal</title>
+
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- React -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    :root {
+      --gw-blue: #00739d;
+      --gw-navy: #034e6a;
+      --gw-light: #f8f9fa;
+      --header-height: 60px;
+      --tabs-height: 50px;
+      --filter-height: 200px;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f5f5f5;
+    }
+
+    #root {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .app-container {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, var(--gw-blue) 0%, var(--gw-navy) 100%);
+      color: white;
+      padding: 0.75rem 1.5rem;
+      flex-shrink: 0;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 1.4rem;
+      font-weight: 600;
+    }
+
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 0.75rem;
+    }
+
+    .filter-section {
+      background: white;
+      padding: 0.75rem;
+      border-radius: 8px;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      flex-shrink: 0;
+    }
+
+    .filter-section h5 {
+      color: var(--gw-navy);
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .filter-group {
+      margin-bottom: 0;
+    }
+
+    .filter-group label {
+      font-weight: 500;
+      font-size: 0.8rem;
+      color: #555;
+      margin-bottom: 0.2rem;
+      display: block;
+    }
+
+    .filter-select {
+      width: 100%;
+      height: 100px;
+      font-size: 0.8rem;
+    }
+
+    .data-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .table-container {
+      flex: 1;
+      overflow: auto;
+    }
+
+    .data-table {
+      width: 100%;
+      margin-bottom: 0;
+    }
+
+    .data-table th {
+      background-color: var(--gw-navy);
+      color: white;
+      font-weight: 500;
+      font-size: 0.8rem;
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      padding: 0.5rem;
+    }
+
+    .data-table td {
+      font-size: 0.8rem;
+      vertical-align: middle;
+      padding: 0.4rem 0.5rem;
+    }
+
+    .data-table tbody tr:hover {
+      background-color: #f0f8ff;
+    }
+
+    .nav-tabs {
+      flex-shrink: 0;
+      margin-bottom: 0.75rem;
+    }
+
+    .nav-tabs .nav-link {
+      color: var(--gw-navy);
+      font-weight: 500;
+      padding: 0.5rem 1rem;
+    }
+
+    .nav-tabs .nav-link.active {
+      color: var(--gw-blue);
+      border-bottom: 2px solid var(--gw-blue);
+    }
+
+    .badge-status {
+      font-size: 0.7rem;
+      padding: 0.25em 0.5em;
+    }
+
+    .loading-spinner {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 3rem;
+      flex: 1;
+    }
+
+    .filter-info {
+      font-size: 0.7rem;
+      color: #666;
+      margin-top: 0.25rem;
+    }
+
+    .clear-filters-btn {
+      font-size: 0.75rem;
+    }
+
+    .result-count {
+      font-size: 0.8rem;
+      color: #666;
+      padding: 0.5rem 0.75rem;
+      background: #f8f9fa;
+      border-bottom: 1px solid #dee2e6;
+    }
+
+    .action-buttons {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .action-buttons .btn {
+      padding: 0.15rem 0.4rem;
+      font-size: 0.7rem;
+    }
+
+    .add-btn-container {
+      padding: 0.5rem 0.75rem;
+      background: #f8f9fa;
+      border-bottom: 1px solid #dee2e6;
+    }
+
+    .modal-body {
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    // Board IDs - attach to window for cross-script access
+    window.MARKETING_APPROVAL_BOARD_ID = '9710279044';
+    window.MARKETING_CALENDAR_BOARD_ID = '9770467355';
+
+    // Get configuration injected from server-side template
+    // Use fallback '{}' in case appConfig is undefined
+    window.appConfig = <?!= appConfig || '{}' ?>;
+
+    console.log('DEBUG: typeof window.appConfig =', typeof window.appConfig);
+    console.log('DEBUG: window.appConfig.editItemId =', window.appConfig.editItemId);
+    window.editItemIdFromUrl = window.appConfig.editItemId || null;
+    window.editBoardIdFromUrl = window.appConfig.editBoardId || null;
+
+    console.log('App config loaded:', window.appConfig);
+    if (window.editItemIdFromUrl) {
+      console.log('Deep link detected - editItemId:', window.editItemIdFromUrl, 'editBoardId:', window.editBoardIdFromUrl);
+    }
+
+    // API wrapper for Google Apps Script calls
+    window.api = {
+      call: function(functionName, ...args) {
+        return new Promise((resolve, reject) => {
+          google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(reject)
+            [functionName](...args);
+        });
+      }
+    };
+  </script>
+
+  <script type="text/babel">
+    // Debug: check window values at Babel script start
+    console.log('Babel script start - window.editItemIdFromUrl:', window.editItemIdFromUrl);
+    console.log('Babel script start - window.editBoardIdFromUrl:', window.editBoardIdFromUrl);
+    console.log('Babel script start - window.appConfig:', window.appConfig);
+
+    const { useState, useEffect, useMemo } = React;
+
+    // Get values from window (set in previous script tag)
+    const MARKETING_APPROVAL_BOARD_ID = window.MARKETING_APPROVAL_BOARD_ID;
+    const MARKETING_CALENDAR_BOARD_ID = window.MARKETING_CALENDAR_BOARD_ID;
+    const editItemIdFromUrl = window.editItemIdFromUrl;
+    const editBoardIdFromUrl = window.editBoardIdFromUrl;
+    const api = window.api;
+
+    console.log('After variable assignment - editItemIdFromUrl:', editItemIdFromUrl);
+
+    // Multi-select Filter Component
+    function MultiSelectFilter({ label, options, selected, onChange }) {
+      const handleChange = (e) => {
+        const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+        onChange(selectedOptions);
+      };
+
+      return (
+        <div className="filter-group">
+          <label>{label}</label>
+          <select
+            className="form-select filter-select"
+            multiple
+            value={selected}
+            onChange={handleChange}
+          >
+            {options.map((option, idx) => (
+              <option key={idx} value={option}>{option}</option>
+            ))}
+          </select>
+          {selected.length > 0 && (
+            <div className="filter-info">
+              {selected.length} selected
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Delete Confirmation Modal
+    function DeleteConfirmModal({ item, boardId, onClose, onConfirm }) {
+      const [deleting, setDeleting] = useState(false);
+      const [error, setError] = useState(null);
+
+      const handleDelete = async () => {
+        setDeleting(true);
+        setError(null);
+        try {
+          const result = await api.call('deleteMondayItem', boardId, item['Monday Item ID']);
+          if (result && result.success) {
+            onConfirm();
+          } else {
+            setError(result?.error || 'Failed to delete item');
+          }
+        } catch (err) {
+          setError(err.message || 'Failed to delete item');
+        } finally {
+          setDeleting(false);
+        }
+      };
+
+      return (
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Confirm Delete</h5>
+                <button type="button" className="btn-close" onClick={onClose} disabled={deleting}></button>
+              </div>
+              <div className="modal-body">
+                <p>Are you sure you want to delete this item?</p>
+                <p className="fw-bold">{item['Item Name'] || item['Name']}</p>
+                <p className="text-danger small">This action cannot be undone.</p>
+                {error && <div className="alert alert-danger">{error}</div>}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={onClose} disabled={deleting}>
+                  Cancel
+                </button>
+                <button type="button" className="btn btn-danger" onClick={handleDelete} disabled={deleting}>
+                  {deleting ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2"></span>
+                      Deleting...
+                    </>
+                  ) : (
+                    'Delete'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Edit Item Modal Component
+    function EditItemModal({ item, boardId, columns, onClose, onSave, partnerOptions, allianceManagerOptions }) {
+      const [formData, setFormData] = useState({});
+      const [itemName, setItemName] = useState('');
+      const [saving, setSaving] = useState(false);
+      const [error, setError] = useState(null);
+
+      useEffect(() => {
+        const initialData = {};
+        Object.keys(item).forEach(key => {
+          if (!['Monday Item ID', 'Board ID', '_rowIndex'].includes(key)) {
+            initialData[key] = item[key] || '';
+          }
+        });
+        setFormData(initialData);
+        setItemName(item['Item Name'] || item['Name'] || '');
+      }, [item]);
+
+      const handleChange = (columnTitle, value) => {
+        setFormData(prev => ({ ...prev, [columnTitle]: value }));
+      };
+
+      const handleSave = async () => {
+        setSaving(true);
+        setError(null);
+
+        try {
+          // Filter to editable columns only
+          const validColumns = {};
+          columns.forEach(col => {
+            if (formData.hasOwnProperty(col.title) &&
+                !['Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name',
+                  'daysWaiting', 'urgencyLevel', 'status', 'healthScore', 'healthStatus',
+                  'Overdue items', 'Stuck or Blocked items', 'Not Started items',
+                  'Completed Last 30 Days', 'Formula', 'Long text', 'Week', 'Month',
+                  'Scope Document Public URL'].includes(col.title)) {
+              validColumns[col.title] = formData[col.title];
+            }
+          });
+
+          // Update item name if changed
+          if (itemName !== (item['Item Name'] || item['Name'])) {
+            await api.call('updateMondayItemName', boardId, item['Monday Item ID'], itemName);
+          }
+
+          // Update column values
+          const result = await api.call(
+            'updateMondayItemMultipleColumns',
+            boardId,
+            item['Monday Item ID'],
+            validColumns,
+            columns
+          );
+
+          if (result.success) {
+            onSave({ ...formData, 'Item Name': itemName, 'Name': itemName });
+          } else {
+            setError(result.error || 'Failed to update item');
+          }
+        } catch (err) {
+          setError(err.message || 'Failed to update item');
+        } finally {
+          setSaving(false);
+        }
+      };
+
+      const renderFormControl = (column) => {
+        const { title, type, settings } = column;
+        const value = formData[title] || '';
+
+        const skipColumns = [
+          'Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name', 'Name',
+          'daysWaiting', 'urgencyLevel', 'status', 'healthScore', 'healthStatus',
+          'Overdue items', 'Stuck or Blocked items', 'Not Started items',
+          'Completed Last 30 Days', 'Formula', 'Week', 'Month', 'Date',
+          'Scope Document Public URL', 'Long text', 'PartnerBoard', 'Dropdown', 'Subitems'
+        ];
+
+        if (skipColumns.includes(title)) return null;
+        if (type === 'formula' || type === 'mirror' || type === 'board-relation') return null;
+
+        // Create Date is display-only
+        if (title === 'Create Date') {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <input type="text" className="form-control" value={value} disabled readOnly />
+            </div>
+          );
+        }
+
+        // Partner dropdown
+        if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">(Blank)</option>
+                {partnerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Alliance Manager dropdown
+        if (title === 'Alliance Manager' && allianceManagerOptions && allianceManagerOptions.length > 0) {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">(Blank)</option>
+                {allianceManagerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Status/color columns
+        if (type === 'status' || type === 'color') {
+          const labels = settings?.labels || {};
+          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Dropdown columns
+        if (type === 'dropdown') {
+          const labels = settings?.labels || [];
+          const options = Array.isArray(labels) ? labels.map(l => l.name || l) : Object.values(labels);
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Date columns
+        if (type === 'date') {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <input type="date" className="form-control" value={value ? value.substring(0, 10) : ''} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Number columns
+        if (type === 'numbers' || type === 'numeric') {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <input type="number" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Default text input
+        return (
+          <div className="mb-3" key={title}>
+            <label className="form-label">{title}</label>
+            <input type="text" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+          </div>
+        );
+      };
+
+      return (
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-lg modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Edit Item: {item['Item Name'] || item['Name']}</h5>
+                <button type="button" className="btn-close" onClick={onClose} disabled={saving}></button>
+              </div>
+              <div className="modal-body">
+                {error && <div className="alert alert-danger">{error}</div>}
+                <div className="mb-3">
+                  <label className="form-label">Item Name</label>
+                  <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} />
+                </div>
+                {columns.map(col => renderFormControl(col))}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                  {saving ? <><span className="spinner-border spinner-border-sm me-2"></span>Saving...</> : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Add Item Modal Component
+    function AddItemModal({ boardId, columns, onClose, onCreate, partnerOptions, allianceManagerOptions }) {
+      const [formData, setFormData] = useState({});
+      const [itemName, setItemName] = useState('');
+      const [creating, setCreating] = useState(false);
+      const [error, setError] = useState(null);
+
+      useEffect(() => {
+        // Set default values
+        const defaults = {};
+        if (boardId === MARKETING_APPROVAL_BOARD_ID) {
+          defaults['Overall Status'] = 'Submitted';
+        }
+        setFormData(defaults);
+      }, [boardId]);
+
+      const handleChange = (columnTitle, value) => {
+        setFormData(prev => ({ ...prev, [columnTitle]: value }));
+      };
+
+      const handleCreate = async () => {
+        if (!itemName.trim()) {
+          setError('Item name is required');
+          return;
+        }
+
+        setCreating(true);
+        setError(null);
+
+        try {
+          const result = await api.call('createMondayItem', boardId, itemName, formData, columns);
+
+          if (result.success) {
+            onCreate({ ...formData, 'Item Name': itemName, 'Monday Item ID': result.itemId });
+          } else {
+            setError(result.error || 'Failed to create item');
+          }
+        } catch (err) {
+          setError(err.message || 'Failed to create item');
+        } finally {
+          setCreating(false);
+        }
+      };
+
+      const renderFormControl = (column) => {
+        const { title, type, settings } = column;
+        const value = formData[title] || '';
+
+        const skipColumns = [
+          'Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name', 'Name',
+          'daysWaiting', 'urgencyLevel', 'status', 'healthScore', 'healthStatus',
+          'Overdue items', 'Stuck or Blocked items', 'Not Started items',
+          'Completed Last 30 Days', 'Formula', 'Week', 'Month', 'Date', 'Create Date',
+          'Scope Document Public URL', 'Long text', 'PartnerBoard', 'Dropdown', 'Subitems'
+        ];
+
+        if (skipColumns.includes(title)) return null;
+        if (type === 'formula' || type === 'mirror' || type === 'board-relation') return null;
+
+        // Partner dropdown
+        if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select partner...</option>
+                {partnerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Alliance Manager dropdown
+        if (title === 'Alliance Manager' && allianceManagerOptions && allianceManagerOptions.length > 0) {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select manager...</option>
+                {allianceManagerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Status/color columns
+        if (type === 'status' || type === 'color') {
+          const labels = settings?.labels || {};
+          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Dropdown columns
+        if (type === 'dropdown') {
+          const labels = settings?.labels || [];
+          const options = Array.isArray(labels) ? labels.map(l => l.name || l) : Object.values(labels);
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Date columns
+        if (type === 'date') {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <input type="date" className="form-control" value={value ? value.substring(0, 10) : ''} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Number columns
+        if (type === 'numbers' || type === 'numeric') {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <input type="number" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Default text input
+        return (
+          <div className="mb-3" key={title}>
+            <label className="form-label">{title}</label>
+            <input type="text" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+          </div>
+        );
+      };
+
+      return (
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-lg modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Create New Item</h5>
+                <button type="button" className="btn-close" onClick={onClose} disabled={creating}></button>
+              </div>
+              <div className="modal-body">
+                {error && <div className="alert alert-danger">{error}</div>}
+                <div className="mb-3">
+                  <label className="form-label">Item Name <span className="text-danger">*</span></label>
+                  <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} required />
+                </div>
+                {columns.map(col => renderFormControl(col))}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={onClose} disabled={creating}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={handleCreate} disabled={creating}>
+                  {creating ? <><span className="spinner-border spinner-border-sm me-2"></span>Creating...</> : 'Create Item'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Marketing Approvals Tab Component
+    function MarketingApprovalsTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
+      const [fundingTypes, setFundingTypes] = useState([]);
+      const [overallStatuses, setOverallStatuses] = useState([]);
+      const [allianceManagers, setAllianceManagers] = useState([]);
+      const [partners, setPartners] = useState([]);
+      const [requestTypes, setRequestTypes] = useState([]);
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
+      const [showAddModal, setShowAddModal] = useState(false);
+
+      // Auto-open edit modal if itemId is provided via URL
+      useEffect(() => {
+        if (autoEditItemId && data.length > 0) {
+          console.log('Looking for item to auto-edit:', autoEditItemId);
+          console.log('Data has', data.length, 'items');
+          console.log('Sample item IDs:', data.slice(0, 5).map(i => i['Monday Item ID']));
+
+          const itemToEdit = data.find(item => {
+            const itemId = String(item['Monday Item ID'] || '');
+            return itemId === String(autoEditItemId);
+          });
+
+          if (itemToEdit) {
+            console.log('Found item to auto-edit:', itemToEdit['Item Name']);
+            setEditingItem(itemToEdit);
+            if (onAutoEditHandled) onAutoEditHandled();
+          } else {
+            console.log('Item not found in data. Looking for ID:', autoEditItemId);
+          }
+        }
+      }, [autoEditItemId, data, onAutoEditHandled]);
+
+      // Apply filters (OR within, AND between)
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          if (fundingTypes.length > 0 && !fundingTypes.includes(item['Funding Type'])) return false;
+          if (overallStatuses.length > 0 && !overallStatuses.includes(item['Overall Status'])) return false;
+          if (allianceManagers.length > 0) {
+            const itemManager = item['AllianceManager'] || item['Alliance Manager'] || '';
+            if (!allianceManagers.includes(itemManager)) return false;
+          }
+          if (partners.length > 0 && !partners.includes(item['Partner'])) return false;
+          if (requestTypes.length > 0 && !requestTypes.includes(item['Request Type'])) return false;
+          return true;
+        });
+      }, [data, fundingTypes, overallStatuses, allianceManagers, partners, requestTypes]);
+
+      const clearFilters = () => {
+        setFundingTypes([]);
+        setOverallStatuses([]);
+        setAllianceManagers([]);
+        setPartners([]);
+        setRequestTypes([]);
+      };
+
+      const hasFilters = fundingTypes.length > 0 || overallStatuses.length > 0 ||
+                         allianceManagers.length > 0 || partners.length > 0 || requestTypes.length > 0;
+
+      const handleEditSave = () => {
+        setEditingItem(null);
+        onRefresh();
+      };
+
+      const handleDeleteConfirm = () => {
+        setDeletingItem(null);
+        onRefresh();
+      };
+
+      const handleAddCreate = () => {
+        setShowAddModal(false);
+        onRefresh();
+      };
+
+      return (
+        <div className="d-flex flex-column" style={{ height: '100%' }}>
+          {/* Filters */}
+          <div className="filter-section">
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <h5 className="mb-0">Filters</h5>
+              {hasFilters && (
+                <button className="btn btn-sm btn-outline-secondary clear-filters-btn" onClick={clearFilters}>
+                  Clear All Filters
+                </button>
+              )}
+            </div>
+            <div className="row g-2">
+              <div className="col">
+                <MultiSelectFilter label="Funding Type" options={filterOptions.fundingTypes || []} selected={fundingTypes} onChange={setFundingTypes} />
+              </div>
+              <div className="col">
+                <MultiSelectFilter label="Overall Status" options={filterOptions.overallStatuses || []} selected={overallStatuses} onChange={setOverallStatuses} />
+              </div>
+              <div className="col">
+                <MultiSelectFilter label="Alliance Manager" options={filterOptions.allianceManagers || []} selected={allianceManagers} onChange={setAllianceManagers} />
+              </div>
+              <div className="col">
+                <MultiSelectFilter label="Partner" options={filterOptions.partners || []} selected={partners} onChange={setPartners} />
+              </div>
+              <div className="col">
+                <MultiSelectFilter label="Request Type" options={filterOptions.requestTypes || []} selected={requestTypes} onChange={setRequestTypes} />
+              </div>
+            </div>
+          </div>
+
+          {/* Data Section */}
+          <div className="data-section">
+            <div className="add-btn-container d-flex justify-content-between align-items-center">
+              <span className="result-count mb-0">Showing {filteredData.length} of {data.length} items</span>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowAddModal(true)}>
+                + Add Marketing Approval
+              </button>
+            </div>
+            <div className="table-container">
+              <table className="table table-striped table-hover data-table">
+                <thead>
+                  <tr>
+                    <th>Actions</th>
+                    <th>Item Name</th>
+                    <th>Partner</th>
+                    <th>Alliance Manager</th>
+                    <th>Request Type</th>
+                    <th>Funding Type</th>
+                    <th>Overall Status</th>
+                    <th>Priority</th>
+                    <th>Cost</th>
+                    <th>Start Date</th>
+                    <th>Create Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={idx}>
+                      <td>
+                        <div className="action-buttons">
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => setEditingItem(item)} title="Edit">
+                            Edit
+                          </button>
+                          <button className="btn btn-outline-danger btn-sm" onClick={() => setDeletingItem(item)} title="Delete">
+                            Del
+                          </button>
+                        </div>
+                      </td>
+                      <td>{item['Item Name']}</td>
+                      <td>{item['Partner']}</td>
+                      <td>{item['AllianceManager'] || item['Alliance Manager']}</td>
+                      <td>{item['Request Type']}</td>
+                      <td>{item['Funding Type']}</td>
+                      <td>
+                        <span className={`badge badge-status ${getStatusBadgeClass(item['Overall Status'])}`}>
+                          {item['Overall Status']}
+                        </span>
+                      </td>
+                      <td>{item['Priority']}</td>
+                      <td>{item['Cost']}</td>
+                      <td>{item['Start Date']}</td>
+                      <td>{item['Create Date']}</td>
+                    </tr>
+                  ))}
+                  {filteredData.length === 0 && (
+                    <tr>
+                      <td colSpan="11" className="text-center text-muted py-4">
+                        No items match the selected filters
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Modals */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={MARKETING_APPROVAL_BOARD_ID}
+              columns={columns}
+              onClose={() => setEditingItem(null)}
+              onSave={handleEditSave}
+              partnerOptions={filterOptions.partners || []}
+              allianceManagerOptions={filterOptions.allianceManagers || []}
+            />
+          )}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={MARKETING_APPROVAL_BOARD_ID}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleDeleteConfirm}
+            />
+          )}
+          {showAddModal && (
+            <AddItemModal
+              boardId={MARKETING_APPROVAL_BOARD_ID}
+              columns={columns}
+              onClose={() => setShowAddModal(false)}
+              onCreate={handleAddCreate}
+              partnerOptions={filterOptions.partners || []}
+              allianceManagerOptions={filterOptions.allianceManagers || []}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // Marketing Calendar Tab Component
+    function MarketingCalendarTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
+      const [partners, setPartners] = useState([]);
+      const [owners, setOwners] = useState([]);
+      const [activityTypes, setActivityTypes] = useState([]);
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
+      const [showAddModal, setShowAddModal] = useState(false);
+
+      // Auto-open edit modal if itemId is provided via URL
+      useEffect(() => {
+        if (autoEditItemId && data.length > 0) {
+          console.log('Calendar: Looking for item to auto-edit:', autoEditItemId);
+          console.log('Calendar data has', data.length, 'items');
+
+          const itemToEdit = data.find(item => {
+            const itemId = String(item['Monday Item ID'] || '');
+            return itemId === String(autoEditItemId);
+          });
+
+          if (itemToEdit) {
+            console.log('Calendar: Found item to auto-edit:', itemToEdit['Item Name']);
+            setEditingItem(itemToEdit);
+            if (onAutoEditHandled) onAutoEditHandled();
+          } else {
+            console.log('Calendar: Item not found in data. Looking for ID:', autoEditItemId);
+          }
+        }
+      }, [autoEditItemId, data, onAutoEditHandled]);
+
+      // Apply filters (OR within, AND between)
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          if (partners.length > 0 && !partners.includes(item['Partner'])) return false;
+          if (owners.length > 0 && !owners.includes(item['Owner'])) return false;
+          if (activityTypes.length > 0 && !activityTypes.includes(item['Activity Type'])) return false;
+          return true;
+        });
+      }, [data, partners, owners, activityTypes]);
+
+      const clearFilters = () => {
+        setPartners([]);
+        setOwners([]);
+        setActivityTypes([]);
+      };
+
+      const hasFilters = partners.length > 0 || owners.length > 0 || activityTypes.length > 0;
+
+      const handleEditSave = () => {
+        setEditingItem(null);
+        onRefresh();
+      };
+
+      const handleDeleteConfirm = () => {
+        setDeletingItem(null);
+        onRefresh();
+      };
+
+      const handleAddCreate = () => {
+        setShowAddModal(false);
+        onRefresh();
+      };
+
+      return (
+        <div className="d-flex flex-column" style={{ height: '100%' }}>
+          {/* Filters */}
+          <div className="filter-section">
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <h5 className="mb-0">Filters</h5>
+              {hasFilters && (
+                <button className="btn btn-sm btn-outline-secondary clear-filters-btn" onClick={clearFilters}>
+                  Clear All Filters
+                </button>
+              )}
+            </div>
+            <div className="row g-2">
+              <div className="col-md-4">
+                <MultiSelectFilter label="Partner" options={filterOptions.partners || []} selected={partners} onChange={setPartners} />
+              </div>
+              <div className="col-md-4">
+                <MultiSelectFilter label="Owner" options={filterOptions.owners || []} selected={owners} onChange={setOwners} />
+              </div>
+              <div className="col-md-4">
+                <MultiSelectFilter label="Activity Type" options={filterOptions.activityTypes || []} selected={activityTypes} onChange={setActivityTypes} />
+              </div>
+            </div>
+          </div>
+
+          {/* Data Section */}
+          <div className="data-section">
+            <div className="add-btn-container d-flex justify-content-between align-items-center">
+              <span className="result-count mb-0">Showing {filteredData.length} of {data.length} items</span>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowAddModal(true)}>
+                + Add Calendar Entry
+              </button>
+            </div>
+            <div className="table-container">
+              <table className="table table-striped table-hover data-table">
+                <thead>
+                  <tr>
+                    <th>Actions</th>
+                    <th>Item Name</th>
+                    <th>Partner</th>
+                    <th>Owner</th>
+                    <th>Activity Type</th>
+                    <th>Month</th>
+                    <th>Week</th>
+                    <th>Event Date</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={idx}>
+                      <td>
+                        <div className="action-buttons">
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => setEditingItem(item)} title="Edit">
+                            Edit
+                          </button>
+                          <button className="btn btn-outline-danger btn-sm" onClick={() => setDeletingItem(item)} title="Delete">
+                            Del
+                          </button>
+                        </div>
+                      </td>
+                      <td>{item['Item Name']}</td>
+                      <td>{item['Partner']}</td>
+                      <td>{item['Owner']}</td>
+                      <td>{item['Activity Type']}</td>
+                      <td>{item['Month']}</td>
+                      <td>{item['Week']}</td>
+                      <td>{item['EventDate'] || item['Event Date'] || item['Date']}</td>
+                      <td>{item['Status']}</td>
+                    </tr>
+                  ))}
+                  {filteredData.length === 0 && (
+                    <tr>
+                      <td colSpan="9" className="text-center text-muted py-4">
+                        No items match the selected filters
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Modals */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={MARKETING_CALENDAR_BOARD_ID}
+              columns={columns}
+              onClose={() => setEditingItem(null)}
+              onSave={handleEditSave}
+              partnerOptions={filterOptions.partners || []}
+              allianceManagerOptions={[]}
+            />
+          )}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={MARKETING_CALENDAR_BOARD_ID}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleDeleteConfirm}
+            />
+          )}
+          {showAddModal && (
+            <AddItemModal
+              boardId={MARKETING_CALENDAR_BOARD_ID}
+              columns={columns}
+              onClose={() => setShowAddModal(false)}
+              onCreate={handleAddCreate}
+              partnerOptions={filterOptions.partners || []}
+              allianceManagerOptions={[]}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // Helper function for status badge colors
+    function getStatusBadgeClass(status) {
+      if (!status) return 'bg-secondary';
+      const statusLower = status.toLowerCase();
+      if (statusLower.includes('approved') || statusLower.includes('completed')) return 'bg-success';
+      if (statusLower.includes('rejected') || statusLower.includes('cancelled')) return 'bg-danger';
+      if (statusLower.includes('pending') || statusLower.includes('submitted')) return 'bg-warning text-dark';
+      if (statusLower.includes('progress')) return 'bg-info';
+      return 'bg-secondary';
+    }
+
+    // Main App Component
+    function App() {
+      // Determine initial tab based on boardId from URL
+      const getInitialTab = () => {
+        if (String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID) {
+          return 'calendar';
+        }
+        return 'approvals';
+      };
+
+      const [activeTab, setActiveTab] = useState(getInitialTab());
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [approvalsData, setApprovalsData] = useState([]);
+      const [calendarData, setCalendarData] = useState([]);
+      const [approvalColumns, setApprovalColumns] = useState([]);
+      const [calendarColumns, setCalendarColumns] = useState([]);
+      const [filterOptions, setFilterOptions] = useState({
+        approvalFilters: {},
+        calendarFilters: {}
+      });
+      const [autoEditItemId, setAutoEditItemId] = useState(editItemIdFromUrl);
+
+      // Debug logging for deep link
+      useEffect(() => {
+        console.log('App: editItemIdFromUrl =', editItemIdFromUrl, typeof editItemIdFromUrl);
+        console.log('App: editBoardIdFromUrl =', editBoardIdFromUrl, typeof editBoardIdFromUrl);
+        console.log('App: MARKETING_APPROVAL_BOARD_ID =', MARKETING_APPROVAL_BOARD_ID);
+        console.log('App: Board ID match for approvals?', String(editBoardIdFromUrl) === MARKETING_APPROVAL_BOARD_ID);
+        console.log('App: autoEditItemId state =', autoEditItemId);
+      }, []);
+
+      useEffect(() => {
+        loadData();
+      }, []);
+
+      const handleAutoEditHandled = () => {
+        // Clear the auto-edit item ID after it's been handled
+        setAutoEditItemId(null);
+      };
+
+      const loadData = async () => {
+        setLoading(true);
+        setError(null);
+
+        try {
+          // Load all data in parallel
+          const [approvals, calendar, filters, approvalCols, calendarCols] = await Promise.all([
+            api.call('getAllMarketingApprovals'),
+            api.call('getAllMarketingCalendar'),
+            api.call('getMarketingManagerFilterOptions'),
+            api.call('getBoardColumnsStructure', MARKETING_APPROVAL_BOARD_ID),
+            api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID)
+          ]);
+
+          setApprovalsData(approvals || []);
+          setCalendarData(calendar || []);
+          setFilterOptions(filters || { approvalFilters: {}, calendarFilters: {} });
+          setApprovalColumns(approvalCols || []);
+          setCalendarColumns(calendarCols || []);
+
+        } catch (err) {
+          console.error('Error loading data:', err);
+          setError('Failed to load data. Please try refreshing the page.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="app-container">
+          {/* Header */}
+          <div className="header">
+            <div className="d-flex justify-content-between align-items-center">
+              <h1>Marketing Manager Portal</h1>
+              <button className="btn btn-light btn-sm" onClick={loadData} disabled={loading}>
+                {loading ? 'Loading...' : 'Refresh Data'}
+              </button>
+            </div>
+          </div>
+
+          {/* Main Content */}
+          <div className="main-content">
+            {error && (
+              <div className="alert alert-danger" role="alert">
+                {error}
+              </div>
+            )}
+
+            {/* Tabs */}
+            <ul className="nav nav-tabs">
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'approvals' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('approvals')}
+                >
+                  Marketing Approvals ({approvalsData.length})
+                </button>
+              </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'calendar' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('calendar')}
+                >
+                  Marketing Calendar ({calendarData.length})
+                </button>
+              </li>
+            </ul>
+
+            {/* Tab Content */}
+            {loading ? (
+              <div className="loading-spinner">
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                {activeTab === 'approvals' && (
+                  <MarketingApprovalsTab
+                    data={approvalsData}
+                    filterOptions={filterOptions.approvalFilters || {}}
+                    columns={approvalColumns}
+                    onRefresh={loadData}
+                    autoEditItemId={String(editBoardIdFromUrl) === MARKETING_APPROVAL_BOARD_ID ? autoEditItemId : null}
+                    onAutoEditHandled={handleAutoEditHandled}
+                  />
+                )}
+                {activeTab === 'calendar' && (
+                  <MarketingCalendarTab
+                    data={calendarData}
+                    filterOptions={filterOptions.calendarFilters || {}}
+                    columns={calendarColumns}
+                    onRefresh={loadData}
+                    autoEditItemId={String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID ? autoEditItemId : null}
+                    onAutoEditHandled={handleAutoEditHandled}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Render the app
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

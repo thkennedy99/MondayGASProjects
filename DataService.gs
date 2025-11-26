@@ -663,6 +663,7 @@ getMarketingApprovals(managerEmail) {
         'Event URL',
         'Priority',
         'Overall Status',
+        'Funding Type',
         'Owner',
         'AllianceManager',
         'Requesting Department',
@@ -2133,6 +2134,61 @@ function getBoardColumnsStructure(boardId) {
 }
 
 /**
+ * Print full board schema to console (run from Apps Script editor)
+ * Outputs column names, IDs, types, and all label options for status/dropdown columns
+ * @param {string} boardId - Monday.com board ID (defaults to Marketing Approval board)
+ */
+function printBoardSchema(boardId) {
+  boardId = boardId || '9710279044'; // Default to Marketing Approval board
+
+  console.log('=== BOARD SCHEMA FOR BOARD ID: ' + boardId + ' ===');
+  console.log('Generated: ' + new Date().toISOString());
+  console.log('');
+
+  try {
+    const monday = new MondayAPI();
+    const columns = monday.getBoardColumnsWithSettings(boardId);
+
+    columns.forEach((col, index) => {
+      console.log('---');
+      console.log('Column ' + (index + 1) + ':');
+      console.log('  Name: "' + col.title + '"');
+      console.log('  ID: "' + col.id + '"');
+      console.log('  Type: "' + col.type + '"');
+
+      if (col.settings) {
+        // For status/color columns, show labels (key-value pairs)
+        if (col.settings.labels && Object.keys(col.settings.labels).length > 0) {
+          console.log('  Labels:');
+          Object.keys(col.settings.labels).sort((a, b) => parseInt(a) - parseInt(b)).forEach(key => {
+            const labelValue = col.settings.labels[key];
+            // Handle dropdown labels which are objects with id/name properties
+            if (labelValue && typeof labelValue === 'object' && labelValue.name) {
+              console.log('    "' + key + '": "' + labelValue.name + '" (id: ' + labelValue.id + ')');
+            } else {
+              console.log('    "' + key + '": "' + labelValue + '"');
+            }
+          });
+        }
+
+        // Show deactivated labels if any
+        if (col.settings.deactivated_labels && col.settings.deactivated_labels.length > 0) {
+          console.log('  Deactivated Labels: [' + col.settings.deactivated_labels.join(', ') + ']');
+        }
+      }
+    });
+
+    console.log('---');
+    console.log('=== END SCHEMA (' + columns.length + ' columns) ===');
+
+    return columns;
+  } catch (error) {
+    console.error('Error printing board schema:', error);
+    throw error;
+  }
+}
+
+/**
  * Get board groups
  * @param {string} boardId - Monday.com board ID
  * @returns {Array} Array of group objects
@@ -2516,5 +2572,185 @@ function validatePartnerNames() {
   } catch (error) {
     console.error('Error validating partner names:', error);
     return { error: error.message, stack: error.stack };
+  }
+}
+
+/**
+ * Get ALL Marketing Approvals without manager filtering
+ * Used by Marketing Manager view
+ * @returns {Array} All marketing approval items
+ */
+function getAllMarketingApprovals() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const cacheKey = 'all_marketing_approvals';
+    const cached = cache.get(cacheKey);
+
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MarketingApproval');
+    if (!sheet) {
+      console.log('MarketingApproval sheet not found');
+      return [];
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) {
+      return [];
+    }
+
+    const headers = data[0];
+    const rows = data.slice(1);
+
+    console.log(`Getting ALL marketing approvals: ${rows.length} total rows`);
+
+    // Convert to objects and sanitize
+    const approvals = rows.map((row, index) => {
+      const item = {};
+      headers.forEach((header, colIndex) => {
+        let value = row[colIndex];
+        if (value === null || value === undefined) {
+          value = '';
+        } else if (value instanceof Date) {
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          value = `${year}-${month}-${day}`;
+        } else {
+          value = String(value);
+        }
+        item[header] = value;
+      });
+      item._rowIndex = index + 2;
+      return item;
+    }).filter(item => item['Item Name'] || item['Monday Item ID']); // Filter out empty rows
+
+    console.log(`Returning ${approvals.length} marketing approvals`);
+
+    // Cache for 2 minutes
+    try {
+      cache.put(cacheKey, JSON.stringify(approvals), 120);
+    } catch (e) {
+      console.log('Could not cache results:', e);
+    }
+
+    return approvals;
+
+  } catch (error) {
+    console.error('Error in getAllMarketingApprovals:', error);
+    return [];
+  }
+}
+
+/**
+ * Get ALL Marketing Calendar entries without manager filtering
+ * Used by Marketing Manager view
+ * @returns {Array} All marketing calendar items
+ */
+function getAllMarketingCalendar() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const cacheKey = 'all_marketing_calendar';
+    const cached = cache.get(cacheKey);
+
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MarketingCalendar');
+    if (!sheet) {
+      console.log('MarketingCalendar sheet not found');
+      return [];
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) {
+      return [];
+    }
+
+    const headers = data[0];
+    const rows = data.slice(1);
+
+    console.log(`Getting ALL marketing calendar entries: ${rows.length} total rows`);
+
+    // Convert to objects and sanitize
+    const calendar = rows.map((row, index) => {
+      const item = {};
+      headers.forEach((header, colIndex) => {
+        let value = row[colIndex];
+        if (value === null || value === undefined) {
+          value = '';
+        } else if (value instanceof Date) {
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          value = `${year}-${month}-${day}`;
+        } else {
+          value = String(value);
+        }
+        item[header] = value;
+      });
+      item._rowIndex = index + 2;
+      return item;
+    }).filter(item => item['Item Name'] || item['Monday Item ID']); // Filter out empty rows
+
+    console.log(`Returning ${calendar.length} marketing calendar entries`);
+
+    // Cache for 2 minutes
+    try {
+      cache.put(cacheKey, JSON.stringify(calendar), 120);
+    } catch (e) {
+      console.log('Could not cache results:', e);
+    }
+
+    return calendar;
+
+  } catch (error) {
+    console.error('Error in getAllMarketingCalendar:', error);
+    return [];
+  }
+}
+
+/**
+ * Get filter options for Marketing Manager view
+ * Returns unique values for each filterable field
+ * @returns {Object} Filter options for Marketing Approvals and Calendar
+ */
+function getMarketingManagerFilterOptions() {
+  try {
+    const approvals = getAllMarketingApprovals();
+    const calendar = getAllMarketingCalendar();
+
+    // Collect unique values for Marketing Approvals filters
+    const approvalFilters = {
+      fundingTypes: [...new Set(approvals.map(a => a['Funding Type']).filter(v => v))].sort(),
+      overallStatuses: [...new Set(approvals.map(a => a['Overall Status']).filter(v => v))].sort(),
+      allianceManagers: [...new Set(approvals.map(a => a['AllianceManager'] || a['Alliance Manager']).filter(v => v))].sort(),
+      partners: [...new Set(approvals.map(a => a['Partner']).filter(v => v))].sort(),
+      requestTypes: [...new Set(approvals.map(a => a['Request Type']).filter(v => v))].sort()
+    };
+
+    // Collect unique values for Marketing Calendar filters
+    const calendarFilters = {
+      partners: [...new Set(calendar.map(c => c['Partner']).filter(v => v))].sort(),
+      owners: [...new Set(calendar.map(c => c['Owner']).filter(v => v))].sort(),
+      activityTypes: [...new Set(calendar.map(c => c['Activity Type']).filter(v => v))].sort()
+    };
+
+    return {
+      approvalFilters,
+      calendarFilters
+    };
+
+  } catch (error) {
+    console.error('Error getting filter options:', error);
+    return {
+      approvalFilters: { fundingTypes: [], overallStatuses: [], allianceManagers: [], partners: [], requestTypes: [] },
+      calendarFilters: { partners: [], owners: [], activityTypes: [] }
+    };
   }
 }
