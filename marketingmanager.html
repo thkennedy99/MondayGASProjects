@@ -219,22 +219,22 @@
   <div id="root"></div>
 
   <script>
-    // Board IDs
-    const MARKETING_APPROVAL_BOARD_ID = '9710279044';
-    const MARKETING_CALENDAR_BOARD_ID = '9770467355';
+    // Board IDs - attach to window for cross-script access
+    window.MARKETING_APPROVAL_BOARD_ID = '9710279044';
+    window.MARKETING_CALENDAR_BOARD_ID = '9770467355';
 
     // Get configuration injected from server-side template
-    const appConfig = <?= appConfig ?>;
-    const editItemIdFromUrl = appConfig.editItemId || null;
-    const editBoardIdFromUrl = appConfig.editBoardId || null;
+    window.appConfig = <?= appConfig ?>;
+    window.editItemIdFromUrl = window.appConfig.editItemId || null;
+    window.editBoardIdFromUrl = window.appConfig.editBoardId || null;
 
-    console.log('App config loaded:', appConfig);
-    if (editItemIdFromUrl) {
-      console.log('Deep link detected - editItemId:', editItemIdFromUrl, 'editBoardId:', editBoardIdFromUrl);
+    console.log('App config loaded:', window.appConfig);
+    if (window.editItemIdFromUrl) {
+      console.log('Deep link detected - editItemId:', window.editItemIdFromUrl, 'editBoardId:', window.editBoardIdFromUrl);
     }
 
     // API wrapper for Google Apps Script calls
-    const api = {
+    window.api = {
       call: function(functionName, ...args) {
         return new Promise((resolve, reject) => {
           google.script.run
@@ -248,6 +248,13 @@
 
   <script type="text/babel">
     const { useState, useEffect, useMemo } = React;
+
+    // Get values from window (set in previous script tag)
+    const MARKETING_APPROVAL_BOARD_ID = window.MARKETING_APPROVAL_BOARD_ID;
+    const MARKETING_CALENDAR_BOARD_ID = window.MARKETING_CALENDAR_BOARD_ID;
+    const editItemIdFromUrl = window.editItemIdFromUrl;
+    const editBoardIdFromUrl = window.editBoardIdFromUrl;
+    const api = window.api;
 
     // Multi-select Filter Component
     function MultiSelectFilter({ label, options, selected, onChange }) {
