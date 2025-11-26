@@ -209,16 +209,42 @@ const cache = new CacheManager();
  */
 function clearAllCaches() {
   try {
-    CacheService.getScriptCache().removeAll();
-    CacheService.getUserCache().removeAll();
-    CacheService.getDocumentCache().removeAll();
-    
-    // Clear key indexes
     const properties = PropertiesService.getScriptProperties();
+
+    // Get tracked cache keys
+    const scriptKeys = properties.getProperty('cache_keys_script');
+    const userKeys = properties.getProperty('cache_keys_user');
+    const documentKeys = properties.getProperty('cache_keys_document');
+
+    // Remove script cache keys
+    if (scriptKeys) {
+      const keysArray = JSON.parse(scriptKeys);
+      if (keysArray.length > 0) {
+        CacheService.getScriptCache().removeAll(keysArray);
+      }
+    }
+
+    // Remove user cache keys
+    if (userKeys) {
+      const keysArray = JSON.parse(userKeys);
+      if (keysArray.length > 0) {
+        CacheService.getUserCache().removeAll(keysArray);
+      }
+    }
+
+    // Remove document cache keys
+    if (documentKeys) {
+      const keysArray = JSON.parse(documentKeys);
+      if (keysArray.length > 0) {
+        CacheService.getDocumentCache().removeAll(keysArray);
+      }
+    }
+
+    // Clear key indexes
     properties.deleteProperty('cache_keys_script');
     properties.deleteProperty('cache_keys_user');
     properties.deleteProperty('cache_keys_document');
-    
+
     return { success: true, message: 'All caches cleared' };
   } catch (error) {
     console.error('Clear cache error:', error);
