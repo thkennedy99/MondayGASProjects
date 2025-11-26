@@ -94,11 +94,11 @@ function sendMarketingCalendarNotification(itemDetails) {
 function buildMarketingApprovalEmailHtml(itemDetails) {
   const { itemName, columnValues, boardId, itemId } = itemDetails;
 
-  // Build Monday.com link to open item in the board view
-  // Use ?selectedPulseId= query parameter to open the specific item
+  // Build Monday.com link to open the item directly
+  // Format: /boards/BOARD_ID/pulses/ITEM_ID opens the item in Monday's item view
   const mondayBoardUrl = itemId
-    ? `https://guidewire-technology-alliances.monday.com/boards/${boardId || '9710279044'}/views/207296946?selectedPulseId=${itemId}`
-    : `https://guidewire-technology-alliances.monday.com/boards/${boardId || '9710279044'}/views/207296946`;
+    ? `https://guidewire-technology-alliances.monday.com/boards/${boardId || '9710279044'}/pulses/${itemId}`
+    : `https://guidewire-technology-alliances.monday.com/boards/${boardId || '9710279044'}`;
   const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMMM d, yyyy');
 
   // Build item details table
