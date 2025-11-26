@@ -737,7 +737,7 @@ function deleteMondayItem(itemId, boardId) {
           // Sync only the specific GW board that was affected
           console.log(`Syncing single GW board ${boardId} after item deletion...`);
           syncSingleGWBoard(boardId);
-          aggregateGWBoardsToMain();
+          // GWMondayData auto-updates via formula
           console.log('GW board sync complete');
         } else if (boardId === PARTNER_BOARD_ID) {
           // For partner board, sync just the partner activities
@@ -939,7 +939,7 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item update...`);
         syncSingleGWBoard(boardId);
-        aggregateGWBoardsToMain();
+        // GWMondayData auto-updates via formula
         console.log('GW board sync complete');
       } else if (boardId === PARTNER_BOARD_ID) {
         // For partner board, sync just the partner activities
@@ -1374,7 +1374,7 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item creation...`);
         syncSingleGWBoard(boardId);
-        aggregateGWBoardsToMain();
+        // GWMondayData auto-updates via formula
         console.log('GW board sync complete');
       } else if (boardId === PARTNER_BOARD_ID) {
         // For partner board, sync just the partner activities
@@ -1864,67 +1864,42 @@ function syncSingleGWBoard(boardId) {
 }
 
 /**
- * Aggregate all individual GW board sheets into GWMondayData
- * Call this after syncing individual boards if you need the combined view
+ * Set up GWMondayData sheet with a formula that pulls from all 4 individual GW board sheets
+ * Run this once after creating the individual sheets
  */
-function aggregateGWBoardsToMain() {
+function setupGWMondayDataFormula() {
   try {
-    console.log('Aggregating individual GW board sheets to GWMondayData...');
+    console.log('Setting up GWMondayData formula...');
 
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const mainSheet = getOrCreateSheet(GW_MONDAY_SHEET_NAME);
 
-    // Clear the main sheet
-    clearSheetData(mainSheet);
+    // Clear the sheet first
+    mainSheet.clear();
 
-    const allSheets = [GW_BOARD_1_SHEET, GW_BOARD_2_SHEET, GW_BOARD_3_SHEET, GW_BOARD_4_SHEET];
-    let isFirstSheet = true;
-    let totalRows = 0;
+    // Set the formula in A1 that pulls from all 4 sheets
+    // Uses QUERY to stack data and filter out empty rows
+    const formula = `=QUERY({
+      '${GW_BOARD_1_SHEET}'!A:Z;
+      '${GW_BOARD_2_SHEET}'!A2:Z;
+      '${GW_BOARD_3_SHEET}'!A2:Z;
+      '${GW_BOARD_4_SHEET}'!A2:Z
+    }, "SELECT * WHERE Col1 IS NOT NULL", 1)`;
 
-    for (const sheetName of allSheets) {
-      const sourceSheet = spreadsheet.getSheetByName(sheetName);
-      if (!sourceSheet) {
-        console.log(`Sheet ${sheetName} not found, skipping`);
-        continue;
-      }
+    mainSheet.getRange('A1').setFormula(formula.replace(/\n\s*/g, ''));
 
-      const lastRow = sourceSheet.getLastRow();
-      const lastCol = sourceSheet.getLastColumn();
-
-      if (lastRow < 1 || lastCol < 1) {
-        console.log(`Sheet ${sheetName} is empty, skipping`);
-        continue;
-      }
-
-      if (isFirstSheet) {
-        // Copy headers from first sheet
-        const headers = sourceSheet.getRange(1, 1, 1, lastCol).getValues();
-        mainSheet.getRange(1, 1, 1, lastCol).setValues(headers);
-        isFirstSheet = false;
-      }
-
-      if (lastRow > 1) {
-        // Copy data rows (skip header)
-        const data = sourceSheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
-        const mainLastRow = mainSheet.getLastRow();
-        mainSheet.getRange(mainLastRow + 1, 1, data.length, lastCol).setValues(data);
-        totalRows += data.length;
-        console.log(`Copied ${data.length} rows from ${sheetName}`);
-      }
-    }
-
-    console.log(`Aggregation complete - ${totalRows} total rows in GWMondayData`);
-    return { success: true, totalRows: totalRows };
+    console.log('GWMondayData formula set - sheet will auto-update when individual sheets change');
+    return { success: true };
 
   } catch (error) {
-    console.error('Error aggregating GW boards:', error);
+    console.error('Error setting up GWMondayData formula:', error);
     throw error;
   }
 }
 
 /**
- * Sync all individual GW board sheets (faster than syncing all at once)
- * Then aggregate to GWMondayData
+ * Sync all individual GW board sheets
+ * GWMondayData auto-updates via formula
  */
 function syncAllGWBoardsIndividually() {
   try {
@@ -1935,10 +1910,8 @@ function syncAllGWBoardsIndividually() {
       syncSingleGWBoard(boardId);
     }
 
-    // Aggregate to main sheet
-    aggregateGWBoardsToMain();
-
-    console.log('=== All GW boards synced ===');
+    // GWMondayData auto-updates via formula set by setupGWMondayDataFormula()
+    console.log('=== All GW boards synced (GWMondayData updates automatically) ===');
     return { success: true };
 
   } catch (error) {
