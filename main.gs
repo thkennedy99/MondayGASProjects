@@ -873,107 +873,79 @@ function getGuidewireBoardConfigurations() {
  */
 function syncGuidewireBoards() {
   try {
-    console.log('Starting Guidewire boards sync...');
+    console.log('Starting Guidewire boards sync (individual board architecture)...');
 
-    // Get or create the GWMondayData sheet
-    const gwSheet = getOrCreateSheet(GW_MONDAY_SHEET_NAME);
-
-    // Clear existing data from row 2 onwards
-    clearSheetData(gwSheet);
-
-    // Get partner translation lookup map
+    // Get partner translation lookup map for post-processing
     const partnerTranslateMap = getPartnerTranslateLookup();
-
-    // Get alliance manager lookup map
-    const allianceManagerMap = getAllianceManagerLookup();
-
-    const guidewireConfigs = getGuidewireBoardConfigurations();
     let totalItems = 0;
 
-    // Process each board individually to handle different column structures
-    for (let i = 0; i < guidewireConfigs.length; i++) {
-      const boardConfig = guidewireConfigs[i];
-      const isFirstBoard = (i === 0);
+    // Sync each GW board to its individual sheet
+    const boardSheets = [
+      { boardId: GW_BOARD_1_ID, sheetName: GW_BOARD_1_SHEET },
+      { boardId: GW_BOARD_2_ID, sheetName: GW_BOARD_2_SHEET },
+      { boardId: GW_BOARD_3_ID, sheetName: GW_BOARD_3_SHEET },
+      { boardId: GW_BOARD_4_ID, sheetName: GW_BOARD_4_SHEET }
+    ];
 
-      console.log(`\n=== Processing Guidewire Board ${i + 1}/${guidewireConfigs.length}: ${boardConfig.boardName} ===`);
-      console.log('Board ID:', boardConfig.boardId);
+    for (let i = 0; i < boardSheets.length; i++) {
+      const { boardId, sheetName } = boardSheets[i];
+      console.log(`\n=== Syncing GW Board ${i + 1}/${boardSheets.length}: ${sheetName} (${boardId}) ===`);
 
       try {
-        // Fetch board structure for THIS specific board (don't assume all boards are the same)
-        console.log('Fetching board structure...');
-        const boardStructure = getBoardStructure(boardConfig.boardId);
-        console.log('Board name from Monday:', boardStructure.name);
-        console.log('Number of columns:', boardStructure.columns.length);
-        console.log('Number of groups:', boardStructure.groups.length);
+        // Sync this board to its individual sheet
+        const result = syncSingleGWBoard(boardId);
+        const itemCount = result.itemCount || 0;
+        totalItems += itemCount;
 
-        // Get all items from this board
-        const items = getAllBoardItems(boardConfig.boardId);
-        console.log(`Items retrieved from ${boardStructure.name}: ${items.length}`);
+        // Apply post-processing to this individual sheet
+        if (itemCount > 0) {
+          const sheet = getOrCreateSheet(sheetName);
 
-        // Process and write this board's data
-        if (items.length > 0) {
-          // Add board info to each item using the ACTUAL board name from Monday
-          items.forEach(item => {
-            item.partnerName = boardConfig.partnerName;
-            item.boardName = boardStructure.name;  // Use actual board name from Monday
-            item.boardId = boardConfig.boardId;
-          });
+          // 1. Delete completed rows
+          deleteCompletedRows(sheet);
 
-          // Write this board's data to the sheet
-          // First board writes headers, subsequent boards append
-          writeDataToSheet(gwSheet, boardStructure, items, isFirstBoard, boardConfig);
-          totalItems += items.length;
+          // 2. Translate partner names (column D, index 4)
+          const lastRow = sheet.getLastRow();
+          if (lastRow > 1) {
+            const partnerNameRange = sheet.getRange(2, 4, lastRow - 1, 1);
+            const partnerNames = partnerNameRange.getValues();
 
-          console.log(`Written ${items.length} items from ${boardStructure.name}`);
-        } else {
-          console.log(`No items found on board: ${boardStructure.name}`);
+            const updatedNames = partnerNames.map(row => {
+              const originalName = row[0];
+              if (originalName) {
+                const translatedName = lookupPartnerTranslation(originalName.toString().trim(), partnerTranslateMap);
+                return [translatedName];
+              }
+              return row;
+            });
+
+            partnerNameRange.setValues(updatedNames);
+          }
+
+          // 3. Sort by item name
+          sortDataByItemName(sheet);
+
+          // Auto-resize columns
+          const lastColumn = sheet.getLastColumn();
+          for (let col = 1; col <= Math.min(lastColumn, 20); col++) {
+            sheet.autoResizeColumn(col);
+          }
+
+          console.log(`Post-processing complete for ${sheetName}`);
         }
 
       } catch (boardError) {
-        console.error(`Error processing Guidewire board ${boardConfig.boardName} (${boardConfig.boardId}):`, boardError);
+        console.error(`Error processing GW board ${sheetName} (${boardId}):`, boardError);
         // Continue processing other boards even if one fails
       }
     }
 
-    // Apply post-processing to all data
-    if (totalItems > 0) {
-      console.log(`\nApplying post-processing to ${totalItems} total items...`);
+    // Ensure GWMondayData formula is set up (auto-pulls from individual sheets)
+    console.log('\nSetting up GWMondayData formula to aggregate individual sheets...');
+    setupGWMondayDataFormula();
 
-      // 1. Delete rows where column B (Group) equals completed statuses
-      deleteCompletedRows(gwSheet);
-
-      // 2. Translate partner names if needed
-      const lastRow = gwSheet.getLastRow();
-      if (lastRow > 1) {
-        const partnerNameRange = gwSheet.getRange(2, 4, lastRow - 1, 1);
-        const partnerNames = partnerNameRange.getValues();
-
-        const updatedNames = partnerNames.map(row => {
-          const originalName = row[0];
-          if (originalName) {
-            const translatedName = lookupPartnerTranslation(originalName.toString().trim(), partnerTranslateMap);
-            return [translatedName];
-          }
-          return row;
-        });
-
-        partnerNameRange.setValues(updatedNames);
-      }
-
-      // 3. Sort the data by column A (Item Name)
-      sortDataByItemName(gwSheet);
-
-      // Auto-resize columns for better visibility
-      const lastColumn = gwSheet.getLastColumn();
-      for (let i = 1; i <= lastColumn; i++) {
-        gwSheet.autoResizeColumn(i);
-      }
-
-      console.log('Guidewire boards sync complete');
-      console.log(`Success! Synced ${totalItems} items from Guidewire Monday.com boards to ${GW_MONDAY_SHEET_NAME}`);
-    } else {
-      console.log('No items found on any Guidewire boards');
-    }
+    console.log(`\nGuidewire boards sync complete - ${totalItems} total items across 4 boards`);
+    console.log('GWMondayData will auto-update via formula when individual sheets change');
 
     // Clear internal activity caches after GW boards sync
     console.log('Clearing internal activity caches...');
@@ -981,7 +953,7 @@ function syncGuidewireBoards() {
 
   } catch (error) {
     console.error('Error syncing Guidewire boards:', error);
-    throw error; // Re-throw to be handled by caller
+    throw error;
   }
 }
 
