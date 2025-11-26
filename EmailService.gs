@@ -16,7 +16,8 @@ function sendMarketingApprovalNotification(itemDetails) {
   try {
     console.log('Sending Marketing Approval notification email...');
 
-    const recipients = ['mearlywine@guidewire.com', 'jhiguchi@guidewire.com'];
+    // const recipients = ['mearlywine@guidewire.com', 'jhiguchi@guidewire.com', 'tkennedy@guidewire.com'];
+    const recipients = ['tkennedy@guidewire.com'];
     const subject = `New Marketing Approval Request: ${itemDetails.itemName}`;
 
     // Build email body with Guidewire branding
