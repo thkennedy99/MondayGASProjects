@@ -28,31 +28,41 @@ function doGet(e) {
       manager: e.parameter.manager || Session.getActiveUser().getEmail(),
       token: e.parameter.token || null
     };
-    
-   console.log('1');
-    
+
+    console.log('doGet called with page:', params.page);
+
     // Initialize session
     const session = initializeSession(params.manager, params.token);
-    console.log('2');
+
+    // Determine which template to use based on page parameter
+    let templateName = 'index';
+    let pageTitle = CONFIG.APP_NAME;
+
+    if (params.page === 'marketingmanager') {
+      templateName = 'marketingmanager';
+      pageTitle = 'Marketing Manager - ' + CONFIG.APP_NAME;
+    }
+
     // Create HTML template
-    const template = HtmlService.createTemplateFromFile('index');
-    console.log('3');
+    const template = HtmlService.createTemplateFromFile(templateName);
+
     // Inject configuration
     template.appConfig = JSON.stringify({
       user: session.user,
       token: session.token,
       environment: CONFIG.DEBUG_MODE ? 'development' : 'production',
       version: CONFIG.VERSION,
-      apiEndpoint: CONFIG.MONDAY_API_URL
+      apiEndpoint: CONFIG.MONDAY_API_URL,
+      page: params.page
     });
-    console.log('4');
+
     // Return HTML output
     return template.evaluate()
-      .setTitle(CONFIG.APP_NAME)
+      .setTitle(pageTitle)
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setFaviconUrl('https://www.guidewire.com/favicon.ico');
-      
+
   } catch (error) {
     console.error('Error in doGet:', error);
     return createErrorResponse('Application initialization failed', 500);

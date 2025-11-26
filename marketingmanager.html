@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Marketing Manager Portal</title>
+
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- React -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    :root {
+      --gw-blue: #00739d;
+      --gw-navy: #034e6a;
+      --gw-light: #f8f9fa;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #f5f5f5;
+    }
+
+    .header {
+      background: linear-gradient(135deg, var(--gw-blue) 0%, var(--gw-navy) 100%);
+      color: white;
+      padding: 1rem 2rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+
+    .filter-section {
+      background: white;
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .filter-section h5 {
+      color: var(--gw-navy);
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+
+    .filter-group {
+      margin-bottom: 0.75rem;
+    }
+
+    .filter-group label {
+      font-weight: 500;
+      font-size: 0.875rem;
+      color: #555;
+      margin-bottom: 0.25rem;
+      display: block;
+    }
+
+    .filter-select {
+      width: 100%;
+      min-height: 80px;
+      font-size: 0.875rem;
+    }
+
+    .data-table {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .data-table table {
+      margin-bottom: 0;
+    }
+
+    .data-table th {
+      background-color: var(--gw-navy);
+      color: white;
+      font-weight: 500;
+      font-size: 0.875rem;
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+    }
+
+    .data-table td {
+      font-size: 0.875rem;
+      vertical-align: middle;
+    }
+
+    .data-table tbody tr:hover {
+      background-color: #f0f8ff;
+    }
+
+    .nav-tabs .nav-link {
+      color: var(--gw-navy);
+      font-weight: 500;
+    }
+
+    .nav-tabs .nav-link.active {
+      color: var(--gw-blue);
+      border-bottom: 2px solid var(--gw-blue);
+    }
+
+    .badge-status {
+      font-size: 0.75rem;
+      padding: 0.35em 0.65em;
+    }
+
+    .table-container {
+      max-height: 600px;
+      overflow-y: auto;
+    }
+
+    .loading-spinner {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 3rem;
+    }
+
+    .filter-info {
+      font-size: 0.8rem;
+      color: #666;
+      margin-top: 0.5rem;
+    }
+
+    .clear-filters-btn {
+      font-size: 0.8rem;
+    }
+
+    .result-count {
+      font-size: 0.9rem;
+      color: #666;
+      margin-bottom: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+    // API wrapper for Google Apps Script calls
+    const api = {
+      call: function(functionName, ...args) {
+        return new Promise((resolve, reject) => {
+          google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(reject)
+            [functionName](...args);
+        });
+      }
+    };
+  </script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    // Multi-select Filter Component
+    function MultiSelectFilter({ label, options, selected, onChange }) {
+      const handleChange = (e) => {
+        const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+        onChange(selectedOptions);
+      };
+
+      return (
+        <div className="filter-group">
+          <label>{label}</label>
+          <select
+            className="form-select filter-select"
+            multiple
+            value={selected}
+            onChange={handleChange}
+          >
+            {options.map((option, idx) => (
+              <option key={idx} value={option}>{option}</option>
+            ))}
+          </select>
+          {selected.length > 0 && (
+            <div className="filter-info">
+              {selected.length} selected
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Marketing Approvals Tab Component
+    function MarketingApprovalsTab({ data, filters, filterOptions }) {
+      const [fundingTypes, setFundingTypes] = useState([]);
+      const [overallStatuses, setOverallStatuses] = useState([]);
+      const [allianceManagers, setAllianceManagers] = useState([]);
+      const [partners, setPartners] = useState([]);
+      const [requestTypes, setRequestTypes] = useState([]);
+
+      // Apply filters (OR within, AND between)
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          // Funding Type filter (OR)
+          if (fundingTypes.length > 0) {
+            if (!fundingTypes.includes(item['Funding Type'])) return false;
+          }
+
+          // Overall Status filter (OR)
+          if (overallStatuses.length > 0) {
+            if (!overallStatuses.includes(item['Overall Status'])) return false;
+          }
+
+          // Alliance Manager filter (OR)
+          if (allianceManagers.length > 0) {
+            const itemManager = item['AllianceManager'] || item['Alliance Manager'] || '';
+            if (!allianceManagers.includes(itemManager)) return false;
+          }
+
+          // Partner filter (OR)
+          if (partners.length > 0) {
+            if (!partners.includes(item['Partner'])) return false;
+          }
+
+          // Request Type filter (OR)
+          if (requestTypes.length > 0) {
+            if (!requestTypes.includes(item['Request Type'])) return false;
+          }
+
+          return true;
+        });
+      }, [data, fundingTypes, overallStatuses, allianceManagers, partners, requestTypes]);
+
+      const clearFilters = () => {
+        setFundingTypes([]);
+        setOverallStatuses([]);
+        setAllianceManagers([]);
+        setPartners([]);
+        setRequestTypes([]);
+      };
+
+      const hasFilters = fundingTypes.length > 0 || overallStatuses.length > 0 ||
+                         allianceManagers.length > 0 || partners.length > 0 || requestTypes.length > 0;
+
+      return (
+        <div>
+          {/* Filters */}
+          <div className="filter-section">
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h5 className="mb-0">Filters</h5>
+              {hasFilters && (
+                <button className="btn btn-sm btn-outline-secondary clear-filters-btn" onClick={clearFilters}>
+                  Clear All Filters
+                </button>
+              )}
+            </div>
+            <div className="row">
+              <div className="col-md-2">
+                <MultiSelectFilter
+                  label="Funding Type"
+                  options={filterOptions.fundingTypes || []}
+                  selected={fundingTypes}
+                  onChange={setFundingTypes}
+                />
+              </div>
+              <div className="col-md-2">
+                <MultiSelectFilter
+                  label="Overall Status"
+                  options={filterOptions.overallStatuses || []}
+                  selected={overallStatuses}
+                  onChange={setOverallStatuses}
+                />
+              </div>
+              <div className="col-md-3">
+                <MultiSelectFilter
+                  label="Alliance Manager"
+                  options={filterOptions.allianceManagers || []}
+                  selected={allianceManagers}
+                  onChange={setAllianceManagers}
+                />
+              </div>
+              <div className="col-md-3">
+                <MultiSelectFilter
+                  label="Partner"
+                  options={filterOptions.partners || []}
+                  selected={partners}
+                  onChange={setPartners}
+                />
+              </div>
+              <div className="col-md-2">
+                <MultiSelectFilter
+                  label="Request Type"
+                  options={filterOptions.requestTypes || []}
+                  selected={requestTypes}
+                  onChange={setRequestTypes}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Results */}
+          <div className="result-count">
+            Showing {filteredData.length} of {data.length} items
+          </div>
+
+          {/* Data Table */}
+          <div className="data-table">
+            <div className="table-container">
+              <table className="table table-striped table-hover">
+                <thead>
+                  <tr>
+                    <th>Item Name</th>
+                    <th>Partner</th>
+                    <th>Alliance Manager</th>
+                    <th>Request Type</th>
+                    <th>Funding Type</th>
+                    <th>Overall Status</th>
+                    <th>Priority</th>
+                    <th>Cost</th>
+                    <th>Start Date</th>
+                    <th>Create Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={idx}>
+                      <td>{item['Item Name']}</td>
+                      <td>{item['Partner']}</td>
+                      <td>{item['AllianceManager'] || item['Alliance Manager']}</td>
+                      <td>{item['Request Type']}</td>
+                      <td>{item['Funding Type']}</td>
+                      <td>
+                        <span className={`badge badge-status ${getStatusBadgeClass(item['Overall Status'])}`}>
+                          {item['Overall Status']}
+                        </span>
+                      </td>
+                      <td>{item['Priority']}</td>
+                      <td>{item['Cost']}</td>
+                      <td>{item['Start Date']}</td>
+                      <td>{item['Create Date']}</td>
+                    </tr>
+                  ))}
+                  {filteredData.length === 0 && (
+                    <tr>
+                      <td colSpan="10" className="text-center text-muted py-4">
+                        No items match the selected filters
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Marketing Calendar Tab Component
+    function MarketingCalendarTab({ data, filters, filterOptions }) {
+      const [partners, setPartners] = useState([]);
+      const [owners, setOwners] = useState([]);
+      const [activityTypes, setActivityTypes] = useState([]);
+
+      // Apply filters (OR within, AND between)
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          // Partner filter (OR)
+          if (partners.length > 0) {
+            if (!partners.includes(item['Partner'])) return false;
+          }
+
+          // Owner filter (OR)
+          if (owners.length > 0) {
+            if (!owners.includes(item['Owner'])) return false;
+          }
+
+          // Activity Type filter (OR)
+          if (activityTypes.length > 0) {
+            if (!activityTypes.includes(item['Activity Type'])) return false;
+          }
+
+          return true;
+        });
+      }, [data, partners, owners, activityTypes]);
+
+      const clearFilters = () => {
+        setPartners([]);
+        setOwners([]);
+        setActivityTypes([]);
+      };
+
+      const hasFilters = partners.length > 0 || owners.length > 0 || activityTypes.length > 0;
+
+      return (
+        <div>
+          {/* Filters */}
+          <div className="filter-section">
+            <div className="d-flex justify-content-between align-items-center mb-3">
+              <h5 className="mb-0">Filters</h5>
+              {hasFilters && (
+                <button className="btn btn-sm btn-outline-secondary clear-filters-btn" onClick={clearFilters}>
+                  Clear All Filters
+                </button>
+              )}
+            </div>
+            <div className="row">
+              <div className="col-md-4">
+                <MultiSelectFilter
+                  label="Partner"
+                  options={filterOptions.partners || []}
+                  selected={partners}
+                  onChange={setPartners}
+                />
+              </div>
+              <div className="col-md-4">
+                <MultiSelectFilter
+                  label="Owner"
+                  options={filterOptions.owners || []}
+                  selected={owners}
+                  onChange={setOwners}
+                />
+              </div>
+              <div className="col-md-4">
+                <MultiSelectFilter
+                  label="Activity Type"
+                  options={filterOptions.activityTypes || []}
+                  selected={activityTypes}
+                  onChange={setActivityTypes}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Results */}
+          <div className="result-count">
+            Showing {filteredData.length} of {data.length} items
+          </div>
+
+          {/* Data Table */}
+          <div className="data-table">
+            <div className="table-container">
+              <table className="table table-striped table-hover">
+                <thead>
+                  <tr>
+                    <th>Item Name</th>
+                    <th>Partner</th>
+                    <th>Owner</th>
+                    <th>Activity Type</th>
+                    <th>Month</th>
+                    <th>Week</th>
+                    <th>Event Date</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={idx}>
+                      <td>{item['Item Name']}</td>
+                      <td>{item['Partner']}</td>
+                      <td>{item['Owner']}</td>
+                      <td>{item['Activity Type']}</td>
+                      <td>{item['Month']}</td>
+                      <td>{item['Week']}</td>
+                      <td>{item['EventDate'] || item['Event Date'] || item['Date']}</td>
+                      <td>{item['Status']}</td>
+                    </tr>
+                  ))}
+                  {filteredData.length === 0 && (
+                    <tr>
+                      <td colSpan="8" className="text-center text-muted py-4">
+                        No items match the selected filters
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Helper function for status badge colors
+    function getStatusBadgeClass(status) {
+      if (!status) return 'bg-secondary';
+      const statusLower = status.toLowerCase();
+      if (statusLower.includes('approved') || statusLower.includes('completed')) return 'bg-success';
+      if (statusLower.includes('rejected') || statusLower.includes('cancelled')) return 'bg-danger';
+      if (statusLower.includes('pending') || statusLower.includes('submitted')) return 'bg-warning text-dark';
+      if (statusLower.includes('progress')) return 'bg-info';
+      return 'bg-secondary';
+    }
+
+    // Main App Component
+    function App() {
+      const [activeTab, setActiveTab] = useState('approvals');
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
+      const [approvalsData, setApprovalsData] = useState([]);
+      const [calendarData, setCalendarData] = useState([]);
+      const [filterOptions, setFilterOptions] = useState({
+        approvalFilters: {},
+        calendarFilters: {}
+      });
+
+      useEffect(() => {
+        loadData();
+      }, []);
+
+      const loadData = async () => {
+        setLoading(true);
+        setError(null);
+
+        try {
+          // Load all data in parallel
+          const [approvals, calendar, filters] = await Promise.all([
+            api.call('getAllMarketingApprovals'),
+            api.call('getAllMarketingCalendar'),
+            api.call('getMarketingManagerFilterOptions')
+          ]);
+
+          setApprovalsData(approvals || []);
+          setCalendarData(calendar || []);
+          setFilterOptions(filters || { approvalFilters: {}, calendarFilters: {} });
+
+        } catch (err) {
+          console.error('Error loading data:', err);
+          setError('Failed to load data. Please try refreshing the page.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div>
+          {/* Header */}
+          <div className="header">
+            <div className="container-fluid">
+              <div className="d-flex justify-content-between align-items-center">
+                <h1>Marketing Manager Portal</h1>
+                <button className="btn btn-light btn-sm" onClick={loadData} disabled={loading}>
+                  {loading ? 'Loading...' : 'Refresh Data'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Content */}
+          <div className="container-fluid">
+            {error && (
+              <div className="alert alert-danger" role="alert">
+                {error}
+              </div>
+            )}
+
+            {/* Tabs */}
+            <ul className="nav nav-tabs mb-3">
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'approvals' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('approvals')}
+                >
+                  Marketing Approvals ({approvalsData.length})
+                </button>
+              </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'calendar' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('calendar')}
+                >
+                  Marketing Calendar ({calendarData.length})
+                </button>
+              </li>
+            </ul>
+
+            {/* Tab Content */}
+            {loading ? (
+              <div className="loading-spinner">
+                <div className="spinner-border text-primary" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+              </div>
+            ) : (
+              <>
+                {activeTab === 'approvals' && (
+                  <MarketingApprovalsTab
+                    data={approvalsData}
+                    filterOptions={filterOptions.approvalFilters || {}}
+                  />
+                )}
+                {activeTab === 'calendar' && (
+                  <MarketingCalendarTab
+                    data={calendarData}
+                    filterOptions={filterOptions.calendarFilters || {}}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Render the app
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
