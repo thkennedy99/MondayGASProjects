@@ -566,19 +566,28 @@ getMarketingApprovals(managerEmail) {
     }
 
     const data = this.getSheetData(sheet);
+    const managerName = this.getManagerName(managerEmail);
 
-    console.log(`Getting ALL marketing approvals (no manager filter)`);
+    console.log(`Getting marketing approvals for: ${managerEmail} / ${managerName}`);
     console.log(`Total marketing approval rows from sheet: ${data.length}`);
 
-    // Log sample data to see what we're working with
-    if (data.length > 0) {
-      console.log('Sample row columns:', Object.keys(data[0]));
-    }
+    // Filter by Alliance Manager column (handles both 'AllianceManager' and 'Alliance Manager')
+    const filtered = data.filter(row => {
+      const allianceManager = this.getAllianceManager(row);
+      const owner = row['Owner'];
 
-    // Return all rows without manager filtering
-    const filtered = data;
+      const matchesManager =
+        allianceManager === managerEmail ||
+        allianceManager === managerName ||
+        (allianceManager && allianceManager.includes(managerName.split(' ')[0])) ||
+        owner === managerEmail ||
+        owner === managerName ||
+        (owner && owner.includes(managerName.split(' ')[0]));
 
-    console.log(`Returning all ${filtered.length} marketing approvals`);
+      return matchesManager;
+    });
+
+    console.log(`Filtered to ${filtered.length} approvals for manager ${managerName}`);
     
     // Convert all values to strings and add calculated fields
     const approvals = filtered.map(row => {
