@@ -219,13 +219,15 @@
   <div id="root"></div>
 
   <script>
+    
+
     // Board IDs - attach to window for cross-script access
     window.MARKETING_APPROVAL_BOARD_ID = '9710279044';
     window.MARKETING_CALENDAR_BOARD_ID = '9770467355';
 
     // Get configuration injected from server-side template
-    // Use fallback '{}' in case appConfig is undefined
-    window.appConfig = <?!= appConfig || '{}' ?>;
+    // Use JSON.stringify inside the scriptlet for safer evaluation
+    window.appConfig = <?!= JSON.stringify(configData) ?>;
 
     console.log('DEBUG: typeof window.appConfig =', typeof window.appConfig);
     console.log('DEBUG: window.appConfig.editItemId =', window.appConfig.editItemId);
@@ -236,6 +238,7 @@
     if (window.editItemIdFromUrl) {
       console.log('Deep link detected - editItemId:', window.editItemIdFromUrl, 'editBoardId:', window.editBoardIdFromUrl);
     }
+
 
     // API wrapper for Google Apps Script calls
     window.api = {
