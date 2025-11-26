@@ -154,14 +154,16 @@ getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
 // Inside the DataService class definition, add this method:
 getMarketingCalendarData(managerEmail) {
   try {
+    // Normalize email to lowercase for consistent cache key
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
     const cache = CacheService.getScriptCache();
-    const cacheKey = `marketing_calendar_${managerEmail}`;
+    const cacheKey = `marketing_calendar_${normalizedEmail}`;
     const cached = cache.get(cacheKey);
-    
+
     if (cached) {
       return JSON.parse(cached);
     }
-    
+
     const sheet = this.spreadsheet.getSheetByName('MarketingCalendar');
     if (!sheet) {
       console.log('MarketingCalendar sheet not found');
@@ -468,13 +470,15 @@ getMarketingCalendarData(managerEmail) {
    * Get list of partners managed by a specific manager
    */
   getManagerPartners(managerEmail) {
-    const cacheKey = `manager_partners_${managerEmail}`;
+    // Normalize email to lowercase for consistent cache key
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
+    const cacheKey = `manager_partners_${normalizedEmail}`;
     const cached = this.cache.get(cacheKey);
-    
+
     if (cached) {
       return JSON.parse(cached);
     }
-    
+
     // Get manager's name from AllianceManager sheet
     const managerName = this.getManagerName(managerEmail);
     
@@ -554,14 +558,16 @@ getMarketingCalendarData(managerEmail) {
  */
 getMarketingApprovals(managerEmail) {
   try {
+    // Normalize email to lowercase for consistent cache key
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
     const cache = CacheService.getScriptCache();
-    const cacheKey = `marketing_approvals_${managerEmail}`;
+    const cacheKey = `marketing_approvals_${normalizedEmail}`;
     const cached = cache.get(cacheKey);
-    
+
     if (cached) {
       return JSON.parse(cached);
     }
-    
+
     const sheet = this.spreadsheet.getSheetByName('MarketingApproval');
     if (!sheet) {
       console.log('MarketingApproval sheet not found');
@@ -769,15 +775,17 @@ getMarketingApprovals(managerEmail) {
  */
 getPartnerHeatmap(managerEmail) {
   try {
+    // Normalize email to lowercase for consistent cache key
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
     // Initialize cache properly
     const cache = CacheService.getScriptCache();
-    const cacheKey = `heatmap_${managerEmail}`;
+    const cacheKey = `heatmap_${normalizedEmail}`;
     const cached = cache.get(cacheKey);
-    
+
     if (cached) {
       return JSON.parse(cached);
     }
-    
+
     const sheet = this.spreadsheet.getSheetByName('MondayDashboard');
     if (!sheet) {
       console.log('MondayDashboard sheet not found');
