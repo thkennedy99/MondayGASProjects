@@ -256,24 +256,20 @@ function clearAllCaches() {
     ];
 
     // Also clear manager-specific marketing caches
-    // Get list of managers to clear their specific cache keys
+    // Get list of managers using the centralized getManagerList() function
+    // This ensures consistent lowercase normalization of emails
     try {
-      const ss = SpreadsheetApp.getActiveSpreadsheet();
-      const managerSheet = ss.getSheetByName('TechAllianceManager');
-      if (managerSheet) {
-        const lastRow = managerSheet.getLastRow();
-        if (lastRow >= 2) {
-          const managerEmails = managerSheet.getRange('B2:B' + lastRow).getValues();
-          managerEmails.forEach(row => {
-            const email = row[0];
-            if (email && String(email).trim() !== '') {
-              untrackedKeys.push(`marketing_approvals_${email}`);
-              untrackedKeys.push(`marketing_calendar_${email}`);
-              untrackedKeys.push(`heatmap_data_${email}`);
-            }
-          });
-        }
-      }
+      const managers = getManagerList();
+      managers.forEach(email => {
+        // email is already lowercase from getManagerList()
+        untrackedKeys.push(`marketing_approvals_${email}`);
+        untrackedKeys.push(`marketing_calendar_${email}`);
+        untrackedKeys.push(`heatmap_${email}`);
+        untrackedKeys.push(`heatmap_data_${email}`);
+        untrackedKeys.push(`manager_partners_${email}`);
+        untrackedKeys.push(`manager_name_${email}`);
+      });
+      console.log(`Added ${managers.length * 6} manager-specific cache keys to clear`);
     } catch (managerError) {
       console.log('Could not load manager list for cache clearing:', managerError);
     }

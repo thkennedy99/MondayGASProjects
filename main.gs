@@ -1135,3 +1135,289 @@ function debugViewCacheKey(cacheKey) {
     return value;
   }
 }
+
+/**
+ * Debug function to test if CacheService operations actually work
+ * This verifies that put, get, remove, and removeAll are functional
+ */
+function debugTestCacheOperations() {
+  const cache = CacheService.getScriptCache();
+  const testKey = 'debug_test_cache_key_12345';
+  const testValue = JSON.stringify({ test: true, timestamp: new Date().toISOString() });
+
+  console.log('=== CACHE OPERATIONS TEST ===');
+  console.log('');
+
+  // Test 1: Put a value
+  console.log('1. Testing cache.put()...');
+  cache.put(testKey, testValue, 300);
+  console.log(`   Put test value with key: ${testKey}`);
+
+  // Test 2: Get the value
+  console.log('2. Testing cache.get()...');
+  const retrieved = cache.get(testKey);
+  if (retrieved === testValue) {
+    console.log('   ✓ GET works - value retrieved matches');
+  } else if (retrieved) {
+    console.log('   ⚠ GET returned different value');
+    console.log('   Expected:', testValue);
+    console.log('   Got:', retrieved);
+  } else {
+    console.log('   ✗ GET failed - value not found');
+    return { success: false, error: 'cache.get() failed' };
+  }
+
+  // Test 3: Remove the value
+  console.log('3. Testing cache.remove()...');
+  cache.remove(testKey);
+  const afterRemove = cache.get(testKey);
+  if (afterRemove === null) {
+    console.log('   ✓ REMOVE works - value was deleted');
+  } else {
+    console.log('   ✗ REMOVE failed - value still exists:', afterRemove);
+    return { success: false, error: 'cache.remove() failed' };
+  }
+
+  // Test 4: Test removeAll
+  console.log('4. Testing cache.removeAll()...');
+  const testKeys = ['debug_test_1', 'debug_test_2', 'debug_test_3'];
+  testKeys.forEach(key => cache.put(key, 'test_value', 300));
+  console.log('   Put 3 test values');
+
+  // Verify they exist
+  const beforeRemoveAll = testKeys.map(key => cache.get(key));
+  console.log('   Before removeAll:', beforeRemoveAll.map(v => v ? 'EXISTS' : 'EMPTY'));
+
+  cache.removeAll(testKeys);
+
+  const afterRemoveAll = testKeys.map(key => cache.get(key));
+  console.log('   After removeAll:', afterRemoveAll.map(v => v ? 'EXISTS' : 'EMPTY'));
+
+  if (afterRemoveAll.every(v => v === null)) {
+    console.log('   ✓ REMOVEALL works - all values deleted');
+  } else {
+    console.log('   ✗ REMOVEALL failed - some values still exist');
+    return { success: false, error: 'cache.removeAll() failed' };
+  }
+
+  console.log('');
+  console.log('=== ALL CACHE OPERATIONS WORKING ===');
+  return { success: true };
+}
+
+/**
+ * Debug function to specifically test clearing marketing approval cache
+ * Explicitly clears a specific key and verifies it's gone
+ */
+function debugTestMarketingCacheClear() {
+  const cache = CacheService.getScriptCache();
+  const managers = getManagerList();
+
+  console.log('=== MARKETING APPROVAL CACHE CLEAR TEST ===');
+  console.log('Managers found:', managers.length);
+  console.log('Manager list:', managers.join(', '));
+  console.log('');
+
+  // Check each manager's cache
+  managers.forEach(email => {
+    const key = `marketing_approvals_${email}`;
+    const before = cache.get(key);
+
+    console.log(`--- Testing key: ${key} ---`);
+    console.log('Before clear:', before ? `EXISTS (${JSON.parse(before).length} items)` : 'EMPTY');
+
+    if (before) {
+      // Try to remove it
+      cache.remove(key);
+      Utilities.sleep(100); // Small delay to ensure operation completes
+
+      const after = cache.get(key);
+      console.log('After cache.remove():', after ? `STILL EXISTS (${JSON.parse(after).length} items)` : 'DELETED');
+
+      if (after) {
+        console.log('⚠ WARNING: Cache key was NOT removed!');
+      } else {
+        console.log('✓ Cache key successfully removed');
+      }
+    }
+    console.log('');
+  });
+
+  // Also test the general keys
+  ['marketing_approvals_all', 'all_marketing_approvals'].forEach(key => {
+    const before = cache.get(key);
+    console.log(`--- Testing key: ${key} ---`);
+    console.log('Before clear:', before ? 'EXISTS' : 'EMPTY');
+
+    if (before) {
+      cache.remove(key);
+      const after = cache.get(key);
+      console.log('After cache.remove():', after ? 'STILL EXISTS' : 'DELETED');
+    }
+    console.log('');
+  });
+
+  console.log('=== TEST COMPLETE ===');
+}
+
+/**
+ * Force clear a specific cache key by email - use this for direct testing
+ * @param {string} email - Manager email address (will be normalized to lowercase)
+ */
+function forceClearMarketingCacheForEmail(email) {
+  const cache = CacheService.getScriptCache();
+  const normalizedEmail = email ? email.trim().toLowerCase() : '';
+  const key = `marketing_approvals_${normalizedEmail}`;
+
+  console.log('=== FORCE CLEAR SPECIFIC CACHE KEY ===');
+  console.log(`Email: ${email}`);
+  console.log(`Normalized: ${normalizedEmail}`);
+  console.log(`Cache key: ${key}`);
+
+  const before = cache.get(key);
+  console.log('Before clear:', before ? `EXISTS (${JSON.parse(before).length} items)` : 'EMPTY');
+
+  // Force remove using the direct cache reference
+  cache.remove(key);
+  Utilities.sleep(200);
+
+  const after = cache.get(key);
+  console.log('After cache.remove():', after ? `STILL EXISTS (${JSON.parse(after).length} items)` : 'DELETED');
+
+  if (after) {
+    console.log('');
+    console.log('⚠ Cache remove FAILED - trying alternative approach...');
+
+    // Try removeAll with single key
+    cache.removeAll([key]);
+    Utilities.sleep(200);
+
+    const afterRemoveAll = cache.get(key);
+    console.log('After cache.removeAll([key]):', afterRemoveAll ? `STILL EXISTS` : 'DELETED');
+
+    if (afterRemoveAll) {
+      // Try putting null/empty
+      console.log('Trying to overwrite with empty array...');
+      cache.put(key, JSON.stringify([]), 1); // 1 second TTL
+      Utilities.sleep(1500);
+
+      const afterOverwrite = cache.get(key);
+      console.log('After overwrite with 1s TTL:', afterOverwrite ? `STILL EXISTS` : 'EXPIRED/DELETED');
+    }
+  } else {
+    console.log('✓ Cache key successfully removed');
+  }
+
+  return { key, cleared: !cache.get(key) };
+}
+
+/**
+ * Nuclear option: Clear ALL script cache by iterating through known patterns
+ * Use this when normal clearing doesn't work
+ */
+function nuclearClearAllMarketingCaches() {
+  const cache = CacheService.getScriptCache();
+
+  console.log('=== NUCLEAR CACHE CLEAR ===');
+  console.log('This will attempt to clear ALL possible marketing cache keys');
+  console.log('');
+
+  // Get managers from sheet
+  let managers = [];
+  try {
+    managers = getManagerList();
+    console.log(`Found ${managers.length} managers from getManagerList()`);
+  } catch (e) {
+    console.log('getManagerList() failed, will try direct sheet access');
+  }
+
+  // Also try direct sheet access as backup
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('AllianceManager');
+    if (sheet) {
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        for (let j = 0; j < data[i].length; j++) {
+          const val = data[i][j];
+          if (val && String(val).includes('@') && String(val).includes('.')) {
+            const email = String(val).trim().toLowerCase();
+            if (!managers.includes(email)) {
+              managers.push(email);
+            }
+          }
+        }
+      }
+      console.log(`After direct sheet scan: ${managers.length} managers`);
+    }
+  } catch (e) {
+    console.log('Direct sheet access failed:', e);
+  }
+
+  // Build comprehensive list of keys to clear
+  const keysToRemove = [];
+
+  managers.forEach(email => {
+    keysToRemove.push(`marketing_approvals_${email}`);
+    keysToRemove.push(`marketing_calendar_${email}`);
+    keysToRemove.push(`heatmap_${email}`);
+    keysToRemove.push(`manager_partners_${email}`);
+    keysToRemove.push(`manager_name_${email}`);
+  });
+
+  // Add common keys
+  keysToRemove.push('marketing_approvals_all');
+  keysToRemove.push('all_marketing_approvals');
+  keysToRemove.push('marketing_calendar_all');
+  keysToRemove.push('all_marketing_calendar');
+  keysToRemove.push('heatmap_all');
+  keysToRemove.push('manager_list');
+
+  console.log(`Total keys to clear: ${keysToRemove.length}`);
+  console.log('Keys:', keysToRemove.slice(0, 10).join(', '), '...');
+  console.log('');
+
+  // Check which keys exist before clearing
+  let existingCount = 0;
+  keysToRemove.forEach(key => {
+    if (cache.get(key)) {
+      existingCount++;
+      console.log(`EXISTS: ${key}`);
+    }
+  });
+  console.log(`Found ${existingCount} existing cache entries`);
+  console.log('');
+
+  // Clear in batches of 100 (GAS limit)
+  console.log('Clearing caches...');
+  const batchSize = 100;
+  for (let i = 0; i < keysToRemove.length; i += batchSize) {
+    const batch = keysToRemove.slice(i, i + batchSize);
+    cache.removeAll(batch);
+    console.log(`Cleared batch ${Math.floor(i / batchSize) + 1}`);
+  }
+
+  Utilities.sleep(500);
+
+  // Verify clearing worked
+  console.log('');
+  console.log('Verifying clear...');
+  let remainingCount = 0;
+  keysToRemove.forEach(key => {
+    if (cache.get(key)) {
+      remainingCount++;
+      console.log(`⚠ STILL EXISTS: ${key}`);
+    }
+  });
+
+  if (remainingCount === 0) {
+    console.log('✓ All cache keys successfully cleared!');
+  } else {
+    console.log(`⚠ ${remainingCount} cache keys still exist after clear`);
+  }
+
+  console.log('');
+  console.log('=== NUCLEAR CLEAR COMPLETE ===');
+
+  return { totalKeys: keysToRemove.length, existingBefore: existingCount, remainingAfter: remainingCount };
+}
