@@ -247,6 +247,11 @@
   </script>
 
   <script type="text/babel">
+    // Debug: check window values at Babel script start
+    console.log('Babel script start - window.editItemIdFromUrl:', window.editItemIdFromUrl);
+    console.log('Babel script start - window.editBoardIdFromUrl:', window.editBoardIdFromUrl);
+    console.log('Babel script start - window.appConfig:', window.appConfig);
+
     const { useState, useEffect, useMemo } = React;
 
     // Get values from window (set in previous script tag)
@@ -255,6 +260,8 @@
     const editItemIdFromUrl = window.editItemIdFromUrl;
     const editBoardIdFromUrl = window.editBoardIdFromUrl;
     const api = window.api;
+
+    console.log('After variable assignment - editItemIdFromUrl:', editItemIdFromUrl);
 
     // Multi-select Filter Component
     function MultiSelectFilter({ label, options, selected, onChange }) {
