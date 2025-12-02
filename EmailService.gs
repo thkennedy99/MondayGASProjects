@@ -418,3 +418,212 @@ function buildMarketingCalendarEmailHtml(itemDetails) {
 
   return html;
 }
+
+/**
+ * Send notification email for new 2026 Approvals Request
+ * @param {Object} itemDetails - Details of the newly created item
+ * @param {string} itemDetails.itemName - Name of the item (Activity)
+ * @param {Object} itemDetails.columnValues - Column values from the form
+ * @param {string} itemDetails.boardId - Board ID
+ * @param {string} itemDetails.itemId - Monday Item ID
+ * @returns {Object} Result of email send operation
+ */
+function send2026ApprovalsNotification(itemDetails) {
+  try {
+    console.log('Sending 2026 Approvals notification email...');
+
+    const recipients = ['tkennedy@guidewire.com'];
+    const subject = `New 2026 Approval Request: ${itemDetails.itemName}`;
+
+    // Build email body with Guidewire branding
+    const htmlBody = build2026ApprovalsEmailHtml(itemDetails);
+
+    // Send email via Gmail
+    GmailApp.sendEmail(
+      recipients.join(','),
+      subject,
+      '', // Plain text body (empty, we'll use HTML)
+      {
+        htmlBody: htmlBody,
+        from: 'techalliancemanagement@guidewire.com',
+        replyTo: 'tkennedy@guidewire.com',
+        name: 'Timbot2000',
+        cc: 'tkennedy@guidewire.com'
+      }
+    );
+
+    console.log(`2026 Approvals notification sent to: ${recipients.join(', ')}`);
+    return { success: true, recipients: recipients };
+
+  } catch (error) {
+    console.error('Error sending 2026 Approvals notification:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * Build HTML email body for 2026 Approvals Request
+ * Uses Guidewire brand colors: Blue (#00739d), Navy (#034e6a)
+ */
+function build2026ApprovalsEmailHtml(itemDetails) {
+  const { itemName, columnValues, boardId, itemId } = itemDetails;
+  const actualBoardId = boardId || '18389979949';
+
+  // Build Monday.com link to open the item directly
+  const mondayBoardUrl = itemId
+    ? `https://guidewire-technology-alliances.monday.com/boards/${actualBoardId}/pulses/${itemId}`
+    : `https://guidewire-technology-alliances.monday.com/boards/${actualBoardId}`;
+
+  // Build Marketing Manager Portal link with deep link to edit this item
+  const portalEditUrl = itemId
+    ? `https://script.google.com/a/macros/guidewire.com/s/AKfycbyjf46mo1ApBnirDnxmh_9igX15IHnJkS__iaEEncYpK9r_3c0v7RGj9OIw6-AXWw6U/exec?page=marketingmanager&editItemId=${itemId}&editBoardId=${actualBoardId}`
+    : `https://script.google.com/a/macros/guidewire.com/s/AKfycbyjf46mo1ApBnirDnxmh_9igX15IHnJkS__iaEEncYpK9r_3c0v7RGj9OIw6-AXWw6U/exec?page=marketingmanager`;
+
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'MMMM d, yyyy');
+
+  // Build item details table
+  let detailsHtml = '';
+
+  // Define field order and labels for 2026 Approvals
+  const fieldMapping = {
+    'Requestor': 'Requestor',
+    'Total Cost': 'Total Cost',
+    'Funding Type': 'Funding Type',
+    'Overall Status': 'Overall Status',
+    'Partner': 'Partner',
+    'Event Date': 'Event Date',
+    'Create Date': 'Create Date'
+  };
+
+  // Build table rows for each field that has a value
+  for (const [fieldKey, fieldLabel] of Object.entries(fieldMapping)) {
+    if (columnValues && columnValues[fieldKey]) {
+      let value = columnValues[fieldKey];
+
+      // Format dates
+      if (fieldKey === 'Event Date' || fieldKey === 'Create Date') {
+        try {
+          const dateObj = new Date(value);
+          if (!isNaN(dateObj.getTime())) {
+            value = Utilities.formatDate(dateObj, Session.getScriptTimeZone(), 'MMMM d, yyyy');
+          }
+        } catch (e) {
+          // Keep original value if date parsing fails
+        }
+      }
+
+      detailsHtml += `
+        <tr>
+          <td style="padding: 10px; border: 1px solid #e0e0e0; background-color: #f5f5f5; font-weight: bold; width: 200px;">
+            ${fieldLabel}
+          </td>
+          <td style="padding: 10px; border: 1px solid #e0e0e0;">
+            ${value || 'N/A'}
+          </td>
+        </tr>
+      `;
+    }
+  }
+
+  // Build complete HTML email
+  const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; background-color: #f4f4f4;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f4f4; padding: 20px;">
+    <tr>
+      <td align="center">
+        <table cellpadding="0" cellspacing="0" border="0" width="600" style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #00739d 0%, #034e6a 100%); padding: 30px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 600;">
+                New 2026 Approval Request
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Greeting -->
+          <tr>
+            <td style="padding: 30px 30px 20px 30px;">
+              <p style="margin: 0 0 20px 0; font-size: 16px; color: #333;">
+                Hi,
+              </p>
+              <p style="margin: 0 0 20px 0; font-size: 16px; color: #333;">
+                The following new 2026 approval request was created today (${today}):
+              </p>
+            </td>
+          </tr>
+
+          <!-- Item Name Highlight -->
+          <tr>
+            <td style="padding: 0 30px 20px 30px;">
+              <div style="background-color: #f0f8ff; border-left: 4px solid #00739d; padding: 15px; border-radius: 4px;">
+                <h2 style="margin: 0; color: #00739d; font-size: 20px; font-weight: 600;">
+                  ${itemName}
+                </h2>
+              </div>
+            </td>
+          </tr>
+
+          <!-- View in Monday Button -->
+          <tr>
+            <td style="padding: 0 30px 10px 30px; text-align: center;">
+              <a href="${mondayBoardUrl}" style="display: inline-block; background: linear-gradient(135deg, #00739d 0%, #034e6a 100%); color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+                View in Monday.com
+              </a>
+            </td>
+          </tr>
+
+          <!-- Edit in Portal Button -->
+          <tr>
+            <td style="padding: 0 30px 20px 30px; text-align: center;">
+              <a href="${portalEditUrl}" style="display: inline-block; background: linear-gradient(135deg, #28a745 0%, #218838 100%); color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">
+                Edit in Marketing Manager Portal
+              </a>
+            </td>
+          </tr>
+
+          <!-- Item Details Table -->
+          <tr>
+            <td style="padding: 0 30px 30px 30px;">
+              <h3 style="color: #034e6a; font-size: 18px; margin: 0 0 15px 0; font-weight: 600;">
+                Request Details
+              </h3>
+              <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse;">
+                ${detailsHtml}
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 20px 30px 30px 30px; border-top: 2px solid #e0e0e0;">
+              <p style="margin: 0 0 10px 0; font-size: 14px; color: #666;">
+                Best regards,<br>
+                <strong style="color: #00739d;">Timbot2000</strong>
+              </p>
+              <p style="margin: 15px 0 0 0; font-size: 12px; color: #999;">
+                This is an automated notification from the Alliance Manager Portal.<br>
+                Sent from: techalliancemanagement@guidewire.com<br>
+                Please do not reply to this email. For questions, contact
+                <a href="mailto:tkennedy@guidewire.com" style="color: #00739d;">tkennedy@guidewire.com</a>
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  return html;
+}

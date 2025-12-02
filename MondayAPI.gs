@@ -733,6 +733,10 @@ function deleteMondayItem(itemId, boardId) {
           console.log('Syncing Marketing Calendar board after item deletion...');
           syncMarketingCalendarBoard();
           console.log('Marketing Calendar board sync complete');
+        } else if (boardId === APPROVALS_2026_BOARD_ID) {
+          console.log('Syncing 2026 Approvals board after item deletion...');
+          sync2026ApprovalsBoard();
+          console.log('2026 Approvals board sync complete');
         } else if (GW_BOARD_IDS.includes(boardId)) {
           // Sync only the specific GW board that was affected
           console.log(`Syncing single GW board ${boardId} after item deletion...`);
@@ -935,6 +939,10 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
         console.log('Syncing Marketing Calendar board after item update...');
         syncMarketingCalendarBoard();
         console.log('Marketing Calendar board sync complete');
+      } else if (boardId === APPROVALS_2026_BOARD_ID) {
+        console.log('Syncing 2026 Approvals board after item update...');
+        sync2026ApprovalsBoard();
+        console.log('2026 Approvals board sync complete');
       } else if (GW_BOARD_IDS.includes(boardId)) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item update...`);
@@ -1351,6 +1359,20 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         } else {
           console.error('Failed to send Marketing Calendar notification:', emailResult.error);
         }
+      } else if (boardId === APPROVALS_2026_BOARD_ID) {
+        console.log('Triggering 2026 Approvals notification email...');
+        const emailResult = send2026ApprovalsNotification({
+          itemName: itemName,
+          columnValues: columnValues,
+          boardId: boardId,
+          itemId: newItemId
+        });
+
+        if (emailResult.success) {
+          console.log('2026 Approvals notification email sent successfully');
+        } else {
+          console.error('Failed to send 2026 Approvals notification:', emailResult.error);
+        }
       }
     } catch (emailError) {
       // Log email error but don't fail the item creation
@@ -1370,6 +1392,10 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         console.log('Syncing Marketing Calendar board after item creation...');
         syncMarketingCalendarBoard();
         console.log('Marketing Calendar board sync complete');
+      } else if (boardId === APPROVALS_2026_BOARD_ID) {
+        console.log('Syncing 2026 Approvals board after item creation...');
+        sync2026ApprovalsBoard();
+        console.log('2026 Approvals board sync complete');
       } else if (GW_BOARD_IDS.includes(boardId)) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item creation...`);
@@ -1772,6 +1798,62 @@ function syncMarketingCalendarBoard() {
 
   } catch (error) {
     console.error('Error syncing Marketing Calendar Board:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sync 2026 Approvals Board from Monday to Google Sheets
+ * Exposed function that can be called from the UI
+ */
+function sync2026ApprovalsBoard() {
+  try {
+    console.log('Starting 2026 Approvals Board sync...');
+
+    // Use the global constants from main.gs
+    const boardId = APPROVALS_2026_BOARD_ID;  // '18389979949'
+    const targetSheetName = APPROVALS_2026_SHEET_NAME || 'Approvals2026';
+
+    console.log(`Using board ID: ${boardId}, target sheet: ${targetSheetName}`);
+
+    // Get or create the target sheet
+    const targetSheet = getOrCreateSheet(targetSheetName);
+
+    // Clear existing data from row 2 onwards
+    clearSheetData(targetSheet);
+
+    // Get board structure (columns)
+    console.log('Fetching board structure...');
+    const boardStructure = getBoardStructure(boardId);
+    console.log('Board name:', boardStructure.name);
+    console.log('Number of columns:', boardStructure.columns.length);
+
+    // Get all items from the board
+    const items = getAllBoardItems(boardId);
+    console.log(`Items retrieved: ${items.length}`);
+
+    // Process and write data to sheet
+    if (items.length > 0) {
+      items.forEach(item => {
+        item.boardName = '2026 Approvals';
+        item.boardId = boardId;
+      });
+
+      writeDataToSheet(targetSheet, boardStructure, items, true, {
+        boardName: '2026 Approvals',
+        boardId: boardId,
+        targetSheetName: targetSheetName
+      });
+      console.log(`Data successfully written to ${targetSheetName}`);
+    } else {
+      console.log('No items found on board');
+    }
+
+    console.log('2026 Approvals Board sync complete');
+    return { success: true, itemCount: items.length };
+
+  } catch (error) {
+    console.error('Error syncing 2026 Approvals Board:', error);
     throw error;
   }
 }
