@@ -705,7 +705,167 @@ getMarketingApprovals(managerEmail) {
     return [];
   }
 }
-  
+
+/**
+ * Get 2026 Approvals data
+ * Caching disabled - always reads fresh data from spreadsheet
+ */
+get2026ApprovalsData(managerEmail) {
+  try {
+    // Normalize email to lowercase
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
+
+    console.log(`=== get2026ApprovalsData (NO CACHE) ===`);
+    console.log(`Manager email: ${managerEmail}`);
+    console.log(`Normalized email: ${normalizedEmail}`);
+    console.log(`Reading directly from spreadsheet (caching disabled)`);
+
+    const sheet = this.spreadsheet.getSheetByName('Approvals2026');
+    if (!sheet) {
+      console.log('Approvals2026 sheet not found');
+      return [];
+    }
+
+    const data = this.getSheetData(sheet);
+    const managerName = this.getManagerName(managerEmail);
+
+    console.log(`Getting 2026 approvals for: ${managerEmail} / ${managerName}`);
+    console.log(`Total 2026 approval rows from sheet: ${data.length}`);
+
+    // Get managed partners for this manager
+    const managedPartners = this.getManagerPartners(managerEmail);
+    console.log(`Manager ${managerName} manages partners: ${managedPartners.join(', ')}`);
+
+    // Filter by Partner field (matching managed partners) or by Alliance Manager
+    const filtered = data.filter(row => {
+      const partner = row['Partner'] || '';
+      const allianceManager = this.getAllianceManager(row);
+      const owner = row['Owner'];
+
+      // Check if partner is in managed partners list
+      let matchesPartner = false;
+      if (partner) {
+        matchesPartner = managedPartners.some(p =>
+          p.toLowerCase() === partner.toString().toLowerCase()
+        );
+      }
+
+      // Check if Alliance Manager or Owner matches
+      const matchesManager =
+        allianceManager === managerEmail ||
+        allianceManager === managerName ||
+        (allianceManager && allianceManager.includes(managerName.split(' ')[0])) ||
+        owner === managerEmail ||
+        owner === managerName ||
+        (owner && owner.includes(managerName.split(' ')[0]));
+
+      return matchesPartner || matchesManager;
+    });
+
+    console.log(`Filtered to ${filtered.length} 2026 approvals for manager ${managerName}`);
+
+    // Convert all values to strings and add calculated fields
+    const approvals = filtered.map(row => {
+      const sanitized = {};
+
+      // Add all the columns from the sheet based on the Monday column IDs specified
+      // Activity - Item Name (the item name from Monday)
+      // Requestor - text_mky7xyqh
+      // Total Cost - formula_mky7wjsx
+      // Funding Type - color_mkxxef94
+      // Overall Status - status
+      // Partner - text_mkv092nh
+      // Event Date - date_mktkb5sf
+      // Create Date - date_mktmw20b
+      const columnsToInclude = [
+        'Item Name',
+        'Group',
+        'Board Name',
+        'Monday Item ID',
+        'Board ID',
+        'Requestor',
+        'Total Cost',
+        'Funding Type',
+        'Overall Status',
+        'Partner',
+        'Event Date',
+        'Create Date',
+        'Owner',
+        'AllianceManager',
+        'Alliance Manager'
+      ];
+
+      // Copy all columns and ensure they're strings
+      columnsToInclude.forEach(column => {
+        const value = row[column];
+        if (value === null || value === undefined) {
+          sanitized[column] = '';
+        } else if (value instanceof Date) {
+          // Format dates as YYYY-MM-DD
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          sanitized[column] = `${year}-${month}-${day}`;
+        } else if (typeof value === 'boolean') {
+          sanitized[column] = value ? 'true' : 'false';
+        } else if (typeof value === 'number') {
+          sanitized[column] = String(value);
+        } else if (typeof value === 'object') {
+          sanitized[column] = JSON.stringify(value);
+        } else {
+          sanitized[column] = String(value);
+        }
+      });
+
+      // Calculate days waiting from Create Date
+      const createDate = row['Create Date'];
+      let daysWaiting = 0;
+
+      if (createDate) {
+        try {
+          const created = new Date(createDate);
+          const now = new Date();
+          const diff = now - created;
+          daysWaiting = Math.floor(diff / (1000 * 60 * 60 * 24));
+        } catch (e) {
+          console.log('Error calculating days waiting:', e);
+        }
+      }
+
+      sanitized.daysWaiting = String(daysWaiting);
+
+      // Add a computed urgency level
+      if (daysWaiting > 14) {
+        sanitized.urgencyLevel = 'critical';
+      } else if (daysWaiting > 7) {
+        sanitized.urgencyLevel = 'high';
+      } else if (daysWaiting > 3) {
+        sanitized.urgencyLevel = 'medium';
+      } else {
+        sanitized.urgencyLevel = 'normal';
+      }
+
+      return sanitized;
+    });
+
+    // Sort by days waiting (descending) to show oldest first
+    approvals.sort((a, b) => {
+      const daysA = parseInt(a.daysWaiting) || 0;
+      const daysB = parseInt(b.daysWaiting) || 0;
+      return daysB - daysA;
+    });
+
+    console.log('Sample 2026 approval:', approvals[0] ? JSON.stringify(Object.keys(approvals[0])) : 'No approvals');
+
+    // Caching disabled - always return fresh data from spreadsheet
+    return approvals;
+
+  } catch (error) {
+    console.error('Error in get2026ApprovalsData:', error);
+    return [];
+  }
+}
+
 
   /**
  * Get partner heatmap data
@@ -1177,6 +1337,56 @@ function getGeneralApprovals(managerEmail) {
   } catch (error) {
     console.error('Error in getGeneralApprovals:', error);
     return DataService.ensureSerializable([]);
+  }
+}
+
+/**
+ * Get 2026 Approvals data for a manager
+ * @param {string} managerEmail - The manager's email address
+ * @returns {Array} Array of 2026 approval records
+ */
+function get2026ApprovalsData(managerEmail) {
+  try {
+    const service = new DataService();
+    const result = service.get2026ApprovalsData(managerEmail);
+
+    // Ensure everything is properly serialized
+    const serialized = result.map(approval => {
+      const clean = {};
+      for (const key in approval) {
+        const value = approval[key];
+        // Convert any non-string to string
+        if (value === null || value === undefined) {
+          clean[key] = '';
+        } else if (value instanceof Date) {
+          // Format as YYYY-MM-DD
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          clean[key] = `${year}-${month}-${day}`;
+        } else if (typeof value === 'boolean') {
+          clean[key] = value ? 'true' : 'false';
+        } else if (typeof value === 'number') {
+          clean[key] = String(value);
+        } else if (typeof value === 'object') {
+          try {
+            clean[key] = JSON.stringify(value);
+          } catch (e) {
+            clean[key] = '';
+          }
+        } else {
+          clean[key] = String(value);
+        }
+      }
+      return clean;
+    });
+
+    console.log(`Returning ${serialized.length} 2026 approvals to UI`);
+    return serialized;
+
+  } catch (error) {
+    console.error('Error in get2026ApprovalsData wrapper:', error);
+    return [];
   }
 }
 
@@ -2738,14 +2948,85 @@ function getAllMarketingCalendar() {
 }
 
 /**
+ * Get ALL 2026 Approvals data (for Marketing Manager portal)
+ * Returns all rows from Approvals2026 sheet
+ * @returns {Array} Array of 2026 approval records
+ */
+function getAll2026Approvals() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const cacheKey = 'all_2026_approvals';
+    const cached = cache.get(cacheKey);
+
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('Approvals2026');
+    if (!sheet) {
+      console.log('Approvals2026 sheet not found');
+      return [];
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) {
+      return [];
+    }
+
+    const headers = data[0];
+    const rows = data.slice(1);
+
+    console.log(`Getting ALL 2026 approvals: ${rows.length} total rows`);
+
+    // Convert to objects and sanitize
+    const approvals = rows.map((row, index) => {
+      const item = {};
+      headers.forEach((header, colIndex) => {
+        let value = row[colIndex];
+        if (value === null || value === undefined) {
+          value = '';
+        } else if (value instanceof Date) {
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          value = `${year}-${month}-${day}`;
+        } else {
+          value = String(value);
+        }
+        item[header] = value;
+      });
+      item._rowIndex = index + 2;
+      return item;
+    }).filter(item => item['Item Name'] || item['Monday Item ID']); // Filter out empty rows
+
+    console.log(`Returning ${approvals.length} 2026 approval entries`);
+
+    // Cache for 2 minutes
+    try {
+      cache.put(cacheKey, JSON.stringify(approvals), 120);
+    } catch (e) {
+      console.log('Could not cache results:', e);
+    }
+
+    return approvals;
+
+  } catch (error) {
+    console.error('Error in getAll2026Approvals:', error);
+    return [];
+  }
+}
+
+/**
  * Get filter options for Marketing Manager view
  * Returns unique values for each filterable field
- * @returns {Object} Filter options for Marketing Approvals and Calendar
+ * @returns {Object} Filter options for Marketing Approvals, Calendar, and 2026 Approvals
  */
 function getMarketingManagerFilterOptions() {
   try {
     const approvals = getAllMarketingApprovals();
     const calendar = getAllMarketingCalendar();
+    const approvals2026 = getAll2026Approvals();
 
     // Collect unique values for Marketing Approvals filters
     const approvalFilters = {
@@ -2763,16 +3044,25 @@ function getMarketingManagerFilterOptions() {
       activityTypes: [...new Set(calendar.map(c => c['Activity Type']).filter(v => v))].sort()
     };
 
+    // Collect unique values for 2026 Approvals filters
+    const approvals2026Filters = {
+      fundingTypes: [...new Set(approvals2026.map(a => a['Funding Type']).filter(v => v))].sort(),
+      overallStatuses: [...new Set(approvals2026.map(a => a['Overall Status']).filter(v => v))].sort(),
+      partners: [...new Set(approvals2026.map(a => a['Partner']).filter(v => v))].sort()
+    };
+
     return {
       approvalFilters,
-      calendarFilters
+      calendarFilters,
+      approvals2026Filters
     };
 
   } catch (error) {
     console.error('Error getting filter options:', error);
     return {
       approvalFilters: { fundingTypes: [], overallStatuses: [], allianceManagers: [], partners: [], requestTypes: [] },
-      calendarFilters: { partners: [], owners: [], activityTypes: [] }
+      calendarFilters: { partners: [], owners: [], activityTypes: [] },
+      approvals2026Filters: { fundingTypes: [], overallStatuses: [], partners: [] }
     };
   }
 }
