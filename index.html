@@ -2199,8 +2199,9 @@
               console.log('New activity created:', newActivityData);
               setShowAddModal(false);
               setSelectedPartnerForAdd(null);
-              // Reload activities with sync to get the new item from Monday
-              await loadActivities(true);
+              // Reload activities WITHOUT sync - item is directly appended to spreadsheet
+              // Syncing would overwrite with stale data from Monday.com API
+              await loadActivities(false);
             };
 
             // Rest of your component code (columns, renderRow, etc.)
@@ -2827,8 +2828,9 @@
                   setShowAddModal(false);
                   setSelectedBoardForAdd(null);
 
-                  // Reload activities with sync to get the new item
-                  await loadActivities(true);
+                  // Reload activities WITHOUT sync - item is directly appended to spreadsheet
+                  // Syncing would overwrite with stale data from Monday.com API
+                  await loadActivities(false);
                 };
 
                 // Filter handlers
@@ -3313,38 +3315,48 @@
 
             try {
               // If syncFirst is true, sync Monday data to sheets first
+              // IMPORTANT: Wrap in Promise to properly await the sync completion
               if (syncFirst) {
                 console.log('Syncing Marketing boards from Monday...');
-                await window.google.script.run
-                  .withSuccessHandler(() => {
-                    console.log('Marketing boards synced successfully');
-                  })
-                  .withFailureHandler(error => {
-                    console.error('Error syncing boards:', error);
-                    // Continue to load even if sync fails
-                  })
-                  .syncMarketingBoards();
+                await new Promise((resolve, reject) => {
+                  window.google.script.run
+                    .withSuccessHandler(() => {
+                      console.log('Marketing boards synced successfully');
+                      resolve();
+                    })
+                    .withFailureHandler(error => {
+                      console.error('Error syncing boards:', error);
+                      // Continue to load even if sync fails
+                      resolve();
+                    })
+                    .syncMarketingBoards();
+                });
               }
 
-              await window.google.script.run
-                .withSuccessHandler(response => {
-                  console.log('Marketing calendar response:', response);
-                  setCalendarData(response || []);
-                  setLoading(false);
+              // Now fetch the data - sync is complete, data should be in spreadsheet
+              await new Promise((resolve, reject) => {
+                window.google.script.run
+                  .withSuccessHandler(response => {
+                    console.log('Marketing calendar response:', response);
+                    setCalendarData(response || []);
+                    setLoading(false);
 
-                  // Load column metadata for the first board ID we find
-                  if (response && response.length > 0 && response[0]['Board ID']) {
-                    const boardIdValue = response[0]['Board ID'];
-                    setBoardId(boardIdValue);
-                    loadColumnMetadata(boardIdValue);
-                  }
-                })
-                .withFailureHandler(error => {
-                  console.error('Error loading marketing calendar:', error);
-                  setError(error.message);
-                  setLoading(false);
-                })
-                .getMarketingCalendar(manager);
+                    // Load column metadata for the first board ID we find
+                    if (response && response.length > 0 && response[0]['Board ID']) {
+                      const boardIdValue = response[0]['Board ID'];
+                      setBoardId(boardIdValue);
+                      loadColumnMetadata(boardIdValue);
+                    }
+                    resolve(response);
+                  })
+                  .withFailureHandler(error => {
+                    console.error('Error loading marketing calendar:', error);
+                    setError(error.message);
+                    setLoading(false);
+                    reject(error);
+                  })
+                  .getMarketingCalendar(manager);
+              });
             } catch (error) {
               console.error('Error loading marketing calendar:', error);
               setError(error.message);
@@ -3420,8 +3432,9 @@
           };
 
           const handleCreate = async (newItemData) => {
-            // Reload calendar data to get the new item with all calculated fields
-            await loadCalendarData(true);
+            // Reload calendar data WITHOUT sync - item is directly appended to spreadsheet
+            // Syncing would overwrite with stale data from Monday.com API
+            await loadCalendarData(false);
             setAddingItem(false);
           };
 
@@ -4154,7 +4167,7 @@
             { name: 'AllianceManager', label: 'Alliance Manager', type: 'multi-select', options: allianceManagerOptions || [], required: true },
             { name: 'Partner', label: 'Partner', type: 'dropdown', options: partnerOptions || [], required: false },
             { name: 'Event URL', label: 'Event URL', type: 'url', required: false },
-            { name: 'Requesting Department', label: 'Requesting Department', type: 'dropdown', options: getColumnOptions('Requesting Department'), required: true },
+            { name: 'Requesting Department', label: 'Requesting Dept', type: 'dropdown', options: getColumnOptions('Requesting Department'), required: true },
             { name: 'Cost', label: 'Cost', type: 'number', required: false },
             { name: 'Date and Location', label: 'Date and Location', type: 'text', required: false },
             { name: 'Start Date', label: 'Event Date', type: 'date', required: false },
@@ -4250,36 +4263,46 @@
 
             try {
               // If syncFirst is true, sync Monday data to sheets first
+              // IMPORTANT: Wrap in Promise to properly await the sync completion
               if (syncFirst) {
                 console.log('Syncing Marketing boards from Monday...');
-                await window.google.script.run
-                  .withSuccessHandler(() => {
-                    console.log('Marketing boards synced successfully');
-                  })
-                  .withFailureHandler(error => {
-                    console.error('Error syncing boards:', error);
-                    // Continue to load even if sync fails
-                  })
-                  .syncMarketingBoards();
+                await new Promise((resolve, reject) => {
+                  window.google.script.run
+                    .withSuccessHandler(() => {
+                      console.log('Marketing boards synced successfully');
+                      resolve();
+                    })
+                    .withFailureHandler(error => {
+                      console.error('Error syncing boards:', error);
+                      // Continue to load even if sync fails
+                      resolve();
+                    })
+                    .syncMarketingBoards();
+                });
               }
 
-              const data = await window.google.script.run
-                .withSuccessHandler(response => {
-                  console.log('Marketing approvals response:', response);
-                  setApprovals(response || []);
-                  setLoading(false);
+              // Now fetch the data - sync is complete, data should be in spreadsheet
+              await new Promise((resolve, reject) => {
+                window.google.script.run
+                  .withSuccessHandler(response => {
+                    console.log('Marketing approvals response:', response);
+                    setApprovals(response || []);
+                    setLoading(false);
 
-                  // Load column metadata for the first board ID we find
-                  if (response && response.length > 0 && response[0]['Board ID']) {
-                    loadColumnMetadata(response[0]['Board ID']);
-                  }
-                })
-                .withFailureHandler(error => {
-                  console.error('Error loading marketing approvals:', error);
-                  setError(error.message);
-                  setLoading(false);
-                })
-                .getMarketingApprovals(manager);
+                    // Load column metadata for the first board ID we find
+                    if (response && response.length > 0 && response[0]['Board ID']) {
+                      loadColumnMetadata(response[0]['Board ID']);
+                    }
+                    resolve(response);
+                  })
+                  .withFailureHandler(error => {
+                    console.error('Error loading marketing approvals:', error);
+                    setError(error.message);
+                    setLoading(false);
+                    reject(error);
+                  })
+                  .getMarketingApprovals(manager);
+              });
             } catch (error) {
               console.error('Error loading marketing approvals:', error);
               setError(error.message);
@@ -4357,8 +4380,9 @@
           };
 
           const handleSaveNew = async (newItemData) => {
-            // Reload approvals after adding new item with sync
-            await loadApprovals(true);
+            // Reload approvals WITHOUT sync - item is directly appended to spreadsheet
+            // Syncing would overwrite with stale data from Monday.com API
+            await loadApprovals(false);
             setShowAddModal(false);
           };
 
@@ -4380,7 +4404,7 @@
 
           const tableColumns = [
             { key: 'Item Name', label: 'Event' },
-            { key: 'Requesting Department', label: 'Requesting Department' },
+            { key: 'Requesting Department', label: 'Requesting Dept' },
             { key: 'Overall Status', label: 'Status' },
             { key: 'Priority', label: 'Priority' },
             { key: 'Start Date', label: 'Event Date' },
@@ -4602,13 +4626,14 @@
         // Main App Component
           const App = () => {
               const [darkMode, setDarkMode] = useState(false);
+              // Manager is passed via webhook URL parameter - stored in appConfig.user
               const [currentManager, setCurrentManager] = useState(window.appConfig?.user || '');
               const [loading, setLoading] = useState(false);
-              
+
               useEffect(() => {
                   // Apply dark mode
                   document.documentElement.setAttribute('data-bs-theme', darkMode ? 'dark' : 'light');
-                  
+
                   // Save preference
                   try {
                       localStorage.setItem('darkMode', darkMode);
@@ -4616,7 +4641,7 @@
                       // Handle localStorage errors
                   }
               }, [darkMode]);
-              
+
               useEffect(() => {
                   // Load dark mode preference
                   try {
@@ -4626,17 +4651,17 @@
                       // Handle localStorage errors
                   }
               }, []);
-              
+
               const toggleDarkMode = () => {
                   setDarkMode(!darkMode);
               };
-              
+
               const handleRefresh = async () => {
                   setLoading(true);
                   // Trigger refresh in child components
                   setTimeout(() => setLoading(false), 1000);
               };
-              
+
               return (
                   <AppContext.Provider value={{ currentManager, darkMode }}>
                       <div className="app-container">
@@ -4651,7 +4676,7 @@
                                       <span className="text-white small">
                                           {currentManager}
                                       </span>
-                                      <button 
+                                      <button
                                           className="theme-toggle"
                                           onClick={toggleDarkMode}
                                           title={darkMode ? 'Light Mode' : 'Dark Mode'}

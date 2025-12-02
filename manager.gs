@@ -124,6 +124,127 @@ function clearManagerListCache() {
 }
 
 /**
+ * Look up manager email by name
+ * Used when webhook passes manager name instead of email
+ * @param {string} managerName - Manager's full name (e.g., "Tim Kennedy")
+ * @returns {string} Manager's email (lowercase) or empty string if not found
+ */
+function getManagerEmailByName(managerName) {
+  try {
+    if (!managerName || typeof managerName !== 'string') {
+      console.log('getManagerEmailByName: Invalid manager name provided');
+      return '';
+    }
+
+    const searchName = managerName.trim().toLowerCase();
+    console.log(`Looking up email for manager: "${managerName}"`);
+
+    // Check cache first
+    const cache = CacheService.getScriptCache();
+    const cacheKey = `manager_email_${searchName.replace(/\s+/g, '_')}`;
+    const cached = cache.get(cacheKey);
+
+    if (cached) {
+      console.log(`Found cached email for ${managerName}: ${cached}`);
+      return cached;
+    }
+
+    // Get the AllianceManager sheet
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const managerSheet = spreadsheet.getSheetByName('AllianceManager');
+
+    if (!managerSheet) {
+      console.error('AllianceManager sheet not found');
+      return '';
+    }
+
+    // Get all data from the sheet
+    const dataRange = managerSheet.getDataRange();
+    const values = dataRange.getValues();
+
+    if (values.length < 2) {
+      console.log('No manager data found in AllianceManager sheet');
+      return '';
+    }
+
+    // Find column indices
+    const headers = values[0];
+    let nameColumnIndex = -1;
+    let emailColumnIndex = -1;
+
+    for (let i = 0; i < headers.length; i++) {
+      const header = headers[i] ? headers[i].toString().toLowerCase().trim() : '';
+      if (header === 'manager' || header === 'name' || header === 'full name') {
+        nameColumnIndex = i;
+      }
+      if (header === 'email') {
+        emailColumnIndex = i;
+      }
+    }
+
+    if (emailColumnIndex === -1) {
+      console.error('Email column not found in AllianceManager sheet');
+      return '';
+    }
+
+    // If no name column, try to match against email username
+    if (nameColumnIndex === -1) {
+      console.log('Name column not found, will try matching against email');
+    }
+
+    // Search for the manager
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const email = row[emailColumnIndex] ? row[emailColumnIndex].toString().trim().toLowerCase() : '';
+
+      // Try matching by name column if available
+      if (nameColumnIndex !== -1) {
+        const name = row[nameColumnIndex] ? row[nameColumnIndex].toString().trim().toLowerCase() : '';
+        if (name === searchName) {
+          console.log(`Found exact name match: ${managerName} -> ${email}`);
+          cache.put(cacheKey, email, 3600); // Cache for 1 hour
+          return email;
+        }
+      }
+
+      // Try matching by email username (first.last@domain.com)
+      if (email) {
+        const emailUsername = email.split('@')[0];
+        const nameFromEmail = emailUsername.replace(/\./g, ' ').toLowerCase();
+        if (nameFromEmail === searchName) {
+          console.log(`Found email username match: ${managerName} -> ${email}`);
+          cache.put(cacheKey, email, 3600);
+          return email;
+        }
+      }
+    }
+
+    // Try partial/fuzzy matching as fallback
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const email = row[emailColumnIndex] ? row[emailColumnIndex].toString().trim().toLowerCase() : '';
+
+      if (nameColumnIndex !== -1) {
+        const name = row[nameColumnIndex] ? row[nameColumnIndex].toString().trim().toLowerCase() : '';
+        // Check if search name contains or is contained in the name
+        if (name && (name.includes(searchName) || searchName.includes(name))) {
+          console.log(`Found partial name match: ${managerName} -> ${email}`);
+          cache.put(cacheKey, email, 3600);
+          return email;
+        }
+      }
+    }
+
+    console.log(`No email found for manager: ${managerName}`);
+    return '';
+
+  } catch (error) {
+    console.error('Error in getManagerEmailByName:', error);
+    return '';
+  }
+}
+
+/**
  * Refresh manager list - clears cache and reloads from sheet
  * @returns {string[]} Array of manager email addresses
  */

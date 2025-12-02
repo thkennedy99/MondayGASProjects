@@ -3,6 +3,77 @@
  */
 
 /**
+ * Sanitize a value for writing to spreadsheet
+ * Handles arrays, objects, dates, and other complex types
+ * This is a global utility function used by all sheet write operations
+ */
+function sanitizeValueForSheet(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  // Handle arrays - extract meaningful values
+  if (Array.isArray(value)) {
+    // If array of objects with 'name' property (like people picker), extract names
+    if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
+      const names = value.map(item => {
+        if (item.name) return item.name;
+        if (item.text) return item.text;
+        if (item.label) return item.label;
+        if (item.value) return item.value;
+        return String(item);
+      }).filter(n => n);
+      return names.join(', ');
+    }
+    // Simple array of strings/numbers
+    return value.map(v => String(v)).join(', ');
+  }
+
+  // Handle objects
+  if (typeof value === 'object') {
+    // Date objects
+    if (value instanceof Date) {
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, '0');
+      const day = String(value.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    // Objects with common value properties
+    if (value.name) return String(value.name);
+    if (value.text) return String(value.text);
+    if (value.label) return String(value.label);
+    if (value.value !== undefined) return String(value.value);
+    if (value.date) return String(value.date);
+
+    // Special handling for file column objects with mondayUrl
+    if (value.mondayUrl !== undefined) {
+      return value.mondayUrl || '';
+    }
+
+    // Fallback: stringify the object
+    try {
+      const stringified = JSON.stringify(value);
+      // If it's just {} or [], return empty
+      if (stringified === '{}' || stringified === '[]') return '';
+      return stringified;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // Handle primitives
+  return String(value);
+}
+
+/**
+ * Sanitize an entire row array before writing to sheet
+ */
+function sanitizeRowForSheet(row) {
+  return row.map(value => sanitizeValueForSheet(value));
+}
+
+/**
  * Parse column value based on type
  */
 function parseColumnValue(columnValue, columnInfo, itemAssets) {
@@ -283,13 +354,16 @@ function writeDataToSheet(sheet, boardStructure, items, isFirstBoard = true, boa
     
     return row;
   });
-  
+
+  // Sanitize all rows before writing to ensure no arrays/objects slip through
+  const sanitizedDataRows = dataRows.map(row => sanitizeRowForSheet(row));
+
   // Write data rows - append to existing data
-  if (dataRows.length > 0) {
+  if (sanitizedDataRows.length > 0) {
     const startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, dataRows.length, headers.length).setValues(dataRows);
+    sheet.getRange(startRow, 1, sanitizedDataRows.length, headers.length).setValues(sanitizedDataRows);
   }
-  
+
   // Note: Post-processing is now handled in the calling function after all boards are processed
 }
 
@@ -495,20 +569,23 @@ function writeDashboardDataToSheet(sheet, boardStructure, items, boardId) {
     
     // Lookup and set Alliance Manager
     row[allianceManagerColumnIndex] = lookupAllianceManager(translatedPartnerName, allianceManagerMap);
-    
+
     return row;
   });
-  
+
+  // Sanitize all rows before writing to ensure no arrays/objects slip through
+  const sanitizedDataRows = dataRows.map(row => sanitizeRowForSheet(row));
+
   // Write data rows
-  if (dataRows.length > 0) {
-    sheet.getRange(2, 1, dataRows.length, headers.length).setValues(dataRows);
+  if (sanitizedDataRows.length > 0) {
+    sheet.getRange(2, 1, sanitizedDataRows.length, headers.length).setValues(sanitizedDataRows);
   }
-  
+
   // Auto-resize columns for better visibility
   for (let i = 1; i <= headers.length; i++) {
     sheet.autoResizeColumn(i);
   }
-  
+
   console.log('Dashboard data processing complete');
 }
 
@@ -607,10 +684,10 @@ function translatePartnerNames() {
 function sortDataByItemName(sheet) {
   try {
     console.log('Sorting data by Item Name (column A)...');
-    
+
     const lastRow = sheet.getLastRow();
     const lastColumn = sheet.getLastColumn();
-    
+
     if (lastRow > 1) {
       const dataRange = sheet.getRange(2, 1, lastRow - 1, lastColumn);
       dataRange.sort({column: 1, ascending: true});
@@ -618,9 +695,108 @@ function sortDataByItemName(sheet) {
     } else {
       console.log('No data to sort');
     }
-    
+
   } catch (error) {
     console.error('Error sorting data:', error);
     // Don't throw - allow sync to continue
+  }
+}
+
+/**
+ * Append a newly created item directly to the spreadsheet
+ * This bypasses the Monday.com API delay for immediate UI updates
+ *
+ * @param {string} sheetName - Name of the target sheet (e.g., 'MarketingApproval')
+ * @param {string} itemName - Name of the new item
+ * @param {string} itemId - Monday.com item ID
+ * @param {string} boardId - Monday.com board ID
+ * @param {string} boardName - Name of the board
+ * @param {Object} columnValues - Column values from the create form
+ * @returns {boolean} Success status
+ */
+function appendItemToSheet(sheetName, itemName, itemId, boardId, boardName, columnValues) {
+  try {
+    console.log(`Appending new item to ${sheetName}:`, itemName);
+    console.log('Column values received:', JSON.stringify(columnValues));
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName(sheetName);
+
+    if (!sheet) {
+      console.error(`Sheet not found: ${sheetName}`);
+      return false;
+    }
+
+    // Get existing headers
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    console.log('Sheet headers:', headers.join(', '));
+
+    // Create new row array
+    const newRow = new Array(headers.length).fill('');
+
+    // Map standard columns
+    const headerMap = {};
+    headers.forEach((header, index) => {
+      headerMap[header] = index;
+    });
+
+    // Use global sanitizeValueForSheet function for consistency
+    const sanitizeValue = sanitizeValueForSheet;
+
+    // Set standard fields
+    if (headerMap['Item Name'] !== undefined) newRow[headerMap['Item Name']] = sanitizeValue(itemName);
+    if (headerMap['Monday Item ID'] !== undefined) newRow[headerMap['Monday Item ID']] = sanitizeValue(itemId);
+    if (headerMap['Board ID'] !== undefined) newRow[headerMap['Board ID']] = sanitizeValue(boardId);
+    if (headerMap['Board Name'] !== undefined) newRow[headerMap['Board Name']] = sanitizeValue(boardName);
+    if (headerMap['Partner Name'] !== undefined) newRow[headerMap['Partner Name']] = 'Marketing Team';
+
+    // Map column values to headers
+    // Handle various column name formats (with and without spaces)
+    Object.entries(columnValues || {}).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === '') return;
+
+      // Sanitize the value before writing
+      const sanitizedValue = sanitizeValue(value);
+      console.log(`Processing column "${key}": ${typeof value} -> "${sanitizedValue}"`);
+
+      // Try exact match first
+      if (headerMap[key] !== undefined) {
+        newRow[headerMap[key]] = sanitizedValue;
+        return;
+      }
+
+      // Try with spaces removed
+      const keyNoSpaces = key.replace(/\s+/g, '');
+      for (const header of headers) {
+        if (header.replace(/\s+/g, '') === keyNoSpaces) {
+          newRow[headerMap[header]] = sanitizedValue;
+          return;
+        }
+      }
+
+      // Try case-insensitive match
+      const keyLower = key.toLowerCase();
+      for (const header of headers) {
+        if (header.toLowerCase() === keyLower) {
+          newRow[headerMap[header]] = sanitizedValue;
+          return;
+        }
+      }
+    });
+
+    console.log('Row to append:', newRow.slice(0, 15).join(' | ') + '...');
+
+    // Append the new row
+    sheet.appendRow(newRow);
+
+    // Ensure the write is committed
+    SpreadsheetApp.flush();
+
+    console.log(`Successfully appended item "${itemName}" to ${sheetName}`);
+    return true;
+
+  } catch (error) {
+    console.error('Error appending item to sheet:', error);
+    return false;
   }
 }

@@ -210,6 +210,7 @@ const cache = new CacheManager();
 function clearAllCaches() {
   try {
     const properties = PropertiesService.getScriptProperties();
+    const scriptCache = CacheService.getScriptCache();
 
     // Get tracked cache keys
     const scriptKeys = properties.getProperty('cache_keys_script');
@@ -220,7 +221,7 @@ function clearAllCaches() {
     if (scriptKeys) {
       const keysArray = JSON.parse(scriptKeys);
       if (keysArray.length > 0) {
-        CacheService.getScriptCache().removeAll(keysArray);
+        scriptCache.removeAll(keysArray);
       }
     }
 
@@ -244,6 +245,40 @@ function clearAllCaches() {
     properties.deleteProperty('cache_keys_script');
     properties.deleteProperty('cache_keys_user');
     properties.deleteProperty('cache_keys_document');
+
+    // Clear untracked marketing and data cache keys (used directly by DataService)
+    // These are not tracked by CacheManager but need to be cleared
+    const untrackedKeys = [
+      'all_marketing_approvals',
+      'all_marketing_calendar',
+      'board_columns_9710279044',  // Marketing Approval board
+      'board_columns_9770467355'   // Marketing Calendar board
+    ];
+
+    // Also clear manager-specific marketing caches
+    // Get list of managers using the centralized getManagerList() function
+    // This ensures consistent lowercase normalization of emails
+    try {
+      const managers = getManagerList();
+      managers.forEach(email => {
+        // email is already lowercase from getManagerList()
+        untrackedKeys.push(`marketing_approvals_${email}`);
+        untrackedKeys.push(`marketing_calendar_${email}`);
+        untrackedKeys.push(`heatmap_${email}`);
+        untrackedKeys.push(`heatmap_data_${email}`);
+        untrackedKeys.push(`manager_partners_${email}`);
+        untrackedKeys.push(`manager_name_${email}`);
+      });
+      console.log(`Added ${managers.length * 6} manager-specific cache keys to clear`);
+    } catch (managerError) {
+      console.log('Could not load manager list for cache clearing:', managerError);
+    }
+
+    // Remove all untracked keys
+    if (untrackedKeys.length > 0) {
+      scriptCache.removeAll(untrackedKeys);
+      console.log(`Cleared ${untrackedKeys.length} untracked cache keys`);
+    }
 
     return { success: true, message: 'All caches cleared' };
   } catch (error) {

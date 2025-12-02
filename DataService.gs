@@ -45,15 +45,13 @@ static ensureSerializable(data) {
 
 /**
  * Get activity data (partner or internal)
+ * Caching disabled - always reads fresh data from spreadsheet
  */
 getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
-  const cacheKey = `activity_${type}_${manager}_${this.hashParams(filters, sort, pagination)}`;
-  const cached = this.cache.get(cacheKey);
-  
-  if (cached && !CONFIG.DEBUG_MODE) {
-    return JSON.parse(cached);
-  }
-  
+  console.log(`=== getActivityData (NO CACHE) ===`);
+  console.log(`Type: ${type}, Manager: ${manager}`);
+  console.log(`Reading directly from spreadsheet (caching disabled)`);
+
   try {
     const sheet = this.spreadsheet.getSheetByName(type === 'partner' ? 'MondayData' : 'GWMondayData');
     if (!sheet) throw new Error(`Sheet not found: ${type === 'partner' ? 'MondayData' : 'GWMondayData'}`);
@@ -139,10 +137,8 @@ getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
     if (result.data.length > 0) {
       console.log('First row keys:', Object.keys(result.data[0]));
     }
-    
-    // Cache result
-    this.cache.put(cacheKey, JSON.stringify(result), CONFIG.CACHE_DURATION);
-    
+
+    // Caching disabled - always return fresh data from spreadsheet
     return result;
     
   } catch (error) {
@@ -154,14 +150,13 @@ getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
 // Inside the DataService class definition, add this method:
 getMarketingCalendarData(managerEmail) {
   try {
-    const cache = CacheService.getScriptCache();
-    const cacheKey = `marketing_calendar_${managerEmail}`;
-    const cached = cache.get(cacheKey);
-    
-    if (cached) {
-      return JSON.parse(cached);
-    }
-    
+    // Normalize email to lowercase
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
+
+    console.log(`=== getMarketingCalendarData (NO CACHE) ===`);
+    console.log(`Manager email: ${managerEmail}`);
+    console.log(`Reading directly from spreadsheet (caching disabled)`);
+
     const sheet = this.spreadsheet.getSheetByName('MarketingCalendar');
     if (!sheet) {
       console.log('MarketingCalendar sheet not found');
@@ -285,10 +280,10 @@ getMarketingCalendarData(managerEmail) {
     });
     
     console.log(`Returning ${calendarData.length} marketing calendar entries`);
-    
-    cache.put(cacheKey, JSON.stringify(calendarData), CONFIG.CACHE_DURATION);
+
+    // Caching disabled - always return fresh data from spreadsheet
     return calendarData;
-    
+
   } catch (error) {
     console.error('Error getting marketing calendar data:', error);
     throw error;
@@ -468,13 +463,15 @@ getMarketingCalendarData(managerEmail) {
    * Get list of partners managed by a specific manager
    */
   getManagerPartners(managerEmail) {
-    const cacheKey = `manager_partners_${managerEmail}`;
+    // Normalize email to lowercase for consistent cache key
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
+    const cacheKey = `manager_partners_${normalizedEmail}`;
     const cached = this.cache.get(cacheKey);
-    
+
     if (cached) {
       return JSON.parse(cached);
     }
-    
+
     // Get manager's name from AllianceManager sheet
     const managerName = this.getManagerName(managerEmail);
     
@@ -554,41 +551,28 @@ getMarketingCalendarData(managerEmail) {
  */
 getMarketingApprovals(managerEmail) {
   try {
-    const cache = CacheService.getScriptCache();
-    const cacheKey = `marketing_approvals_${managerEmail}`;
-    const cached = cache.get(cacheKey);
-    
-    if (cached) {
-      return JSON.parse(cached);
-    }
-    
+    // Normalize email to lowercase
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
+
+    console.log(`=== getMarketingApprovals (NO CACHE) ===`);
+    console.log(`Manager email: ${managerEmail}`);
+    console.log(`Normalized email: ${normalizedEmail}`);
+    console.log(`Reading directly from spreadsheet (caching disabled)`);
+
     const sheet = this.spreadsheet.getSheetByName('MarketingApproval');
     if (!sheet) {
       console.log('MarketingApproval sheet not found');
       return [];
     }
-    
+
     const data = this.getSheetData(sheet);
     const managerName = this.getManagerName(managerEmail);
 
     console.log(`Getting marketing approvals for: ${managerEmail} / ${managerName}`);
-    console.log(`Total marketing approval rows: ${data.length}`);
+    console.log(`Total marketing approval rows from sheet: ${data.length}`);
 
-    // Log sample data to see what we're working with
-    if (data.length > 0) {
-      console.log('Sample row columns:', Object.keys(data[0]));
-      console.log('Sample row AllianceManager:', data[0]['AllianceManager']);
-      console.log('Sample row Alliance Manager (with space):', data[0]['Alliance Manager']);
-      console.log('Sample row Owner:', data[0]['Owner']);
-      console.log('Sample row Overall Status:', data[0]['Overall Status']);
-    }
-
-    // Filter by Alliance Manager column and approval status (handles both 'AllianceManager' and 'Alliance Manager')
-    let managerMatchCount = 0;
-    let statusFilteredCount = 0;
-
-    const filtered = data.filter((row, index) => {
-      // Check if this approval belongs to the manager
+    // Filter by Alliance Manager column (handles both 'AllianceManager' and 'Alliance Manager')
+    const filtered = data.filter(row => {
       const allianceManager = this.getAllianceManager(row);
       const owner = row['Owner'];
 
@@ -600,51 +584,10 @@ getMarketingApprovals(managerEmail) {
         owner === managerName ||
         (owner && owner.includes(managerName.split(' ')[0]));
 
-      // Log first few rows for debugging
-      if (index < 3) {
-        console.log(`Row ${index}: AllianceManager="${allianceManager}", Owner="${owner}", matchesManager=${matchesManager}`);
-      }
-
-      if (matchesManager) {
-        managerMatchCount++;
-      }
-
-      if (!matchesManager) return false;
-      
-      // Check for pending approval status - using the Overall Status column
-      const overallStatus = String(row['Overall Status'] || '').toLowerCase();
-
-      // Consider it pending if it's not fully approved or rejected
-      const isPending =
-        !overallStatus.includes('final approval') &&
-        !overallStatus.includes('rejected') &&
-        !overallStatus.includes('completed') &&
-        !overallStatus.includes('cancelled');
-
-      // Also check individual decision columns
-      const ericDecision = String(row['Eric Decision'] || '').toLowerCase();
-      const marketingDecision = String(row['Marketing Decision'] || '').toLowerCase();
-      const willDecision = String(row['Will Decision'] || '').toLowerCase();
-
-      // If any decision is explicitly pending or not yet made, include it
-      const hasOutstandingDecision =
-        !ericDecision || ericDecision.includes('pending') || ericDecision.includes('send back') ||
-        !marketingDecision || marketingDecision.includes('pending') || marketingDecision.includes('send back') ||
-        !willDecision || willDecision.includes('pending') || willDecision.includes('send back');
-
-      const passesStatusFilter = isPending || hasOutstandingDecision;
-
-      // Log first matching manager row to see status filtering
-      if (matchesManager && statusFilteredCount < 3) {
-        console.log(`Manager match ${statusFilteredCount}: OverallStatus="${overallStatus}", isPending=${isPending}, hasOutstanding=${hasOutstandingDecision}, passesFilter=${passesStatusFilter}`);
-        statusFilteredCount++;
-      }
-
-      return matchesManager && passesStatusFilter;
+      return matchesManager;
     });
 
-    console.log(`Manager matches found: ${managerMatchCount}`);
-    console.log(`Filtered to ${filtered.length} pending approvals`);
+    console.log(`Filtered to ${filtered.length} approvals for manager ${managerName}`);
     
     // Convert all values to strings and add calculated fields
     const approvals = filtered.map(row => {
@@ -753,10 +696,10 @@ getMarketingApprovals(managerEmail) {
     });
     
     console.log('Sample approval:', approvals[0] ? JSON.stringify(Object.keys(approvals[0])) : 'No approvals');
-    
-    cache.put(cacheKey, JSON.stringify(approvals), CONFIG.CACHE_DURATION);
+
+    // Caching disabled - always return fresh data from spreadsheet
     return approvals;
-    
+
   } catch (error) {
     console.error('Error in getMarketingApprovals:', error);
     return [];
@@ -766,18 +709,17 @@ getMarketingApprovals(managerEmail) {
 
   /**
  * Get partner heatmap data
+ * Caching disabled - always reads fresh data from spreadsheet
  */
 getPartnerHeatmap(managerEmail) {
   try {
-    // Initialize cache properly
-    const cache = CacheService.getScriptCache();
-    const cacheKey = `heatmap_${managerEmail}`;
-    const cached = cache.get(cacheKey);
-    
-    if (cached) {
-      return JSON.parse(cached);
-    }
-    
+    // Normalize email to lowercase
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
+
+    console.log(`=== getPartnerHeatmap (NO CACHE) ===`);
+    console.log(`Manager email: ${managerEmail}`);
+    console.log(`Reading directly from spreadsheet (caching disabled)`);
+
     const sheet = this.spreadsheet.getSheetByName('MondayDashboard');
     if (!sheet) {
       console.log('MondayDashboard sheet not found');
@@ -877,10 +819,10 @@ getPartnerHeatmap(managerEmail) {
     if (heatmapData.length > 0) {
       console.log('Sample heatmap entry:', JSON.stringify(heatmapData[0]));
     }
-    
-    cache.put(cacheKey, JSON.stringify(heatmapData), CONFIG.CACHE_DURATION);
+
+    // Caching disabled - always return fresh data from spreadsheet
     return heatmapData;
-    
+
   } catch (error) {
     console.error('Error in getPartnerHeatmap:', error);
     return [];
@@ -1235,6 +1177,86 @@ function getGeneralApprovals(managerEmail) {
   } catch (error) {
     console.error('Error in getGeneralApprovals:', error);
     return DataService.ensureSerializable([]);
+  }
+}
+
+/**
+ * Debug function to get marketing approvals BYPASSING CACHE
+ * Run this to see what data is actually in the spreadsheet
+ */
+function getMarketingApprovalsNoCache(managerEmail) {
+  try {
+    console.log('=== getMarketingApprovalsNoCache (BYPASSING CACHE) ===');
+    console.log(`Manager email: ${managerEmail}`);
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MarketingApproval');
+
+    if (!sheet) {
+      console.log('MarketingApproval sheet not found');
+      return { error: 'Sheet not found', data: [] };
+    }
+
+    // Get raw sheet data
+    const range = sheet.getDataRange();
+    const values = range.getValues();
+
+    console.log(`Total rows in sheet (including header): ${values.length}`);
+
+    if (values.length < 2) {
+      return { error: 'No data rows', data: [], rowCount: values.length };
+    }
+
+    const headers = values[0];
+    console.log('Headers:', headers.join(', '));
+
+    // Find Item Name column
+    const itemNameIndex = headers.indexOf('Item Name');
+    console.log(`Item Name column index: ${itemNameIndex}`);
+
+    // Get all item names from the sheet
+    const itemNames = [];
+    for (let i = 1; i < values.length; i++) {
+      const itemName = itemNameIndex >= 0 ? values[i][itemNameIndex] : values[i][0];
+      if (itemName && String(itemName).trim() !== '') {
+        itemNames.push(String(itemName).trim());
+      }
+    }
+
+    console.log(`Total items in sheet: ${itemNames.length}`);
+    console.log('Item names (first 10):', itemNames.slice(0, 10).join(', '));
+    console.log('Item names (last 5):', itemNames.slice(-5).join(', '));
+
+    // Now compare with what getMarketingApprovals returns
+    const service = new DataService();
+
+    // Temporarily clear the cache to force a fresh read
+    const cache = CacheService.getScriptCache();
+    const normalizedEmail = managerEmail ? managerEmail.toLowerCase() : '';
+    const cacheKey = `marketing_approvals_${normalizedEmail}`;
+
+    console.log('');
+    console.log('Checking current cache state...');
+    const currentCache = cache.get(cacheKey);
+    if (currentCache) {
+      const cachedData = JSON.parse(currentCache);
+      console.log(`Cache contains ${cachedData.length} items`);
+      console.log('Cached items (first 5):', cachedData.slice(0, 5).map(i => i['Item Name']).join(', '));
+    } else {
+      console.log('Cache is EMPTY');
+    }
+
+    return {
+      sheetRowCount: values.length - 1,
+      itemsInSheet: itemNames.length,
+      itemNames: itemNames,
+      cacheExists: !!currentCache,
+      cachedItemCount: currentCache ? JSON.parse(currentCache).length : 0
+    };
+
+  } catch (error) {
+    console.error('Error in getMarketingApprovalsNoCache:', error);
+    return { error: error.message };
   }
 }
 

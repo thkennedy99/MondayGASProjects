@@ -24,11 +24,39 @@ const MARKETING_CALENDAR_BOARD_ID = '9770467355';
 const MARKETING_CALENDAR_SHEET_NAME = 'MarketingCalendar';
 const GW_BOARD_1_ID = '9791255941';
 const GW_BOARD_1_NAME = 'Partner Management Tracker';
+const GW_BOARD_1_SHEET = 'GW_PartnerMgmt';
 const GW_BOARD_2_ID = '9791272390';
 const GW_BOARD_2_NAME = 'Solution Ops Tracker';
+const GW_BOARD_2_SHEET = 'GW_SolutionOps';
 const GW_BOARD_3_ID = '18374691224';
 const GW_BOARD_3_NAME = 'Marketing Projects';
+const GW_BOARD_3_SHEET = 'GW_Marketing';
+const GW_BOARD_4_ID = '18375013360';
+const GW_BOARD_4_NAME = 'Compliance';
+const GW_BOARD_4_SHEET = 'GW_Compliance';
 const GW_MONDAY_SHEET_NAME = 'GWMondayData';
+
+// Array of all GW board IDs for easy lookup
+const GW_BOARD_IDS = [GW_BOARD_1_ID, GW_BOARD_2_ID, GW_BOARD_3_ID, GW_BOARD_4_ID];
+
+// Map of GW board IDs to their sheet names
+const GW_BOARD_SHEET_MAP = {
+  [GW_BOARD_1_ID]: GW_BOARD_1_SHEET,
+  [GW_BOARD_2_ID]: GW_BOARD_2_SHEET,
+  [GW_BOARD_3_ID]: GW_BOARD_3_SHEET,
+  [GW_BOARD_4_ID]: GW_BOARD_4_SHEET
+};
+
+// Map of GW board IDs to their names
+const GW_BOARD_NAME_MAP = {
+  [GW_BOARD_1_ID]: GW_BOARD_1_NAME,
+  [GW_BOARD_2_ID]: GW_BOARD_2_NAME,
+  [GW_BOARD_3_ID]: GW_BOARD_3_NAME,
+  [GW_BOARD_4_ID]: GW_BOARD_4_NAME
+};
+
+// Partner Activities board (MondayData)
+const PARTNER_BOARD_ID = '8463767815';
 
 const MONDAY_API_URL = 'https://api.monday.com/v2';
 
@@ -282,13 +310,231 @@ function syncMarketingBoards() {
         console.error(`Error processing marketing board ${boardConfig.boardName} (${boardConfig.boardId}):`, boardError);
       }
     }
-    
+
+    // Ensure all spreadsheet writes are committed before clearing cache
+    SpreadsheetApp.flush();
+
+    // Clear marketing caches to ensure fresh data is loaded after sync
+    clearMarketingCaches();
+
     console.log('Marketing boards sync complete');
-    
+
   } catch (error) {
     console.error('Error syncing marketing boards:', error);
    // SpreadsheetApp.getUi().alert('Error syncing marketing boards: ' + error.toString());
   }
+}
+
+/**
+ * Clear all marketing-related caches (approvals and calendar)
+ * This ensures that fresh data is loaded after syncing from Monday.com
+ */
+function clearMarketingCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+
+    // Get list of all managers to clear their specific cache keys
+    const managers = getManagerList();
+
+    // Build list of cache keys to clear
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      // Clear marketing approvals cache for each manager
+      cacheKeysToRemove.push(`marketing_approvals_${managerEmail}`);
+      // Clear marketing calendar cache for each manager
+      cacheKeysToRemove.push(`marketing_calendar_${managerEmail}`);
+    });
+
+    // Also clear any general marketing cache keys
+    cacheKeysToRemove.push('marketing_approvals_all');
+    cacheKeysToRemove.push('marketing_calendar_all');
+    cacheKeysToRemove.push('all_marketing_approvals');
+    cacheKeysToRemove.push('all_marketing_calendar');
+
+    // Remove all cache keys (GAS allows removing up to 100 keys at once)
+    if (cacheKeysToRemove.length > 0) {
+      cache.removeAll(cacheKeysToRemove);
+      console.log(`Cleared ${cacheKeysToRemove.length} marketing cache keys`);
+    }
+
+    console.log('Marketing caches cleared successfully');
+
+  } catch (error) {
+    console.error('Error clearing marketing caches:', error);
+    // Don't throw - cache clearing failure shouldn't break the sync
+  }
+}
+
+/**
+ * Clear only Marketing Approval caches
+ * Use this for targeted cache invalidation when only approvals are affected
+ */
+function clearMarketingApprovalCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      cacheKeysToRemove.push(`marketing_approvals_${managerEmail}`);
+    });
+
+    cacheKeysToRemove.push('marketing_approvals_all');
+    cacheKeysToRemove.push('all_marketing_approvals');
+
+    if (cacheKeysToRemove.length > 0) {
+      cache.removeAll(cacheKeysToRemove);
+      console.log(`Cleared ${cacheKeysToRemove.length} marketing approval cache keys`);
+    }
+
+  } catch (error) {
+    console.error('Error clearing marketing approval caches:', error);
+  }
+}
+
+/**
+ * Clear only Marketing Calendar caches
+ * Use this for targeted cache invalidation when only calendar is affected
+ */
+function clearMarketingCalendarCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      cacheKeysToRemove.push(`marketing_calendar_${managerEmail}`);
+    });
+
+    cacheKeysToRemove.push('marketing_calendar_all');
+    cacheKeysToRemove.push('all_marketing_calendar');
+
+    if (cacheKeysToRemove.length > 0) {
+      cache.removeAll(cacheKeysToRemove);
+      console.log(`Cleared ${cacheKeysToRemove.length} marketing calendar cache keys`);
+    }
+
+  } catch (error) {
+    console.error('Error clearing marketing calendar caches:', error);
+  }
+}
+
+/**
+ * Clear only Internal Activity caches (GW boards)
+ * Use this for targeted cache invalidation when only internal activities are affected
+ */
+function clearInternalActivityCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      for (let page = 1; page <= 10; page++) {
+        cacheKeysToRemove.push(`activity_internal_${managerEmail}_page${page}`);
+      }
+      cacheKeysToRemove.push(`activity_internal_${managerEmail}_recent`);
+    });
+
+    if (cacheKeysToRemove.length > 0) {
+      const batchSize = 100;
+      for (let i = 0; i < cacheKeysToRemove.length; i += batchSize) {
+        const batch = cacheKeysToRemove.slice(i, i + batchSize);
+        cache.removeAll(batch);
+      }
+      console.log(`Cleared ${cacheKeysToRemove.length} internal activity cache keys`);
+    }
+
+  } catch (error) {
+    console.error('Error clearing internal activity caches:', error);
+  }
+}
+
+/**
+ * Clear all activity-related caches (partner and internal activities)
+ * This ensures that fresh data is loaded after syncing from Monday.com
+ */
+function clearActivityCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    // Activity caches use pattern: activity_${type}_${manager}_${hash}
+    // Since we can't predict all hash values, we need to clear by pattern
+    // However, GAS doesn't support pattern-based removal, so we track common patterns
+
+    managers.forEach(managerEmail => {
+      // Clear partner activity caches (various pagination/filter combinations)
+      // We'll clear the most common patterns
+      for (let page = 1; page <= 10; page++) {
+        cacheKeysToRemove.push(`activity_partner_${managerEmail}_page${page}`);
+        cacheKeysToRemove.push(`activity_internal_${managerEmail}_page${page}`);
+      }
+      // Also try common hash patterns (these are the default/common requests)
+      cacheKeysToRemove.push(`activity_partner_${managerEmail}_recent`);
+      cacheKeysToRemove.push(`activity_internal_${managerEmail}_recent`);
+    });
+
+    // Remove all cache keys
+    if (cacheKeysToRemove.length > 0) {
+      // GAS removeAll can handle up to ~100 keys, so batch if needed
+      const batchSize = 100;
+      for (let i = 0; i < cacheKeysToRemove.length; i += batchSize) {
+        const batch = cacheKeysToRemove.slice(i, i + batchSize);
+        cache.removeAll(batch);
+      }
+      console.log(`Cleared ${cacheKeysToRemove.length} activity cache keys`);
+    }
+
+    console.log('Activity caches cleared successfully');
+
+  } catch (error) {
+    console.error('Error clearing activity caches:', error);
+  }
+}
+
+/**
+ * Clear partner heatmap caches
+ * This ensures that fresh data is loaded after syncing from Monday.com
+ */
+function clearHeatmapCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      cacheKeysToRemove.push(`heatmap_${managerEmail}`);
+    });
+
+    // Also clear any general heatmap cache keys
+    cacheKeysToRemove.push('heatmap_all');
+    cacheKeysToRemove.push('partner_heatmap_all');
+
+    if (cacheKeysToRemove.length > 0) {
+      cache.removeAll(cacheKeysToRemove);
+      console.log(`Cleared ${cacheKeysToRemove.length} heatmap cache keys`);
+    }
+
+    console.log('Heatmap caches cleared successfully');
+
+  } catch (error) {
+    console.error('Error clearing heatmap caches:', error);
+  }
+}
+
+/**
+ * Clear ALL data caches (marketing, activities, heatmap)
+ * Call this for comprehensive cache invalidation
+ */
+function clearAllDataCaches() {
+  console.log('Clearing all data caches...');
+  clearMarketingCaches();
+  clearActivityCaches();
+  clearHeatmapCaches();
+  console.log('All data caches cleared');
 }
 
 /**
@@ -390,9 +636,14 @@ function syncMondayData() {
     console.log(`Marketing boards synced separately`);
 
    // STAGE 4: Sync Guidewire Boards
-    syncGuidewireBoards();   
- 
-    
+    syncGuidewireBoards();
+
+    // Clear partner activity and heatmap caches after sync
+    // (Marketing and GW caches are cleared in their respective sync functions)
+    console.log('\n=== Clearing Partner Activity and Heatmap Caches ===');
+    clearActivityCaches();
+    clearHeatmapCaches();
+
   } catch (error) {
     console.error('Error syncing Monday data:', error);
   //  SpreadsheetApp.getUi().alert('Error: ' + error.toString());
@@ -564,6 +815,12 @@ function getGuidewireBoardConfigurations() {
           partnerName: 'Guidewire',
           boardId: GW_BOARD_3_ID,
           targetSheetName: GW_MONDAY_SHEET_NAME
+        },
+        {
+          boardName: GW_BOARD_4_NAME,
+          partnerName: 'Guidewire',
+          boardId: GW_BOARD_4_ID,
+          targetSheetName: GW_MONDAY_SHEET_NAME
         }
       ];
     }
@@ -616,111 +873,87 @@ function getGuidewireBoardConfigurations() {
  */
 function syncGuidewireBoards() {
   try {
-    console.log('Starting Guidewire boards sync...');
+    console.log('Starting Guidewire boards sync (individual board architecture)...');
 
-    // Get or create the GWMondayData sheet
-    const gwSheet = getOrCreateSheet(GW_MONDAY_SHEET_NAME);
-
-    // Clear existing data from row 2 onwards
-    clearSheetData(gwSheet);
-
-    // Get partner translation lookup map
+    // Get partner translation lookup map for post-processing
     const partnerTranslateMap = getPartnerTranslateLookup();
-
-    // Get alliance manager lookup map
-    const allianceManagerMap = getAllianceManagerLookup();
-
-    const guidewireConfigs = getGuidewireBoardConfigurations();
     let totalItems = 0;
 
-    // Process each board individually to handle different column structures
-    for (let i = 0; i < guidewireConfigs.length; i++) {
-      const boardConfig = guidewireConfigs[i];
-      const isFirstBoard = (i === 0);
+    // Sync each GW board to its individual sheet
+    const boardSheets = [
+      { boardId: GW_BOARD_1_ID, sheetName: GW_BOARD_1_SHEET },
+      { boardId: GW_BOARD_2_ID, sheetName: GW_BOARD_2_SHEET },
+      { boardId: GW_BOARD_3_ID, sheetName: GW_BOARD_3_SHEET },
+      { boardId: GW_BOARD_4_ID, sheetName: GW_BOARD_4_SHEET }
+    ];
 
-      console.log(`\n=== Processing Guidewire Board ${i + 1}/${guidewireConfigs.length}: ${boardConfig.boardName} ===`);
-      console.log('Board ID:', boardConfig.boardId);
+    for (let i = 0; i < boardSheets.length; i++) {
+      const { boardId, sheetName } = boardSheets[i];
+      console.log(`\n=== Syncing GW Board ${i + 1}/${boardSheets.length}: ${sheetName} (${boardId}) ===`);
 
       try {
-        // Fetch board structure for THIS specific board (don't assume all boards are the same)
-        console.log('Fetching board structure...');
-        const boardStructure = getBoardStructure(boardConfig.boardId);
-        console.log('Board name from Monday:', boardStructure.name);
-        console.log('Number of columns:', boardStructure.columns.length);
-        console.log('Number of groups:', boardStructure.groups.length);
+        // Sync this board to its individual sheet
+        const result = syncSingleGWBoard(boardId);
+        const itemCount = result.itemCount || 0;
+        totalItems += itemCount;
 
-        // Get all items from this board
-        const items = getAllBoardItems(boardConfig.boardId);
-        console.log(`Items retrieved from ${boardStructure.name}: ${items.length}`);
+        // Apply post-processing to this individual sheet
+        if (itemCount > 0) {
+          const sheet = getOrCreateSheet(sheetName);
 
-        // Process and write this board's data
-        if (items.length > 0) {
-          // Add board info to each item using the ACTUAL board name from Monday
-          items.forEach(item => {
-            item.partnerName = boardConfig.partnerName;
-            item.boardName = boardStructure.name;  // Use actual board name from Monday
-            item.boardId = boardConfig.boardId;
-          });
+          // 1. Delete completed rows
+          deleteCompletedRows(sheet);
 
-          // Write this board's data to the sheet
-          // First board writes headers, subsequent boards append
-          writeDataToSheet(gwSheet, boardStructure, items, isFirstBoard, boardConfig);
-          totalItems += items.length;
+          // 2. Translate partner names (column D, index 4)
+          const lastRow = sheet.getLastRow();
+          if (lastRow > 1) {
+            const partnerNameRange = sheet.getRange(2, 4, lastRow - 1, 1);
+            const partnerNames = partnerNameRange.getValues();
 
-          console.log(`Written ${items.length} items from ${boardStructure.name}`);
-        } else {
-          console.log(`No items found on board: ${boardStructure.name}`);
+            const updatedNames = partnerNames.map(row => {
+              const originalName = row[0];
+              if (originalName) {
+                const translatedName = lookupPartnerTranslation(originalName.toString().trim(), partnerTranslateMap);
+                return [translatedName];
+              }
+              return row;
+            });
+
+            partnerNameRange.setValues(updatedNames);
+          }
+
+          // 3. Sort by item name
+          sortDataByItemName(sheet);
+
+          // Auto-resize columns
+          const lastColumn = sheet.getLastColumn();
+          for (let col = 1; col <= Math.min(lastColumn, 20); col++) {
+            sheet.autoResizeColumn(col);
+          }
+
+          console.log(`Post-processing complete for ${sheetName}`);
         }
 
       } catch (boardError) {
-        console.error(`Error processing Guidewire board ${boardConfig.boardName} (${boardConfig.boardId}):`, boardError);
+        console.error(`Error processing GW board ${sheetName} (${boardId}):`, boardError);
         // Continue processing other boards even if one fails
       }
     }
 
-    // Apply post-processing to all data
-    if (totalItems > 0) {
-      console.log(`\nApplying post-processing to ${totalItems} total items...`);
+    // Ensure GWMondayData formula is set up (auto-pulls from individual sheets)
+    console.log('\nSetting up GWMondayData formula to aggregate individual sheets...');
+    setupGWMondayDataFormula();
 
-      // 1. Delete rows where column B (Group) equals completed statuses
-      deleteCompletedRows(gwSheet);
+    console.log(`\nGuidewire boards sync complete - ${totalItems} total items across 4 boards`);
+    console.log('GWMondayData will auto-update via formula when individual sheets change');
 
-      // 2. Translate partner names if needed
-      const lastRow = gwSheet.getLastRow();
-      if (lastRow > 1) {
-        const partnerNameRange = gwSheet.getRange(2, 4, lastRow - 1, 1);
-        const partnerNames = partnerNameRange.getValues();
-
-        const updatedNames = partnerNames.map(row => {
-          const originalName = row[0];
-          if (originalName) {
-            const translatedName = lookupPartnerTranslation(originalName.toString().trim(), partnerTranslateMap);
-            return [translatedName];
-          }
-          return row;
-        });
-
-        partnerNameRange.setValues(updatedNames);
-      }
-
-      // 3. Sort the data by column A (Item Name)
-      sortDataByItemName(gwSheet);
-
-      // Auto-resize columns for better visibility
-      const lastColumn = gwSheet.getLastColumn();
-      for (let i = 1; i <= lastColumn; i++) {
-        gwSheet.autoResizeColumn(i);
-      }
-
-      console.log('Guidewire boards sync complete');
-      console.log(`Success! Synced ${totalItems} items from Guidewire Monday.com boards to ${GW_MONDAY_SHEET_NAME}`);
-    } else {
-      console.log('No items found on any Guidewire boards');
-    }
+    // Clear internal activity caches after GW boards sync
+    console.log('Clearing internal activity caches...');
+    clearActivityCaches();
 
   } catch (error) {
     console.error('Error syncing Guidewire boards:', error);
-    throw error; // Re-throw to be handled by caller
+    throw error;
   }
 }
 
@@ -738,9 +971,451 @@ function syncAllDataIncludingGuidewire() {
     syncGuidewireBoards();
     
     console.log('Comprehensive sync with Guidewire complete!');
-    
+
   } catch (error) {
     console.error('Error in comprehensive sync with Guidewire:', error);
    // SpreadsheetApp.getUi().alert('Error in comprehensive sync: ' + error.toString());
   }
+}
+
+/**
+ * Debug function to view cache keys and their data
+ * Run this from Apps Script editor to see what's in the cache
+ */
+function debugViewCache() {
+  const cache = CacheService.getScriptCache();
+  const managers = getManagerList();
+
+  console.log('=== CACHE DEBUG VIEW ===');
+  console.log('Manager list:', managers);
+  console.log('');
+
+  const cacheReport = [];
+
+  // Check marketing approval caches
+  console.log('--- Marketing Approval Caches ---');
+  managers.forEach(email => {
+    const key = `marketing_approvals_${email}`;
+    const value = cache.get(key);
+    if (value) {
+      const data = JSON.parse(value);
+      console.log(`✓ ${key}: ${data.length} items`);
+      cacheReport.push({ key, itemCount: data.length, type: 'marketing_approvals' });
+    } else {
+      console.log(`✗ ${key}: EMPTY`);
+    }
+  });
+
+  // Check all_marketing_approvals
+  const allApprovals = cache.get('all_marketing_approvals');
+  if (allApprovals) {
+    const data = JSON.parse(allApprovals);
+    console.log(`✓ all_marketing_approvals: ${data.length} items`);
+    cacheReport.push({ key: 'all_marketing_approvals', itemCount: data.length, type: 'marketing_approvals' });
+  } else {
+    console.log('✗ all_marketing_approvals: EMPTY');
+  }
+
+  // Check marketing calendar caches
+  console.log('');
+  console.log('--- Marketing Calendar Caches ---');
+  managers.forEach(email => {
+    const key = `marketing_calendar_${email}`;
+    const value = cache.get(key);
+    if (value) {
+      const data = JSON.parse(value);
+      console.log(`✓ ${key}: ${data.length} items`);
+      cacheReport.push({ key, itemCount: data.length, type: 'marketing_calendar' });
+    } else {
+      console.log(`✗ ${key}: EMPTY`);
+    }
+  });
+
+  // Check heatmap caches
+  console.log('');
+  console.log('--- Heatmap Caches ---');
+  managers.forEach(email => {
+    const key = `heatmap_${email}`;
+    const value = cache.get(key);
+    if (value) {
+      const data = JSON.parse(value);
+      console.log(`✓ ${key}: ${data.length} items`);
+      cacheReport.push({ key, itemCount: data.length, type: 'heatmap' });
+    } else {
+      console.log(`✗ ${key}: EMPTY`);
+    }
+  });
+
+  // Check manager partners caches
+  console.log('');
+  console.log('--- Manager Partners Caches ---');
+  managers.forEach(email => {
+    const key = `manager_partners_${email}`;
+    const value = cache.get(key);
+    if (value) {
+      const data = JSON.parse(value);
+      console.log(`✓ ${key}: ${data.length} partners`);
+      cacheReport.push({ key, itemCount: data.length, type: 'manager_partners' });
+    } else {
+      console.log(`✗ ${key}: EMPTY`);
+    }
+  });
+
+  // Check manager name caches
+  console.log('');
+  console.log('--- Manager Name Caches ---');
+  managers.forEach(email => {
+    const key = `manager_name_${email}`;
+    const value = cache.get(key);
+    if (value) {
+      console.log(`✓ ${key}: "${value}"`);
+      cacheReport.push({ key, value, type: 'manager_name' });
+    } else {
+      console.log(`✗ ${key}: EMPTY`);
+    }
+  });
+
+  // Check manager list cache
+  console.log('');
+  console.log('--- Other Caches ---');
+  const managerListCache = cache.get('manager_list');
+  if (managerListCache) {
+    const data = JSON.parse(managerListCache);
+    console.log(`✓ manager_list: ${data.length} managers`);
+    cacheReport.push({ key: 'manager_list', itemCount: data.length, type: 'manager_list' });
+  } else {
+    console.log('✗ manager_list: EMPTY');
+  }
+
+  // Summary
+  console.log('');
+  console.log('=== SUMMARY ===');
+  console.log(`Total cached entries found: ${cacheReport.length}`);
+  console.log(`Managers checked: ${managers.length}`);
+
+  return cacheReport;
+}
+
+/**
+ * Debug function to view a specific cache key's full data
+ * @param {string} cacheKey - The cache key to inspect
+ */
+function debugViewCacheKey(cacheKey) {
+  const cache = CacheService.getScriptCache();
+  const value = cache.get(cacheKey);
+
+  console.log(`=== CACHE KEY: ${cacheKey} ===`);
+
+  if (!value) {
+    console.log('Status: EMPTY/NOT FOUND');
+    return null;
+  }
+
+  try {
+    const data = JSON.parse(value);
+    console.log('Status: FOUND');
+    console.log('Type:', typeof data);
+    console.log('Is Array:', Array.isArray(data));
+
+    if (Array.isArray(data)) {
+      console.log('Item count:', data.length);
+      if (data.length > 0) {
+        console.log('First item keys:', Object.keys(data[0]));
+        console.log('First item:', JSON.stringify(data[0], null, 2));
+      }
+    } else {
+      console.log('Data:', JSON.stringify(data, null, 2));
+    }
+
+    return data;
+  } catch (e) {
+    console.log('Raw value (not JSON):', value);
+    return value;
+  }
+}
+
+/**
+ * Debug function to test if CacheService operations actually work
+ * This verifies that put, get, remove, and removeAll are functional
+ */
+function debugTestCacheOperations() {
+  const cache = CacheService.getScriptCache();
+  const testKey = 'debug_test_cache_key_12345';
+  const testValue = JSON.stringify({ test: true, timestamp: new Date().toISOString() });
+
+  console.log('=== CACHE OPERATIONS TEST ===');
+  console.log('');
+
+  // Test 1: Put a value
+  console.log('1. Testing cache.put()...');
+  cache.put(testKey, testValue, 300);
+  console.log(`   Put test value with key: ${testKey}`);
+
+  // Test 2: Get the value
+  console.log('2. Testing cache.get()...');
+  const retrieved = cache.get(testKey);
+  if (retrieved === testValue) {
+    console.log('   ✓ GET works - value retrieved matches');
+  } else if (retrieved) {
+    console.log('   ⚠ GET returned different value');
+    console.log('   Expected:', testValue);
+    console.log('   Got:', retrieved);
+  } else {
+    console.log('   ✗ GET failed - value not found');
+    return { success: false, error: 'cache.get() failed' };
+  }
+
+  // Test 3: Remove the value
+  console.log('3. Testing cache.remove()...');
+  cache.remove(testKey);
+  const afterRemove = cache.get(testKey);
+  if (afterRemove === null) {
+    console.log('   ✓ REMOVE works - value was deleted');
+  } else {
+    console.log('   ✗ REMOVE failed - value still exists:', afterRemove);
+    return { success: false, error: 'cache.remove() failed' };
+  }
+
+  // Test 4: Test removeAll
+  console.log('4. Testing cache.removeAll()...');
+  const testKeys = ['debug_test_1', 'debug_test_2', 'debug_test_3'];
+  testKeys.forEach(key => cache.put(key, 'test_value', 300));
+  console.log('   Put 3 test values');
+
+  // Verify they exist
+  const beforeRemoveAll = testKeys.map(key => cache.get(key));
+  console.log('   Before removeAll:', beforeRemoveAll.map(v => v ? 'EXISTS' : 'EMPTY'));
+
+  cache.removeAll(testKeys);
+
+  const afterRemoveAll = testKeys.map(key => cache.get(key));
+  console.log('   After removeAll:', afterRemoveAll.map(v => v ? 'EXISTS' : 'EMPTY'));
+
+  if (afterRemoveAll.every(v => v === null)) {
+    console.log('   ✓ REMOVEALL works - all values deleted');
+  } else {
+    console.log('   ✗ REMOVEALL failed - some values still exist');
+    return { success: false, error: 'cache.removeAll() failed' };
+  }
+
+  console.log('');
+  console.log('=== ALL CACHE OPERATIONS WORKING ===');
+  return { success: true };
+}
+
+/**
+ * Debug function to specifically test clearing marketing approval cache
+ * Explicitly clears a specific key and verifies it's gone
+ */
+function debugTestMarketingCacheClear() {
+  const cache = CacheService.getScriptCache();
+  const managers = getManagerList();
+
+  console.log('=== MARKETING APPROVAL CACHE CLEAR TEST ===');
+  console.log('Managers found:', managers.length);
+  console.log('Manager list:', managers.join(', '));
+  console.log('');
+
+  // Check each manager's cache
+  managers.forEach(email => {
+    const key = `marketing_approvals_${email}`;
+    const before = cache.get(key);
+
+    console.log(`--- Testing key: ${key} ---`);
+    console.log('Before clear:', before ? `EXISTS (${JSON.parse(before).length} items)` : 'EMPTY');
+
+    if (before) {
+      // Try to remove it
+      cache.remove(key);
+      Utilities.sleep(100); // Small delay to ensure operation completes
+
+      const after = cache.get(key);
+      console.log('After cache.remove():', after ? `STILL EXISTS (${JSON.parse(after).length} items)` : 'DELETED');
+
+      if (after) {
+        console.log('⚠ WARNING: Cache key was NOT removed!');
+      } else {
+        console.log('✓ Cache key successfully removed');
+      }
+    }
+    console.log('');
+  });
+
+  // Also test the general keys
+  ['marketing_approvals_all', 'all_marketing_approvals'].forEach(key => {
+    const before = cache.get(key);
+    console.log(`--- Testing key: ${key} ---`);
+    console.log('Before clear:', before ? 'EXISTS' : 'EMPTY');
+
+    if (before) {
+      cache.remove(key);
+      const after = cache.get(key);
+      console.log('After cache.remove():', after ? 'STILL EXISTS' : 'DELETED');
+    }
+    console.log('');
+  });
+
+  console.log('=== TEST COMPLETE ===');
+}
+
+/**
+ * Force clear a specific cache key by email - use this for direct testing
+ * @param {string} email - Manager email address (will be normalized to lowercase)
+ */
+function forceClearMarketingCacheForEmail(email) {
+  const cache = CacheService.getScriptCache();
+  const normalizedEmail = email ? email.trim().toLowerCase() : '';
+  const key = `marketing_approvals_${normalizedEmail}`;
+
+  console.log('=== FORCE CLEAR SPECIFIC CACHE KEY ===');
+  console.log(`Email: ${email}`);
+  console.log(`Normalized: ${normalizedEmail}`);
+  console.log(`Cache key: ${key}`);
+
+  const before = cache.get(key);
+  console.log('Before clear:', before ? `EXISTS (${JSON.parse(before).length} items)` : 'EMPTY');
+
+  // Force remove using the direct cache reference
+  cache.remove(key);
+  Utilities.sleep(200);
+
+  const after = cache.get(key);
+  console.log('After cache.remove():', after ? `STILL EXISTS (${JSON.parse(after).length} items)` : 'DELETED');
+
+  if (after) {
+    console.log('');
+    console.log('⚠ Cache remove FAILED - trying alternative approach...');
+
+    // Try removeAll with single key
+    cache.removeAll([key]);
+    Utilities.sleep(200);
+
+    const afterRemoveAll = cache.get(key);
+    console.log('After cache.removeAll([key]):', afterRemoveAll ? `STILL EXISTS` : 'DELETED');
+
+    if (afterRemoveAll) {
+      // Try putting null/empty
+      console.log('Trying to overwrite with empty array...');
+      cache.put(key, JSON.stringify([]), 1); // 1 second TTL
+      Utilities.sleep(1500);
+
+      const afterOverwrite = cache.get(key);
+      console.log('After overwrite with 1s TTL:', afterOverwrite ? `STILL EXISTS` : 'EXPIRED/DELETED');
+    }
+  } else {
+    console.log('✓ Cache key successfully removed');
+  }
+
+  return { key, cleared: !cache.get(key) };
+}
+
+/**
+ * Nuclear option: Clear ALL script cache by iterating through known patterns
+ * Use this when normal clearing doesn't work
+ */
+function nuclearClearAllMarketingCaches() {
+  const cache = CacheService.getScriptCache();
+
+  console.log('=== NUCLEAR CACHE CLEAR ===');
+  console.log('This will attempt to clear ALL possible marketing cache keys');
+  console.log('');
+
+  // Get managers from sheet
+  let managers = [];
+  try {
+    managers = getManagerList();
+    console.log(`Found ${managers.length} managers from getManagerList()`);
+  } catch (e) {
+    console.log('getManagerList() failed, will try direct sheet access');
+  }
+
+  // Also try direct sheet access as backup
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('AllianceManager');
+    if (sheet) {
+      const data = sheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        for (let j = 0; j < data[i].length; j++) {
+          const val = data[i][j];
+          if (val && String(val).includes('@') && String(val).includes('.')) {
+            const email = String(val).trim().toLowerCase();
+            if (!managers.includes(email)) {
+              managers.push(email);
+            }
+          }
+        }
+      }
+      console.log(`After direct sheet scan: ${managers.length} managers`);
+    }
+  } catch (e) {
+    console.log('Direct sheet access failed:', e);
+  }
+
+  // Build comprehensive list of keys to clear
+  const keysToRemove = [];
+
+  managers.forEach(email => {
+    keysToRemove.push(`marketing_approvals_${email}`);
+    keysToRemove.push(`marketing_calendar_${email}`);
+    keysToRemove.push(`heatmap_${email}`);
+    keysToRemove.push(`manager_partners_${email}`);
+    keysToRemove.push(`manager_name_${email}`);
+  });
+
+  // Add common keys
+  keysToRemove.push('marketing_approvals_all');
+  keysToRemove.push('all_marketing_approvals');
+  keysToRemove.push('marketing_calendar_all');
+  keysToRemove.push('all_marketing_calendar');
+  keysToRemove.push('heatmap_all');
+  keysToRemove.push('manager_list');
+
+  console.log(`Total keys to clear: ${keysToRemove.length}`);
+  console.log('Keys:', keysToRemove.slice(0, 10).join(', '), '...');
+  console.log('');
+
+  // Check which keys exist before clearing
+  let existingCount = 0;
+  keysToRemove.forEach(key => {
+    if (cache.get(key)) {
+      existingCount++;
+      console.log(`EXISTS: ${key}`);
+    }
+  });
+  console.log(`Found ${existingCount} existing cache entries`);
+  console.log('');
+
+  // Clear in batches of 100 (GAS limit)
+  console.log('Clearing caches...');
+  const batchSize = 100;
+  for (let i = 0; i < keysToRemove.length; i += batchSize) {
+    const batch = keysToRemove.slice(i, i + batchSize);
+    cache.removeAll(batch);
+    console.log(`Cleared batch ${Math.floor(i / batchSize) + 1}`);
+  }
+
+  Utilities.sleep(500);
+
+  // Verify clearing worked
+  console.log('');
+  console.log('Verifying clear...');
+  let remainingCount = 0;
+  keysToRemove.forEach(key => {
+    if (cache.get(key)) {
+      remainingCount++;
+      console.log(`⚠ STILL EXISTS: ${key}`);
+    }
+  });
+
+  if (remainingCount === 0) {
+    console.log('✓ All cache keys successfully cleared!');
+  } else {
+    console.log(`⚠ ${remainingCount} cache keys still exist after clear`);
+  }
+
+  console.log('');
+  console.log('=== NUCLEAR CLEAR COMPLETE ===');
+
+  return { totalKeys: keysToRemove.length, existingBefore: existingCount, remainingAfter: remainingCount };
 }

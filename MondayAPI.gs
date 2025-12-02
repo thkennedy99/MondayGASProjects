@@ -333,8 +333,9 @@ class MondayAPI {
 
             if (activeLabelId) {
               console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
-              // Always use label format for all status columns (more reliable across Monday.com API versions)
-              const result = { label: value };
+              // MUST use index format when there are duplicate labels (one deactivated, one active)
+              // Using label format would match the deactivated one first
+              const result = { index: parseInt(activeLabelId) };
               console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
               return result;
             } else {
@@ -348,8 +349,7 @@ class MondayAPI {
               console.warn(`Label "${value}" (ID: ${labelId}) is deactivated`);
               return null;
             }
-            // Single match and not deactivated
-            // Always use label format for all status columns (more reliable across Monday.com API versions)
+            // Single match and not deactivated - safe to use label format
             console.log(`Debug: Using label "${value}" (ID: ${labelId}) for status column`);
             const result = { label: value };
             console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
@@ -712,11 +712,45 @@ function updateMondayItem(itemId, boardId, updates) {
 
 /**
  * Delete Monday.com item
+ * @param {string} itemId - Monday.com item ID to delete
+ * @param {string} boardId - Board ID where the item belongs (for post-delete sync)
  */
-function deleteMondayItem(itemId) {
+function deleteMondayItem(itemId, boardId) {
   try {
     const monday = new MondayAPI();
     const result = monday.deleteItem(itemId);
+
+    // Full sync of the board from Monday.com to spreadsheet after item deletion
+    // This ensures fresh data is available for the UI
+    // Uses global constants from main.gs: MARKETING_APPROVAL_BOARD_ID, MARKETING_CALENDAR_BOARD_ID, GW_BOARD_IDS
+    if (boardId) {
+      try {
+        if (boardId === MARKETING_APPROVAL_BOARD_ID) {
+          console.log('Syncing Marketing Approval board after item deletion...');
+          syncMarketingApprovalBoard();
+          console.log('Marketing Approval board sync complete');
+        } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
+          console.log('Syncing Marketing Calendar board after item deletion...');
+          syncMarketingCalendarBoard();
+          console.log('Marketing Calendar board sync complete');
+        } else if (GW_BOARD_IDS.includes(boardId)) {
+          // Sync only the specific GW board that was affected
+          console.log(`Syncing single GW board ${boardId} after item deletion...`);
+          syncSingleGWBoard(boardId);
+          // GWMondayData auto-updates via formula
+          console.log('GW board sync complete');
+        } else if (boardId === PARTNER_BOARD_ID) {
+          // For partner board, sync just the partner activities
+          console.log('Syncing Partner Activities board after item deletion...');
+          syncPartnerActivitiesData();
+          console.log('Partner Activities sync complete');
+        }
+      } catch (syncError) {
+        // Log sync error but don't fail the delete
+        console.error('Error syncing board after item deletion:', syncError);
+      }
+    }
+
     return { success: true, result };
 
   } catch (error) {
@@ -888,6 +922,35 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
 
     // Update using the Monday API
     const result = monday.updateMultipleColumns(boardId, itemId, columnValues);
+
+    // Full sync of the board from Monday.com to spreadsheet after item update
+    // This ensures fresh data is available for the UI
+    // Uses global constants from main.gs
+    try {
+      if (boardId === MARKETING_APPROVAL_BOARD_ID) {
+        console.log('Syncing Marketing Approval board after item update...');
+        syncMarketingApprovalBoard();
+        console.log('Marketing Approval board sync complete');
+      } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
+        console.log('Syncing Marketing Calendar board after item update...');
+        syncMarketingCalendarBoard();
+        console.log('Marketing Calendar board sync complete');
+      } else if (GW_BOARD_IDS.includes(boardId)) {
+        // Sync only the specific GW board that was affected
+        console.log(`Syncing single GW board ${boardId} after item update...`);
+        syncSingleGWBoard(boardId);
+        // GWMondayData auto-updates via formula
+        console.log('GW board sync complete');
+      } else if (boardId === PARTNER_BOARD_ID) {
+        // For partner board, sync just the partner activities
+        console.log('Syncing Partner Activities board after item update...');
+        syncPartnerActivitiesData();
+        console.log('Partner Activities sync complete');
+      }
+    } catch (syncError) {
+      // Log sync error but don't fail the update
+      console.error('Error syncing board after item update:', syncError);
+    }
 
     return { success: true, result: DataService.ensureSerializable(result) };
 
@@ -1255,6 +1318,7 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
     console.log('New Item ID:', newItemId);
 
     // Send email notifications for Marketing boards
+     // Send email notifications for Marketing boards
     try {
       const MARKETING_APPROVAL_BOARD_ID = '9710279044';
       const MARKETING_CALENDAR_BOARD_ID = '9770467355';
@@ -1264,7 +1328,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         const emailResult = sendMarketingApprovalNotification({
           itemName: itemName,
           columnValues: columnValues,
-          boardId: boardId
+          boardId: boardId,
+          itemId: newItemId
         });
 
         if (emailResult.success) {
@@ -1277,7 +1342,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         const emailResult = sendMarketingCalendarNotification({
           itemName: itemName,
           columnValues: columnValues,
-          boardId: boardId
+          boardId: boardId,
+          itemId: newItemId
         });
 
         if (emailResult.success) {
@@ -1290,6 +1356,36 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
       // Log email error but don't fail the item creation
       console.error('Error sending notification email:', emailError);
       console.error('Item was created successfully, but email notification failed');
+    }
+
+    // Full sync of the board from Monday.com to spreadsheet after item creation
+    // This ensures fresh data is available for the UI
+    // Uses global constants from main.gs
+    try {
+      if (boardId === MARKETING_APPROVAL_BOARD_ID) {
+        console.log('Syncing Marketing Approval board after item creation...');
+        syncMarketingApprovalBoard();
+        console.log('Marketing Approval board sync complete');
+      } else if (boardId === MARKETING_CALENDAR_BOARD_ID) {
+        console.log('Syncing Marketing Calendar board after item creation...');
+        syncMarketingCalendarBoard();
+        console.log('Marketing Calendar board sync complete');
+      } else if (GW_BOARD_IDS.includes(boardId)) {
+        // Sync only the specific GW board that was affected
+        console.log(`Syncing single GW board ${boardId} after item creation...`);
+        syncSingleGWBoard(boardId);
+        // GWMondayData auto-updates via formula
+        console.log('GW board sync complete');
+      } else if (boardId === PARTNER_BOARD_ID) {
+        // For partner board, sync just the partner activities
+        console.log('Syncing Partner Activities board after item creation...');
+        syncPartnerActivitiesData();
+        console.log('Partner Activities sync complete');
+      }
+    } catch (syncError) {
+      // Log sync error but don't fail the item creation
+      console.error('Error syncing board after item creation:', syncError);
+      console.error('Item was created in Monday.com, but board sync failed');
     }
 
     return { success: true, itemId: newItemId };
@@ -1576,8 +1672,11 @@ function syncMarketingApprovalBoard() {
   try {
     console.log('Starting Marketing Approval Board sync...');
 
-    const boardId = CONFIG.MARKETING_APPROVAL_BOARD_ID;
-    const targetSheetName = CONFIG.MARKETING_APPROVAL_SHEET_NAME || 'MarketingApproval';
+    // Use the global constants from main.gs
+    const boardId = MARKETING_APPROVAL_BOARD_ID;  // '9710279044'
+    const targetSheetName = MARKETING_APPROVAL_SHEET_NAME || 'MarketingApproval';
+
+    console.log(`Using board ID: ${boardId}, target sheet: ${targetSheetName}`);
 
     // Get or create the target sheet
     const targetSheet = getOrCreateSheet(targetSheetName);
@@ -1629,8 +1728,11 @@ function syncMarketingCalendarBoard() {
   try {
     console.log('Starting Marketing Calendar Board sync...');
 
-    const boardId = CONFIG.MARKETING_CALENDAR_BOARD_ID;
-    const targetSheetName = CONFIG.MARKETING_CALENDAR_SHEET_NAME || 'MarketingCalendar';
+    // Use the global constants from main.gs
+    const boardId = MARKETING_CALENDAR_BOARD_ID;  // '9770467355'
+    const targetSheetName = MARKETING_CALENDAR_SHEET_NAME || 'MarketingCalendar';
+
+    console.log(`Using board ID: ${boardId}, target sheet: ${targetSheetName}`);
 
     // Get or create the target sheet
     const targetSheet = getOrCreateSheet(targetSheetName);
@@ -1706,4 +1808,328 @@ function syncInternalActivitiesData() {
     console.error('Error syncing Internal Activities:', error);
     throw error;
   }
+}
+
+/**
+ * Sync a single GW board to its individual sheet tab
+ * @param {string} boardId - The GW board ID to sync
+ * @returns {Object} Result with success status
+ */
+function syncSingleGWBoard(boardId) {
+  try {
+    const sheetName = GW_BOARD_SHEET_MAP[boardId];
+    const boardName = GW_BOARD_NAME_MAP[boardId];
+
+    if (!sheetName) {
+      throw new Error(`Unknown GW board ID: ${boardId}`);
+    }
+
+    console.log(`Syncing GW board ${boardId} (${boardName}) to sheet ${sheetName}...`);
+
+    // Get or create the target sheet
+    const targetSheet = getOrCreateSheet(sheetName);
+
+    // Clear existing data from row 2 onwards
+    clearSheetData(targetSheet);
+
+    // Get board structure (columns)
+    const boardStructure = getBoardStructure(boardId);
+    console.log(`Board: ${boardStructure.name}, Columns: ${boardStructure.columns.length}`);
+
+    // Get all items from the board
+    const items = getAllBoardItems(boardId);
+    console.log(`Items retrieved: ${items.length}`);
+
+    // Process and write data to sheet
+    if (items.length > 0) {
+      items.forEach(item => {
+        item.boardName = boardName;
+        item.boardId = boardId;
+      });
+
+      writeDataToSheet(targetSheet, boardStructure, items, true, {
+        boardName: boardName,
+        boardId: boardId,
+        targetSheetName: sheetName
+      });
+    }
+
+    console.log(`GW board ${boardId} sync complete - ${items.length} items`);
+    return { success: true, itemCount: items.length };
+
+  } catch (error) {
+    console.error(`Error syncing GW board ${boardId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Set up GWMondayData sheet with a formula that pulls from all 4 individual GW board sheets
+ * Run this once after creating the individual sheets
+ */
+function setupGWMondayDataFormula() {
+  try {
+    console.log('Setting up GWMondayData formula...');
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const mainSheet = getOrCreateSheet(GW_MONDAY_SHEET_NAME);
+
+    // Clear the sheet first
+    mainSheet.clear();
+
+    // Set the formula in A1 that pulls from all 4 sheets
+    // Uses QUERY to stack data and filter out empty rows
+    const formula = `=QUERY({
+      '${GW_BOARD_1_SHEET}'!A:Z;
+      '${GW_BOARD_2_SHEET}'!A2:Z;
+      '${GW_BOARD_3_SHEET}'!A2:Z;
+      '${GW_BOARD_4_SHEET}'!A2:Z
+    }, "SELECT * WHERE Col1 IS NOT NULL", 1)`;
+
+    mainSheet.getRange('A1').setFormula(formula.replace(/\n\s*/g, ''));
+
+    console.log('GWMondayData formula set - sheet will auto-update when individual sheets change');
+    return { success: true };
+
+  } catch (error) {
+    console.error('Error setting up GWMondayData formula:', error);
+    throw error;
+  }
+}
+
+/**
+ * One-time setup function to create the individual GW board sheets and formula
+ * Run this once to set up the new architecture, then use syncGuidewireBoards() for regular syncs
+ */
+function setupIndividualGWBoardSheets() {
+  try {
+    console.log('=== Setting up Individual GW Board Sheets ===');
+
+    // Step 1: Sync each GW board to its individual sheet (creates sheets if needed)
+    const boardSheets = [
+      { boardId: GW_BOARD_1_ID, sheetName: GW_BOARD_1_SHEET, name: 'Partner Management' },
+      { boardId: GW_BOARD_2_ID, sheetName: GW_BOARD_2_SHEET, name: 'Solution Ops' },
+      { boardId: GW_BOARD_3_ID, sheetName: GW_BOARD_3_SHEET, name: 'Marketing' },
+      { boardId: GW_BOARD_4_ID, sheetName: GW_BOARD_4_SHEET, name: 'Compliance' }
+    ];
+
+    console.log('Creating/syncing individual GW board sheets...');
+    for (const board of boardSheets) {
+      console.log(`Setting up ${board.sheetName} for ${board.name}...`);
+      syncSingleGWBoard(board.boardId);
+    }
+
+    // Step 2: Set up the formula in GWMondayData
+    console.log('Setting up GWMondayData formula...');
+    setupGWMondayDataFormula();
+
+    console.log('=== Individual GW Board Setup Complete ===');
+    console.log('Created sheets: ' + boardSheets.map(b => b.sheetName).join(', '));
+    console.log('GWMondayData now auto-aggregates from these sheets via formula');
+
+    return { success: true, sheetsCreated: boardSheets.map(b => b.sheetName) };
+
+  } catch (error) {
+    console.error('Error setting up individual GW board sheets:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sync all individual GW board sheets
+ * GWMondayData auto-updates via formula
+ */
+function syncAllGWBoardsIndividually() {
+  try {
+    console.log('=== Syncing all GW boards individually ===');
+
+    // Sync each board to its individual sheet
+    for (const boardId of GW_BOARD_IDS) {
+      syncSingleGWBoard(boardId);
+    }
+
+    // GWMondayData auto-updates via formula set by setupGWMondayDataFormula()
+    console.log('=== All GW boards synced (GWMondayData updates automatically) ===');
+    return { success: true };
+
+  } catch (error) {
+    console.error('Error syncing all GW boards:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sync a single partner's board data
+ * Deletes all rows for the specified partner from MondayData sheet
+ * and syncs only that partner's board from Monday.com
+ * @param {string} partnerName - The partner name to sync
+ * @returns {Object} Result with success status and sync details
+ */
+function syncSinglePartnerBoard(partnerName) {
+  try {
+    console.log(`=== Syncing Single Partner Board: ${partnerName} ===`);
+
+    if (!partnerName || partnerName.trim() === '') {
+      throw new Error('Partner name is required');
+    }
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Step 1: Get the board configuration for this partner from MondayDashboard
+    const dashboardSheet = spreadsheet.getSheetByName('MondayDashboard');
+    if (!dashboardSheet) {
+      throw new Error('MondayDashboard sheet not found');
+    }
+
+    const headerRow = dashboardSheet.getRange(1, 1, 1, dashboardSheet.getLastColumn()).getValues()[0];
+    const partnerNameIndex = headerRow.indexOf('Partner Name');
+    const partnerBoardIndex = headerRow.indexOf('PartnerBoard');
+
+    if (partnerNameIndex === -1 || partnerBoardIndex === -1) {
+      throw new Error('Required columns (Partner Name, PartnerBoard) not found in MondayDashboard');
+    }
+
+    const lastRow = dashboardSheet.getLastRow();
+    const dataRange = dashboardSheet.getRange(2, 1, lastRow - 1, dashboardSheet.getLastColumn());
+    const dashboardData = dataRange.getValues();
+
+    // Find the partner's board configuration
+    let partnerBoardId = null;
+    for (const row of dashboardData) {
+      const rowPartnerName = row[partnerNameIndex];
+      if (rowPartnerName && rowPartnerName.toString().toLowerCase().trim() === partnerName.toLowerCase().trim()) {
+        partnerBoardId = row[partnerBoardIndex];
+        break;
+      }
+    }
+
+    if (!partnerBoardId) {
+      throw new Error(`Board ID not found for partner: ${partnerName}`);
+    }
+
+    console.log(`Found board ID for partner ${partnerName}: ${partnerBoardId}`);
+
+    // Step 2: Delete all rows for this partner from MondayData sheet
+    const mondayDataSheet = spreadsheet.getSheetByName('MondayData');
+    if (!mondayDataSheet) {
+      throw new Error('MondayData sheet not found');
+    }
+
+    const mondayDataHeaders = mondayDataSheet.getRange(1, 1, 1, mondayDataSheet.getLastColumn()).getValues()[0];
+    const partnerColumnIndex = mondayDataHeaders.indexOf('Partner Name');
+
+    if (partnerColumnIndex === -1) {
+      console.log('Partner Name column not found in MondayData, trying Board ID column');
+    }
+
+    const boardIdColumnIndex = mondayDataHeaders.indexOf('Board ID');
+
+    // Get all data from MondayData
+    const mondayDataLastRow = mondayDataSheet.getLastRow();
+    if (mondayDataLastRow > 1) {
+      const mondayDataRange = mondayDataSheet.getRange(2, 1, mondayDataLastRow - 1, mondayDataSheet.getLastColumn());
+      const mondayDataValues = mondayDataRange.getValues();
+
+      // Find and delete rows that match this partner (delete from bottom to top to preserve row indices)
+      const rowsToDelete = [];
+      for (let i = mondayDataValues.length - 1; i >= 0; i--) {
+        let shouldDelete = false;
+
+        // Check by Partner Name column
+        if (partnerColumnIndex !== -1) {
+          const rowPartnerName = mondayDataValues[i][partnerColumnIndex];
+          if (rowPartnerName && rowPartnerName.toString().toLowerCase().trim() === partnerName.toLowerCase().trim()) {
+            shouldDelete = true;
+          }
+        }
+
+        // Also check by Board ID
+        if (!shouldDelete && boardIdColumnIndex !== -1) {
+          const rowBoardId = mondayDataValues[i][boardIdColumnIndex];
+          if (rowBoardId && rowBoardId.toString() === partnerBoardId.toString()) {
+            shouldDelete = true;
+          }
+        }
+
+        if (shouldDelete) {
+          rowsToDelete.push(i + 2); // +2 because data starts at row 2 and i is 0-indexed
+        }
+      }
+
+      console.log(`Found ${rowsToDelete.length} rows to delete for partner ${partnerName}`);
+
+      // Delete rows from bottom to top
+      for (const rowIndex of rowsToDelete) {
+        mondayDataSheet.deleteRow(rowIndex);
+      }
+
+      console.log(`Deleted ${rowsToDelete.length} rows from MondayData`);
+    }
+
+    // Step 3: Sync only this partner's board from Monday.com
+    console.log(`Syncing board ${partnerBoardId} for partner ${partnerName}...`);
+
+    // Get board structure
+    const boardStructure = getBoardStructure(partnerBoardId);
+
+    // Get all items from the board
+    const items = getAllBoardItems(partnerBoardId);
+
+    console.log(`Retrieved ${items.length} items from board ${partnerBoardId}`);
+
+    if (items.length > 0) {
+      // Add board info to each item for identification
+      items.forEach(item => {
+        item.partnerName = partnerName;
+        item.boardName = `${partnerName} Board`;
+        item.boardId = partnerBoardId;
+      });
+
+      // Get the sheet again (in case structure changed)
+      const sheet = spreadsheet.getSheetByName('MondayData');
+
+      // Find the last row with data
+      const lastDataRow = sheet.getLastRow();
+
+      // Create board config for writeDataToSheet
+      const boardConfig = {
+        boardName: `${partnerName} Board`,
+        partnerName: partnerName,
+        boardId: partnerBoardId,
+        targetSheetName: 'MondayData'
+      };
+
+      // Append data to the sheet (not overwrite - since we only deleted this partner's rows)
+      writeDataToSheet(sheet, boardStructure, items, lastDataRow === 1, boardConfig);
+
+      console.log(`Synced ${items.length} items for partner ${partnerName}`);
+    }
+
+    console.log(`=== Single Partner Board Sync Complete: ${partnerName} ===`);
+
+    return {
+      success: true,
+      partnerName: partnerName,
+      boardId: partnerBoardId,
+      itemsSynced: items.length
+    };
+
+  } catch (error) {
+    console.error(`Error syncing partner board for ${partnerName}:`, error);
+    return {
+      success: false,
+      partnerName: partnerName,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * Delete partner activities from MondayData and sync that partner's board
+ * This is the function to call when a change is made to a partner board
+ * @param {string} partnerName - The partner name whose data should be refreshed
+ */
+function refreshPartnerData(partnerName) {
+  console.log(`Refreshing partner data for: ${partnerName}`);
+  return syncSinglePartnerBoard(partnerName);
 }
