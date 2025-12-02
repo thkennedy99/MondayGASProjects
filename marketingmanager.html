@@ -224,6 +224,7 @@
     // Board IDs - attach to window for cross-script access
     window.MARKETING_APPROVAL_BOARD_ID = '9710279044';
     window.MARKETING_CALENDAR_BOARD_ID = '9770467355';
+    window.MARKETING_2026_APPROVAL_BOARD_ID = '18389979949';
 
     // Get configuration injected from server-side template
     // Use JSON.stringify inside the scriptlet for safer evaluation
@@ -264,6 +265,7 @@
     // Get values from window (set in previous script tag)
     const MARKETING_APPROVAL_BOARD_ID = window.MARKETING_APPROVAL_BOARD_ID;
     const MARKETING_CALENDAR_BOARD_ID = window.MARKETING_CALENDAR_BOARD_ID;
+    const MARKETING_2026_APPROVAL_BOARD_ID = window.MARKETING_2026_APPROVAL_BOARD_ID;
     const editItemIdFromUrl = window.editItemIdFromUrl;
     const editBoardIdFromUrl = window.editBoardIdFromUrl;
     const api = window.api;
@@ -1117,6 +1119,197 @@
       );
     }
 
+    // 2026 Approvals Tab Component
+    function Approvals2026Tab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled, partnerList }) {
+      const [fundingTypes, setFundingTypes] = useState([]);
+      const [overallStatuses, setOverallStatuses] = useState([]);
+      const [partners, setPartners] = useState([]);
+      const [requestors, setRequestors] = useState([]);
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
+      const [showAddModal, setShowAddModal] = useState(false);
+
+      // Auto-open edit modal if itemId is provided via URL
+      useEffect(() => {
+        if (autoEditItemId && data.length > 0) {
+          console.log('2026 Approvals: Looking for item to auto-edit:', autoEditItemId);
+          console.log('2026 Approvals data has', data.length, 'items');
+
+          const itemToEdit = data.find(item => {
+            const itemId = String(item['Monday Item ID'] || '');
+            return itemId === String(autoEditItemId);
+          });
+
+          if (itemToEdit) {
+            console.log('2026 Approvals: Found item to auto-edit:', itemToEdit['Item Name']);
+            setEditingItem(itemToEdit);
+            if (onAutoEditHandled) onAutoEditHandled();
+          } else {
+            console.log('2026 Approvals: Item not found in data. Looking for ID:', autoEditItemId);
+          }
+        }
+      }, [autoEditItemId, data, onAutoEditHandled]);
+
+      // Apply filters (OR within, AND between)
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          if (fundingTypes.length > 0 && !fundingTypes.includes(item['Funding Type'])) return false;
+          if (overallStatuses.length > 0 && !overallStatuses.includes(item['Overall Status'])) return false;
+          if (partners.length > 0 && !partners.includes(item['Partner'])) return false;
+          if (requestors.length > 0 && !requestors.includes(item['Requestor'])) return false;
+          return true;
+        });
+      }, [data, fundingTypes, overallStatuses, partners, requestors]);
+
+      const clearFilters = () => {
+        setFundingTypes([]);
+        setOverallStatuses([]);
+        setPartners([]);
+        setRequestors([]);
+      };
+
+      const hasFilters = fundingTypes.length > 0 || overallStatuses.length > 0 ||
+                         partners.length > 0 || requestors.length > 0;
+
+      const handleEditSave = () => {
+        setEditingItem(null);
+        onRefresh();
+      };
+
+      const handleDeleteConfirm = () => {
+        setDeletingItem(null);
+        onRefresh();
+      };
+
+      const handleAddCreate = () => {
+        setShowAddModal(false);
+        onRefresh();
+      };
+
+      return (
+        <div className="d-flex flex-column" style={{ height: '100%' }}>
+          {/* Filters */}
+          <div className="filter-section">
+            <div className="d-flex justify-content-between align-items-center mb-2">
+              <h5 className="mb-0">Filters</h5>
+              {hasFilters && (
+                <button className="btn btn-sm btn-outline-secondary clear-filters-btn" onClick={clearFilters}>
+                  Clear All Filters
+                </button>
+              )}
+            </div>
+            <div className="row g-2">
+              <div className="col-md-3">
+                <MultiSelectFilter label="Funding Type" options={filterOptions.fundingTypes || []} selected={fundingTypes} onChange={setFundingTypes} />
+              </div>
+              <div className="col-md-3">
+                <MultiSelectFilter label="Overall Status" options={filterOptions.overallStatuses || []} selected={overallStatuses} onChange={setOverallStatuses} />
+              </div>
+              <div className="col-md-3">
+                <MultiSelectFilter label="Partner" options={filterOptions.partners || []} selected={partners} onChange={setPartners} />
+              </div>
+              <div className="col-md-3">
+                <MultiSelectFilter label="Requestor" options={filterOptions.requestors || []} selected={requestors} onChange={setRequestors} />
+              </div>
+            </div>
+          </div>
+
+          {/* Data Section */}
+          <div className="data-section">
+            <div className="add-btn-container d-flex justify-content-between align-items-center">
+              <span className="result-count mb-0">Showing {filteredData.length} of {data.length} items</span>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowAddModal(true)}>
+                + Add 2026 Approval
+              </button>
+            </div>
+            <div className="table-container">
+              <table className="table table-striped table-hover data-table">
+                <thead>
+                  <tr>
+                    <th>Actions</th>
+                    <th>Activity</th>
+                    <th>Requestor</th>
+                    <th>Total Cost</th>
+                    <th>Funding Type</th>
+                    <th>Overall Status</th>
+                    <th>Partner</th>
+                    <th>Event Date</th>
+                    <th>Create Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={idx}>
+                      <td>
+                        <div className="action-buttons">
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => setEditingItem(item)} title="Edit">
+                            Edit
+                          </button>
+                          <button className="btn btn-outline-danger btn-sm" onClick={() => setDeletingItem(item)} title="Delete">
+                            Del
+                          </button>
+                        </div>
+                      </td>
+                      <td>{item['Item Name']}</td>
+                      <td>{item['Requestor']}</td>
+                      <td>{item['Total Cost']}</td>
+                      <td>{item['Funding Type']}</td>
+                      <td>
+                        <span className={`badge badge-status ${getStatusBadgeClass(item['Overall Status'])}`}>
+                          {item['Overall Status']}
+                        </span>
+                      </td>
+                      <td>{item['Partner']}</td>
+                      <td>{item['Event Date']}</td>
+                      <td>{item['Create Date']}</td>
+                    </tr>
+                  ))}
+                  {filteredData.length === 0 && (
+                    <tr>
+                      <td colSpan="9" className="text-center text-muted py-4">
+                        No items match the selected filters
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Modals */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={MARKETING_2026_APPROVAL_BOARD_ID}
+              columns={columns}
+              onClose={() => setEditingItem(null)}
+              onSave={handleEditSave}
+              partnerOptions={partnerList || []}
+              allianceManagerOptions={[]}
+            />
+          )}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={MARKETING_2026_APPROVAL_BOARD_ID}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleDeleteConfirm}
+            />
+          )}
+          {showAddModal && (
+            <AddItemModal
+              boardId={MARKETING_2026_APPROVAL_BOARD_ID}
+              columns={columns}
+              onClose={() => setShowAddModal(false)}
+              onCreate={handleAddCreate}
+              partnerOptions={partnerList || []}
+              allianceManagerOptions={[]}
+            />
+          )}
+        </div>
+      );
+    }
+
     // Helper function for status badge colors
     function getStatusBadgeClass(status) {
       if (!status) return 'bg-secondary';
@@ -1135,6 +1328,9 @@
         if (String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID) {
           return 'calendar';
         }
+        if (String(editBoardIdFromUrl) === MARKETING_2026_APPROVAL_BOARD_ID) {
+          return 'approvals2026';
+        }
         return 'approvals';
       };
 
@@ -1143,11 +1339,15 @@
       const [error, setError] = useState(null);
       const [approvalsData, setApprovalsData] = useState([]);
       const [calendarData, setCalendarData] = useState([]);
+      const [approvals2026Data, setApprovals2026Data] = useState([]);
       const [approvalColumns, setApprovalColumns] = useState([]);
       const [calendarColumns, setCalendarColumns] = useState([]);
+      const [approval2026Columns, setApproval2026Columns] = useState([]);
+      const [partnerList, setPartnerList] = useState([]);
       const [filterOptions, setFilterOptions] = useState({
         approvalFilters: {},
-        calendarFilters: {}
+        calendarFilters: {},
+        approval2026Filters: {}
       });
       const [autoEditItemId, setAutoEditItemId] = useState(editItemIdFromUrl);
 
@@ -1175,19 +1375,25 @@
 
         try {
           // Load all data in parallel
-          const [approvals, calendar, filters, approvalCols, calendarCols] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approval2026Cols, partners] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
+            api.call('getAll2026Approvals'),
             api.call('getMarketingManagerFilterOptions'),
             api.call('getBoardColumnsStructure', MARKETING_APPROVAL_BOARD_ID),
-            api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID)
+            api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID),
+            api.call('getBoardColumnsStructure', MARKETING_2026_APPROVAL_BOARD_ID),
+            api.call('getPartnerListForDropdown')
           ]);
 
           setApprovalsData(approvals || []);
           setCalendarData(calendar || []);
-          setFilterOptions(filters || { approvalFilters: {}, calendarFilters: {} });
+          setApprovals2026Data(approvals2026 || []);
+          setFilterOptions(filters || { approvalFilters: {}, calendarFilters: {}, approval2026Filters: {} });
           setApprovalColumns(approvalCols || []);
           setCalendarColumns(calendarCols || []);
+          setApproval2026Columns(approval2026Cols || []);
+          setPartnerList(partners || []);
 
         } catch (err) {
           console.error('Error loading data:', err);
@@ -1235,6 +1441,14 @@
                   Marketing Calendar ({calendarData.length})
                 </button>
               </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'approvals2026' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('approvals2026')}
+                >
+                  2026 Approvals ({approvals2026Data.length})
+                </button>
+              </li>
             </ul>
 
             {/* Tab Content */}
@@ -1264,6 +1478,17 @@
                     onRefresh={loadData}
                     autoEditItemId={String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID ? autoEditItemId : null}
                     onAutoEditHandled={handleAutoEditHandled}
+                  />
+                )}
+                {activeTab === 'approvals2026' && (
+                  <Approvals2026Tab
+                    data={approvals2026Data}
+                    filterOptions={filterOptions.approval2026Filters || {}}
+                    columns={approval2026Columns}
+                    onRefresh={loadData}
+                    autoEditItemId={String(editBoardIdFromUrl) === MARKETING_2026_APPROVAL_BOARD_ID ? autoEditItemId : null}
+                    onAutoEditHandled={handleAutoEditHandled}
+                    partnerList={partnerList}
                   />
                 )}
               </div>

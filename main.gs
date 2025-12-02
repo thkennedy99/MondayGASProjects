@@ -22,6 +22,10 @@ const MARKETING_APPROVAL_BOARD_ID = '9710279044';
 const MARKETING_APPROVAL_SHEET_NAME = 'MarketingApproval';
 const MARKETING_CALENDAR_BOARD_ID = '9770467355';
 const MARKETING_CALENDAR_SHEET_NAME = 'MarketingCalendar';
+
+// 2026 Approvals Board Configuration
+const MARKETING_2026_APPROVAL_BOARD_ID = '18389979949';
+const MARKETING_2026_APPROVAL_SHEET_NAME = '2026Approvals';
 const GW_BOARD_1_ID = '9791255941';
 const GW_BOARD_1_NAME = 'Partner Management Tracker';
 const GW_BOARD_2_ID = '9791272390';
@@ -48,6 +52,12 @@ function getMarketingBoardConfigurations() {
       partnerName: 'Marketing Team',
       boardId: MARKETING_CALENDAR_BOARD_ID,
       targetSheetName: MARKETING_CALENDAR_SHEET_NAME
+    },
+    {
+      boardName: '2026 Marketing Approvals',
+      partnerName: 'Marketing Team',
+      boardId: MARKETING_2026_APPROVAL_BOARD_ID,
+      targetSheetName: MARKETING_2026_APPROVAL_SHEET_NAME
     }
   ];
 }

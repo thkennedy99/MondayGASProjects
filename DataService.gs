@@ -2741,16 +2741,133 @@ function getMarketingManagerFilterOptions() {
       activityTypes: [...new Set(calendar.map(c => c['Activity Type']).filter(v => v))].sort()
     };
 
+    // Collect unique values for 2026 Approvals filters
+    const approvals2026 = getAll2026Approvals();
+    const approval2026Filters = {
+      fundingTypes: [...new Set(approvals2026.map(a => a['Funding Type']).filter(v => v))].sort(),
+      overallStatuses: [...new Set(approvals2026.map(a => a['Overall Status']).filter(v => v))].sort(),
+      partners: getPartnerListForDropdown(),
+      requestors: [...new Set(approvals2026.map(a => a['Requestor']).filter(v => v))].sort()
+    };
+
     return {
       approvalFilters,
-      calendarFilters
+      calendarFilters,
+      approval2026Filters
     };
 
   } catch (error) {
     console.error('Error getting filter options:', error);
     return {
       approvalFilters: { fundingTypes: [], overallStatuses: [], allianceManagers: [], partners: [], requestTypes: [] },
-      calendarFilters: { partners: [], owners: [], activityTypes: [] }
+      calendarFilters: { partners: [], owners: [], activityTypes: [] },
+      approval2026Filters: { fundingTypes: [], overallStatuses: [], partners: [], requestors: [] }
     };
+  }
+}
+
+/**
+ * Get ALL 2026 Marketing Approvals entries
+ * Used by Marketing Manager view
+ * @returns {Array} All 2026 marketing approval items
+ */
+function getAll2026Approvals() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const cacheKey = 'all_2026_approvals';
+    const cached = cache.get(cacheKey);
+
+    if (cached) {
+      return JSON.parse(cached);
+    }
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('2026Approvals');
+    if (!sheet) {
+      console.log('2026Approvals sheet not found');
+      return [];
+    }
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) {
+      return [];
+    }
+
+    const headers = data[0];
+    const rows = data.slice(1);
+
+    console.log(`Getting ALL 2026 approvals: ${rows.length} total rows`);
+
+    // Convert to objects and sanitize
+    const approvals = rows.map((row, index) => {
+      const item = {};
+      headers.forEach((header, colIndex) => {
+        let value = row[colIndex];
+        if (value === null || value === undefined) {
+          value = '';
+        } else if (value instanceof Date) {
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          value = `${year}-${month}-${day}`;
+        } else {
+          value = String(value);
+        }
+        item[header] = value;
+      });
+      item._rowIndex = index + 2;
+      return item;
+    }).filter(item => item['Item Name'] || item['Monday Item ID']); // Filter out empty rows
+
+    console.log(`Returning ${approvals.length} 2026 approvals`);
+
+    // Cache for 2 minutes
+    try {
+      cache.put(cacheKey, JSON.stringify(approvals), 120);
+    } catch (e) {
+      console.log('Could not cache results:', e);
+    }
+
+    return approvals;
+
+  } catch (error) {
+    console.error('Error in getAll2026Approvals:', error);
+    return [];
+  }
+}
+
+/**
+ * Get partner names list for dropdown
+ * Reads from Partner sheet column A (A2:A)
+ * @returns {Array} List of partner names sorted alphabetically
+ */
+function getPartnerListForDropdown() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const partnerSheet = spreadsheet.getSheetByName('Partner');
+
+    if (!partnerSheet) {
+      console.log('Partner sheet not found');
+      return [];
+    }
+
+    const lastRow = partnerSheet.getLastRow();
+    if (lastRow < 2) {
+      return [];
+    }
+
+    const partnerData = partnerSheet.getRange('A2:A' + lastRow).getValues();
+    const partnerNames = partnerData
+      .map(row => row[0])
+      .filter(name => name && String(name).trim() !== '')
+      .map(name => String(name).trim())
+      .sort();
+
+    // Remove duplicates
+    return [...new Set(partnerNames)];
+
+  } catch (error) {
+    console.error('Error getting partner list:', error);
+    return [];
   }
 }
