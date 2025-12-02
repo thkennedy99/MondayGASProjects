@@ -2954,30 +2954,47 @@ function getAllMarketingCalendar() {
  */
 function getAll2026Approvals() {
   try {
+    console.log('=== getAll2026Approvals START ===');
+
     const cache = CacheService.getScriptCache();
     const cacheKey = 'all_2026_approvals';
     const cached = cache.get(cacheKey);
 
     if (cached) {
-      return JSON.parse(cached);
+      console.log('*** CACHE HIT *** - Returning cached 2026 approvals data');
+      const cachedData = JSON.parse(cached);
+      console.log(`Cached data contains ${cachedData.length} items`);
+      return cachedData;
     }
 
+    console.log('*** CACHE MISS *** - Fetching 2026 approvals from spreadsheet');
+
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    console.log('Spreadsheet ID:', spreadsheet.getId());
+    console.log('Spreadsheet Name:', spreadsheet.getName());
+
     const sheet = spreadsheet.getSheetByName('Approvals2026');
     if (!sheet) {
-      console.log('Approvals2026 sheet not found');
+      console.log('ERROR: Approvals2026 sheet NOT FOUND');
+      console.log('Available sheets:', spreadsheet.getSheets().map(s => s.getName()).join(', '));
       return [];
     }
 
+    console.log('Approvals2026 sheet found');
+
     const data = sheet.getDataRange().getValues();
+    console.log(`Sheet data range: ${data.length} rows x ${data[0] ? data[0].length : 0} columns`);
+
     if (data.length < 2) {
+      console.log('No data rows found (only header or empty)');
       return [];
     }
 
     const headers = data[0];
-    const rows = data.slice(1);
+    console.log('Headers:', headers.join(', '));
 
-    console.log(`Getting ALL 2026 approvals: ${rows.length} total rows`);
+    const rows = data.slice(1);
+    console.log(`Data rows (excluding header): ${rows.length}`);
 
     // Convert to objects and sanitize
     const approvals = rows.map((row, index) => {
@@ -3000,21 +3017,63 @@ function getAll2026Approvals() {
       return item;
     }).filter(item => item['Item Name'] || item['Monday Item ID']); // Filter out empty rows
 
-    console.log(`Returning ${approvals.length} 2026 approval entries`);
+    console.log(`After filtering empty rows: ${approvals.length} 2026 approval entries`);
+
+    if (approvals.length > 0) {
+      console.log('Sample item keys:', Object.keys(approvals[0]).join(', '));
+      console.log('Sample item values:', JSON.stringify(approvals[0]));
+    }
 
     // Cache for 2 minutes
     try {
       cache.put(cacheKey, JSON.stringify(approvals), 120);
+      console.log('Data cached successfully for 2 minutes');
     } catch (e) {
       console.log('Could not cache results:', e);
     }
 
+    console.log('=== getAll2026Approvals END - returning', approvals.length, 'items ===');
     return approvals;
 
   } catch (error) {
-    console.error('Error in getAll2026Approvals:', error);
+    console.error('ERROR in getAll2026Approvals:', error);
+    console.error('Stack:', error.stack);
     return [];
   }
+}
+
+/**
+ * Debug function to test 2026 Approvals data retrieval
+ * Run this manually to check if data is being fetched correctly
+ */
+function debug2026ApprovalsData() {
+  console.log('=== DEBUG 2026 APPROVALS DATA ===');
+
+  // First, try syncing from Monday
+  console.log('Step 1: Syncing from Monday.com...');
+  try {
+    const syncResult = sync2026ApprovalsBoard();
+    console.log('Sync result:', JSON.stringify(syncResult));
+  } catch (e) {
+    console.error('Sync failed:', e);
+  }
+
+  // Then, clear cache and fetch fresh data
+  console.log('Step 2: Clearing cache...');
+  const cache = CacheService.getScriptCache();
+  cache.remove('all_2026_approvals');
+  console.log('Cache cleared');
+
+  // Fetch fresh data
+  console.log('Step 3: Fetching data...');
+  const data = getAll2026Approvals();
+  console.log('Data returned:', data.length, 'items');
+
+  if (data.length > 0) {
+    console.log('First item:', JSON.stringify(data[0]));
+  }
+
+  return { success: true, itemCount: data.length, sampleItem: data[0] || null };
 }
 
 /**
@@ -3024,9 +3083,16 @@ function getAll2026Approvals() {
  */
 function getMarketingManagerFilterOptions() {
   try {
+    console.log('=== getMarketingManagerFilterOptions START ===');
+
     const approvals = getAllMarketingApprovals();
+    console.log('Marketing Approvals:', approvals.length, 'items');
+
     const calendar = getAllMarketingCalendar();
+    console.log('Marketing Calendar:', calendar.length, 'items');
+
     const approvals2026 = getAll2026Approvals();
+    console.log('2026 Approvals:', approvals2026.length, 'items');
 
     // Collect unique values for Marketing Approvals filters
     const approvalFilters = {
@@ -3051,6 +3117,12 @@ function getMarketingManagerFilterOptions() {
       partners: [...new Set(approvals2026.map(a => a['Partner']).filter(v => v))].sort()
     };
 
+    console.log('2026 Approvals filter options:');
+    console.log('  - Funding Types:', approvals2026Filters.fundingTypes.length);
+    console.log('  - Overall Statuses:', approvals2026Filters.overallStatuses.length);
+    console.log('  - Partners:', approvals2026Filters.partners.length);
+    console.log('=== getMarketingManagerFilterOptions END ===');
+
     return {
       approvalFilters,
       calendarFilters,
@@ -3058,7 +3130,8 @@ function getMarketingManagerFilterOptions() {
     };
 
   } catch (error) {
-    console.error('Error getting filter options:', error);
+    console.error('ERROR in getMarketingManagerFilterOptions:', error);
+    console.error('Stack:', error.stack);
     return {
       approvalFilters: { fundingTypes: [], overallStatuses: [], allianceManagers: [], partners: [], requestTypes: [] },
       calendarFilters: { partners: [], owners: [], activityTypes: [] },
