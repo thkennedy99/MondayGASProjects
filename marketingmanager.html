@@ -327,7 +327,7 @@
         setDeleting(true);
         setError(null);
         try {
-          const result = await api.call('deleteMondayItem', boardId, item['Monday Item ID']);
+          const result = await api.call('deleteMondayItem', item['Monday Item ID'], boardId);
           if (result && result.success) {
             onConfirm();
           } else {
@@ -1731,7 +1731,7 @@
 
           console.log('Deleting 2026 approval item:', itemId);
 
-          await api.call('deleteMondayItem', boardId, itemId);
+          await api.call('deleteMondayItem', itemId, boardId);
           setDeletingItem(null);
           onRefresh();
 
