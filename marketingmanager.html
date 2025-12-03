@@ -1818,14 +1818,62 @@
         }
       };
 
+      // Refresh data from Monday.com (sync boards, clear caches, then reload)
+      const refreshFromMonday = async () => {
+        setLoading(true);
+        setError(null);
+
+        try {
+          // First, sync from Monday.com and clear caches
+          console.log('Refreshing data from Monday.com...');
+          const result = await api.call('refreshMarketingDataFromMonday');
+
+          if (!result.success) {
+            console.error('Refresh from Monday failed:', result.message);
+            setError('Failed to sync from Monday.com: ' + result.message);
+            setLoading(false);
+            return;
+          }
+
+          console.log('Monday sync complete, now loading fresh data...');
+
+          // Then load the fresh data
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData] = await Promise.all([
+            api.call('getAllMarketingApprovals'),
+            api.call('getAllMarketingCalendar'),
+            api.call('getAll2026Approvals'),
+            api.call('getMarketingManagerFilterOptions'),
+            api.call('getBoardColumnsStructure', MARKETING_APPROVAL_BOARD_ID),
+            api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID),
+            api.call('getBoardColumnsStructure', APPROVALS_2026_BOARD_ID),
+            api.call('getMarketingCalendarStats')
+          ]);
+
+          setApprovalsData(approvals || []);
+          setCalendarData(calendar || []);
+          setApprovals2026Data(approvals2026 || []);
+          setFilterOptions(filters || { approvalFilters: {}, calendarFilters: {}, approvals2026Filters: {} });
+          setApprovalColumns(approvalCols || []);
+          setCalendarColumns(calendarCols || []);
+          setApprovals2026Columns(approvals2026Cols || []);
+          setChartData(statsData || { labels: [], datasets: [] });
+
+        } catch (err) {
+          console.error('Error refreshing from Monday:', err);
+          setError('Failed to refresh data from Monday.com. Please try again.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
       return (
         <div className="app-container">
           {/* Header */}
           <div className="header">
             <div className="d-flex justify-content-between align-items-center">
               <h1>Marketing Manager Portal</h1>
-              <button className="btn btn-light btn-sm" onClick={loadData} disabled={loading}>
-                {loading ? 'Loading...' : 'Refresh Data'}
+              <button className="btn btn-light btn-sm" onClick={refreshFromMonday} disabled={loading}>
+                {loading ? 'Syncing from Monday...' : 'Refresh Data'}
               </button>
             </div>
           </div>

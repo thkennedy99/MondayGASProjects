@@ -381,6 +381,36 @@ function clearMarketingCaches() {
 }
 
 /**
+ * Refresh all marketing data from Monday.com
+ * This syncs all marketing boards to spreadsheets and clears all marketing caches
+ * Called by the Marketing Manager Portal "Refresh Data" button
+ */
+function refreshMarketingDataFromMonday() {
+  try {
+    console.log('Starting full marketing data refresh from Monday.com...');
+
+    // Step 1: Sync all marketing boards from Monday to spreadsheets
+    console.log('Step 1: Syncing marketing boards from Monday.com...');
+    syncMarketingBoards();
+
+    // Step 2: Sync 2026 Approvals board
+    console.log('Step 2: Syncing 2026 Approvals board...');
+    sync2026ApprovalsBoard();
+
+    // Step 3: Clear all marketing caches
+    console.log('Step 3: Clearing all marketing caches...');
+    clearMarketingCaches();
+
+    console.log('Full marketing data refresh completed successfully');
+    return { success: true, message: 'Marketing data refreshed from Monday.com' };
+
+  } catch (error) {
+    console.error('Error refreshing marketing data from Monday:', error);
+    return { success: false, message: error.toString() };
+  }
+}
+
+/**
  * Clear only Marketing Approval caches
  * Use this for targeted cache invalidation when only approvals are affected
  */
