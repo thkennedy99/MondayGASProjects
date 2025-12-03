@@ -2911,6 +2911,44 @@
         }
       }, [currentManager]);
 
+      // Set activeTab to first authorized tab after authorization loads
+      useEffect(() => {
+        if (!authLoading && authorization.mondayBoards && authorization.mondayBoards.length > 0) {
+          // Define the mapping from board auth values to tab IDs
+          // Note: Internal boards (PartnerManagement, SolutionOps, MarketingProjects, Compliance) all map to 'internalActivities'
+          const boardToTabMapping = [
+            { board: 'MarketingApprovals', tab: 'approvals' },
+            { board: 'MarketingCalendar', tab: 'calendar' },
+            { board: '2026MarketingApprovals', tab: 'approvals2026' },
+            { board: 'Activity Stats', tab: 'stats' },
+            { board: 'PartnerActivites', tab: 'partnerActivities' },
+            { board: 'PartnerHealthHeatmap', tab: 'heatmap' },
+            // Internal boards - any of these authorizes the internalActivities tab
+            { board: 'PartnerManagement', tab: 'internalActivities' },
+            { board: 'SolutionOps', tab: 'internalActivities' },
+            { board: 'MarketingProjects', tab: 'internalActivities' },
+            { board: 'Compliance', tab: 'internalActivities' }
+          ];
+
+          // Find the first authorized tab
+          const firstAuthorized = boardToTabMapping.find(mapping =>
+            authorization.mondayBoards.includes(mapping.board)
+          );
+
+          if (firstAuthorized) {
+            // Check if current tab is authorized
+            const isCurrentTabAuthorized = boardToTabMapping
+              .filter(m => m.tab === activeTab)
+              .some(m => authorization.mondayBoards.includes(m.board));
+
+            if (!isCurrentTabAuthorized) {
+              console.log('Current tab not authorized, switching to:', firstAuthorized.tab);
+              setActiveTab(firstAuthorized.tab);
+            }
+          }
+        }
+      }, [authLoading, authorization.mondayBoards]);
+
       // Get team member names from Reports field
       const getTeamMemberNames = () => {
         if (!authorization.reports) return [];
@@ -3139,9 +3177,42 @@
       const isBoardAuthorized = (boardName) => {
         // If no boards specified, show all (backward compatibility)
         if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          console.log(`isBoardAuthorized(${boardName}): No boards specified, showing all`);
           return true;
         }
-        return authorization.mondayBoards.includes(boardName);
+        const isAuthorized = authorization.mondayBoards.includes(boardName);
+        console.log(`isBoardAuthorized(${boardName}): ${isAuthorized}, mondayBoards:`, authorization.mondayBoards);
+        return isAuthorized;
+      };
+
+      // Mapping from MondayBoards authorization values to Internal Activities board names
+      const internalBoardAuthMapping = {
+        'PartnerManagement': 'Partner Management Tracker',
+        'SolutionOps': 'Solution Ops Tracker',
+        'MarketingProjects': 'Marketing Projects',
+        'Compliance': 'Compliance'
+      };
+
+      // Check if any internal board is authorized (for showing the Internal Activities tab)
+      const isAnyInternalBoardAuthorized = () => {
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          return true; // backward compatibility
+        }
+        const internalAuthKeys = Object.keys(internalBoardAuthMapping);
+        return internalAuthKeys.some(key => authorization.mondayBoards.includes(key));
+      };
+
+      // Filter internal board names to only show authorized ones
+      const getAuthorizedInternalBoardNames = () => {
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          return internalBoardNames; // show all for backward compatibility
+        }
+        // Get the authorized board display names
+        const authorizedDisplayNames = Object.entries(internalBoardAuthMapping)
+          .filter(([authKey, displayName]) => authorization.mondayBoards.includes(authKey))
+          .map(([authKey, displayName]) => displayName);
+        // Filter internalBoardNames to only include authorized ones
+        return internalBoardNames.filter(name => authorizedDisplayNames.includes(name));
       };
 
       // Render view mode filter buttons based on role
@@ -3281,62 +3352,76 @@
 
             {/* Tabs */}
             <ul className="nav nav-tabs" style={{ flexWrap: 'wrap' }}>
-              <li className="nav-item">
-                <button
-                  className={`nav-link ${activeTab === 'approvals' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('approvals')}
-                >
-                  Marketing Approvals ({filteredApprovalsData.length})
-                </button>
-              </li>
-              <li className="nav-item">
-                <button
-                  className={`nav-link ${activeTab === 'calendar' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('calendar')}
-                >
-                  Marketing Calendar ({filteredCalendarData.length})
-                </button>
-              </li>
-              <li className="nav-item">
-                <button
-                  className={`nav-link ${activeTab === 'approvals2026' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('approvals2026')}
-                >
-                  2026 Approvals ({filteredApprovals2026Data.length})
-                </button>
-              </li>
-              <li className="nav-item">
-                <button
-                  className={`nav-link ${activeTab === 'stats' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('stats')}
-                >
-                  Activity Stats
-                </button>
-              </li>
-              <li className="nav-item">
-                <button
-                  className={`nav-link ${activeTab === 'partnerActivities' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('partnerActivities')}
-                >
-                  Partner Activities ({filteredPartnerActivitiesData.length})
-                </button>
-              </li>
-              <li className="nav-item">
-                <button
-                  className={`nav-link ${activeTab === 'heatmap' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('heatmap')}
-                >
-                  Partner Heatmap ({filteredPartnerHeatmapData.length})
-                </button>
-              </li>
-              <li className="nav-item">
-                <button
-                  className={`nav-link ${activeTab === 'internalActivities' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('internalActivities')}
-                >
-                  Internal Activities ({filteredInternalActivitiesData.length})
-                </button>
-              </li>
+              {isBoardAuthorized('MarketingApprovals') && (
+                <li className="nav-item">
+                  <button
+                    className={`nav-link ${activeTab === 'approvals' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('approvals')}
+                  >
+                    Marketing Approvals ({filteredApprovalsData.length})
+                  </button>
+                </li>
+              )}
+              {isBoardAuthorized('MarketingCalendar') && (
+                <li className="nav-item">
+                  <button
+                    className={`nav-link ${activeTab === 'calendar' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('calendar')}
+                  >
+                    Marketing Calendar ({filteredCalendarData.length})
+                  </button>
+                </li>
+              )}
+              {isBoardAuthorized('2026MarketingApprovals') && (
+                <li className="nav-item">
+                  <button
+                    className={`nav-link ${activeTab === 'approvals2026' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('approvals2026')}
+                  >
+                    2026 Approvals ({filteredApprovals2026Data.length})
+                  </button>
+                </li>
+              )}
+              {isBoardAuthorized('Activity Stats') && (
+                <li className="nav-item">
+                  <button
+                    className={`nav-link ${activeTab === 'stats' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('stats')}
+                  >
+                    Activity Stats
+                  </button>
+                </li>
+              )}
+              {isBoardAuthorized('PartnerActivites') && (
+                <li className="nav-item">
+                  <button
+                    className={`nav-link ${activeTab === 'partnerActivities' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('partnerActivities')}
+                  >
+                    Partner Activities ({filteredPartnerActivitiesData.length})
+                  </button>
+                </li>
+              )}
+              {isBoardAuthorized('PartnerHealthHeatmap') && (
+                <li className="nav-item">
+                  <button
+                    className={`nav-link ${activeTab === 'heatmap' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('heatmap')}
+                  >
+                    Partner Heatmap ({filteredPartnerHeatmapData.length})
+                  </button>
+                </li>
+              )}
+              {isAnyInternalBoardAuthorized() && (
+                <li className="nav-item">
+                  <button
+                    className={`nav-link ${activeTab === 'internalActivities' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('internalActivities')}
+                  >
+                    Internal Activities ({filteredInternalActivitiesData.length})
+                  </button>
+                </li>
+              )}
             </ul>
 
             {/* Tab Content */}
@@ -3348,7 +3433,7 @@
               </div>
             ) : (
               <div className="tab-content-container">
-                {activeTab === 'approvals' && (
+                {activeTab === 'approvals' && isBoardAuthorized('MarketingApprovals') && (
                   <MarketingApprovalsTab
                     data={filteredApprovalsData}
                     filterOptions={filterOptions.approvalFilters || {}}
@@ -3358,7 +3443,7 @@
                     onAutoEditHandled={handleAutoEditHandled}
                   />
                 )}
-                {activeTab === 'calendar' && (
+                {activeTab === 'calendar' && isBoardAuthorized('MarketingCalendar') && (
                   <MarketingCalendarTab
                     data={filteredCalendarData}
                     filterOptions={filterOptions.calendarFilters || {}}
@@ -3368,7 +3453,7 @@
                     onAutoEditHandled={handleAutoEditHandled}
                   />
                 )}
-                {activeTab === 'approvals2026' && (
+                {activeTab === 'approvals2026' && isBoardAuthorized('2026MarketingApprovals') && (
                   <Approvals2026Tab
                     data={filteredApprovals2026Data}
                     filterOptions={filterOptions.approvals2026Filters || {}}
@@ -3379,28 +3464,28 @@
                     onAutoEditHandled={handleAutoEditHandled}
                   />
                 )}
-                {activeTab === 'stats' && (
+                {activeTab === 'stats' && isBoardAuthorized('Activity Stats') && (
                   <MarketingStatsTab
                     chartData={chartData}
                     onRefresh={loadData}
                   />
                 )}
-                {activeTab === 'partnerActivities' && (
+                {activeTab === 'partnerActivities' && isBoardAuthorized('PartnerActivites') && (
                   <PartnerActivitiesTab
                     data={filteredPartnerActivitiesData}
                     onRefresh={loadData}
                   />
                 )}
-                {activeTab === 'heatmap' && (
+                {activeTab === 'heatmap' && isBoardAuthorized('PartnerHealthHeatmap') && (
                   <PartnerHeatmapTab
                     data={filteredPartnerHeatmapData}
                     onRefresh={loadData}
                   />
                 )}
-                {activeTab === 'internalActivities' && (
+                {activeTab === 'internalActivities' && isAnyInternalBoardAuthorized() && (
                   <InternalActivitiesTab
                     data={filteredInternalActivitiesData}
-                    boardNames={internalBoardNames}
+                    boardNames={getAuthorizedInternalBoardNames()}
                     onRefresh={loadData}
                   />
                 )}
