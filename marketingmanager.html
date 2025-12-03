@@ -2368,76 +2368,109 @@
 
     // Internal Activities Tab Component
     function InternalActivitiesTab({ data, boardNames, onRefresh }) {
-      const [filterBoard, setFilterBoard] = useState('');
+      // Default to first board if available
+      const [selectedBoard, setSelectedBoard] = useState(boardNames[0] || '');
       const [filterStatus, setFilterStatus] = useState('');
 
-      // Get unique statuses
-      const statuses = useMemo(() => {
-        return [...new Set(data.map(d => d['Activity Status'] || d['Status']).filter(Boolean))].sort();
-      }, [data]);
+      // Update selected board when boardNames loads
+      useEffect(() => {
+        if (boardNames.length > 0 && !selectedBoard) {
+          setSelectedBoard(boardNames[0]);
+        }
+      }, [boardNames]);
 
-      // Filter data
+      // Get unique statuses for selected board
+      const statuses = useMemo(() => {
+        const boardData = data.filter(d => (d['Board Name'] || '') === selectedBoard);
+        return [...new Set(boardData.map(d => d['Activity Status'] || d['Status']).filter(Boolean))].sort();
+      }, [data, selectedBoard]);
+
+      // Filter data by selected board and status
       const filteredData = useMemo(() => {
         return data.filter(item => {
           const board = item['Board Name'] || '';
           const status = item['Activity Status'] || item['Status'] || '';
-          if (filterBoard && board !== filterBoard) return false;
+          if (board !== selectedBoard) return false;
           if (filterStatus && status !== filterStatus) return false;
           return true;
         });
-      }, [data, filterBoard, filterStatus]);
+      }, [data, selectedBoard, filterStatus]);
+
+      // Get count per board
+      const getBoardCount = (boardName) => {
+        return data.filter(d => (d['Board Name'] || '') === boardName).length;
+      };
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-          {/* Filters */}
-          <div className="filter-section">
-            <div className="row g-2 align-items-end">
-              <div className="col-md-3">
-                <label className="form-label">Board</label>
-                <select className="form-select form-select-sm" value={filterBoard} onChange={e => setFilterBoard(e.target.value)}>
-                  <option value="">All Boards</option>
-                  {boardNames.map(b => <option key={b} value={b}>{b}</option>)}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <label className="form-label">Status</label>
-                <select className="form-select form-select-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                  <option value="">All Statuses</option>
-                  {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <span className="text-muted">Showing {filteredData.length} of {data.length}</span>
+        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+          {/* Vertical Board Tabs on Left */}
+          <div className="nav flex-column" style={{ minWidth: '180px', borderRight: '1px solid #dee2e6', paddingRight: '0.5rem', marginRight: '1rem' }}>
+            {boardNames.map((board) => (
+              <button
+                key={board}
+                onClick={() => { setSelectedBoard(board); setFilterStatus(''); }}
+                type="button"
+                className="text-start mb-1"
+                style={{
+                  backgroundColor: selectedBoard === board ? '#00739d' : 'transparent',
+                  color: selectedBoard === board ? 'white' : '#00739d',
+                  fontWeight: selectedBoard === board ? '600' : '400',
+                  border: selectedBoard === board ? '1px solid #00739d' : '1px solid #dee2e6',
+                  borderRadius: '4px',
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  transition: 'all 0.15s ease-in-out'
+                }}
+              >
+                {board} ({getBoardCount(board)})
+              </button>
+            ))}
+          </div>
+
+          {/* Main Content Area */}
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+            {/* Status Filter */}
+            <div className="filter-section" style={{ marginBottom: '0.5rem' }}>
+              <div className="row g-2 align-items-end">
+                <div className="col-md-3">
+                  <label className="form-label">Status</label>
+                  <select className="form-select form-select-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                    <option value="">All Statuses</option>
+                    {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="col-md-3">
+                  <span className="text-muted">Showing {filteredData.length} items</span>
+                </div>
               </div>
             </div>
-          </div>
-          {/* Table */}
-          <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-              <table className="table table-striped table-hover table-sm">
-                <thead className="table-light sticky-top">
-                  <tr>
-                    <th>Activity</th>
-                    <th>Board</th>
-                    <th>Status</th>
-                    <th>Owner</th>
-                    <th>Priority</th>
-                    <th>Due Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredData.map((item, idx) => (
-                    <tr key={item['Monday Item ID'] || idx}>
-                      <td>{item['Name'] || item['Item Name'] || ''}</td>
-                      <td>{item['Board Name'] || ''}</td>
-                      <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
-                      <td>{item['Owner'] || ''}</td>
-                      <td>{item['Importance'] || item['Priority'] || ''}</td>
-                      <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+            {/* Table */}
+            <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                <table className="table table-striped table-hover table-sm">
+                  <thead className="table-light sticky-top">
+                    <tr>
+                      <th>Activity</th>
+                      <th>Status</th>
+                      <th>Owner</th>
+                      <th>Priority</th>
+                      <th>Due Date</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filteredData.map((item, idx) => (
+                      <tr key={item['Monday Item ID'] || idx}>
+                        <td>{item['Name'] || item['Item Name'] || ''}</td>
+                        <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
+                        <td>{item['Owner'] || ''}</td>
+                        <td>{item['Importance'] || item['Priority'] || ''}</td>
+                        <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
