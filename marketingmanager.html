@@ -2208,6 +2208,242 @@
       );
     }
 
+    // Partner Activities Tab Component
+    function PartnerActivitiesTab({ data, onRefresh }) {
+      const [filterPartner, setFilterPartner] = useState('');
+      const [filterStatus, setFilterStatus] = useState('');
+
+      // Get unique partners and statuses for filters
+      const partners = useMemo(() => {
+        return [...new Set(data.map(d => d['Partner Name'] || d['Partner']).filter(Boolean))].sort();
+      }, [data]);
+
+      const statuses = useMemo(() => {
+        return [...new Set(data.map(d => d['Activity Status'] || d['Status']).filter(Boolean))].sort();
+      }, [data]);
+
+      // Filter data
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          const partner = item['Partner Name'] || item['Partner'] || '';
+          const status = item['Activity Status'] || item['Status'] || '';
+          if (filterPartner && partner !== filterPartner) return false;
+          if (filterStatus && status !== filterStatus) return false;
+          return true;
+        });
+      }, [data, filterPartner, filterStatus]);
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          {/* Filters */}
+          <div className="filter-section">
+            <div className="row g-2 align-items-end">
+              <div className="col-md-3">
+                <label className="form-label">Partner</label>
+                <select className="form-select form-select-sm" value={filterPartner} onChange={e => setFilterPartner(e.target.value)}>
+                  <option value="">All Partners</option>
+                  {partners.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div className="col-md-3">
+                <label className="form-label">Status</label>
+                <select className="form-select form-select-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                  <option value="">All Statuses</option>
+                  {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="col-md-3">
+                <span className="text-muted">Showing {filteredData.length} of {data.length}</span>
+              </div>
+            </div>
+          </div>
+          {/* Table */}
+          <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <table className="table table-striped table-hover table-sm">
+                <thead className="table-light sticky-top">
+                  <tr>
+                    <th>Activity</th>
+                    <th>Partner</th>
+                    <th>Status</th>
+                    <th>Owner</th>
+                    <th>Due Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={item['Monday Item ID'] || idx}>
+                      <td>{item['Name'] || item['Item Name'] || ''}</td>
+                      <td>{item['Partner Name'] || item['Partner'] || ''}</td>
+                      <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
+                      <td>{item['Owner'] || ''}</td>
+                      <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Partner Heatmap Tab Component
+    function PartnerHeatmapTab({ data, onRefresh }) {
+      const [filterTemperature, setFilterTemperature] = useState('');
+
+      // Get unique temperatures for filter
+      const temperatures = useMemo(() => {
+        return [...new Set(data.map(d => d['Temperature']).filter(Boolean))].sort();
+      }, [data]);
+
+      // Filter data
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          if (filterTemperature && item['Temperature'] !== filterTemperature) return false;
+          return true;
+        });
+      }, [data, filterTemperature]);
+
+      // Get temperature badge class
+      const getTempBadgeClass = (temp) => {
+        if (!temp) return 'bg-secondary';
+        const t = temp.toLowerCase();
+        if (t.includes('hot') || t.includes('red')) return 'bg-danger';
+        if (t.includes('warm') || t.includes('yellow')) return 'bg-warning text-dark';
+        if (t.includes('cold') || t.includes('blue')) return 'bg-info';
+        if (t.includes('green')) return 'bg-success';
+        return 'bg-secondary';
+      };
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          {/* Filters */}
+          <div className="filter-section">
+            <div className="row g-2 align-items-end">
+              <div className="col-md-3">
+                <label className="form-label">Temperature</label>
+                <select className="form-select form-select-sm" value={filterTemperature} onChange={e => setFilterTemperature(e.target.value)}>
+                  <option value="">All</option>
+                  {temperatures.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="col-md-3">
+                <span className="text-muted">Showing {filteredData.length} of {data.length}</span>
+              </div>
+            </div>
+          </div>
+          {/* Table */}
+          <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <table className="table table-striped table-hover table-sm">
+                <thead className="table-light sticky-top">
+                  <tr>
+                    <th>Partner</th>
+                    <th>Temperature</th>
+                    <th>Engagement</th>
+                    <th>Alliance Manager</th>
+                    <th>Summary</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={item['Board ID'] || idx}>
+                      <td>{item['Partner Name'] || item['Board Name'] || ''}</td>
+                      <td><span className={`badge ${getTempBadgeClass(item['Temperature'])}`}>{item['Temperature'] || ''}</span></td>
+                      <td>{item['Engagement'] || ''}</td>
+                      <td>{item['Alliance Manager'] || ''}</td>
+                      <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item['Summary of Partner Activities'] || ''}>
+                        {item['Summary of Partner Activities'] || ''}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Internal Activities Tab Component
+    function InternalActivitiesTab({ data, boardNames, onRefresh }) {
+      const [filterBoard, setFilterBoard] = useState('');
+      const [filterStatus, setFilterStatus] = useState('');
+
+      // Get unique statuses
+      const statuses = useMemo(() => {
+        return [...new Set(data.map(d => d['Activity Status'] || d['Status']).filter(Boolean))].sort();
+      }, [data]);
+
+      // Filter data
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          const board = item['Board Name'] || '';
+          const status = item['Activity Status'] || item['Status'] || '';
+          if (filterBoard && board !== filterBoard) return false;
+          if (filterStatus && status !== filterStatus) return false;
+          return true;
+        });
+      }, [data, filterBoard, filterStatus]);
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          {/* Filters */}
+          <div className="filter-section">
+            <div className="row g-2 align-items-end">
+              <div className="col-md-3">
+                <label className="form-label">Board</label>
+                <select className="form-select form-select-sm" value={filterBoard} onChange={e => setFilterBoard(e.target.value)}>
+                  <option value="">All Boards</option>
+                  {boardNames.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </div>
+              <div className="col-md-3">
+                <label className="form-label">Status</label>
+                <select className="form-select form-select-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                  <option value="">All Statuses</option>
+                  {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="col-md-3">
+                <span className="text-muted">Showing {filteredData.length} of {data.length}</span>
+              </div>
+            </div>
+          </div>
+          {/* Table */}
+          <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <table className="table table-striped table-hover table-sm">
+                <thead className="table-light sticky-top">
+                  <tr>
+                    <th>Activity</th>
+                    <th>Board</th>
+                    <th>Status</th>
+                    <th>Owner</th>
+                    <th>Priority</th>
+                    <th>Due Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={item['Monday Item ID'] || idx}>
+                      <td>{item['Name'] || item['Item Name'] || ''}</td>
+                      <td>{item['Board Name'] || ''}</td>
+                      <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
+                      <td>{item['Owner'] || ''}</td>
+                      <td>{item['Importance'] || item['Priority'] || ''}</td>
+                      <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // Helper function for status badge colors
     function getStatusBadgeClass(status) {
       if (!status) return 'bg-secondary';
@@ -2250,6 +2486,12 @@
       const [flowConfig2026, setFlowConfig2026] = useState({ groups: [], columns: [] });
       const [autoEditItemId, setAutoEditItemId] = useState(editItemIdFromUrl);
 
+      // New tabs data
+      const [partnerActivitiesData, setPartnerActivitiesData] = useState([]);
+      const [partnerHeatmapData, setPartnerHeatmapData] = useState([]);
+      const [internalActivitiesData, setInternalActivitiesData] = useState([]);
+      const [internalBoardNames, setInternalBoardNames] = useState([]);
+
       // Debug logging for deep link
       useEffect(() => {
         console.log('App: editItemIdFromUrl =', editItemIdFromUrl, typeof editItemIdFromUrl);
@@ -2274,7 +2516,7 @@
 
         try {
           // Load all data in parallel
-          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
             api.call('getAll2026Approvals'),
@@ -2283,7 +2525,11 @@
             api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID),
             api.call('getBoardColumnsStructure', APPROVALS_2026_BOARD_ID),
             api.call('getMarketingCalendarStats'),
-            api.call('get2026FlowConfig')
+            api.call('get2026FlowConfig'),
+            api.call('getAllPartnerActivitiesUnfiltered'),
+            api.call('getAllPartnerHeatmapUnfiltered'),
+            api.call('getAllInternalActivitiesUnfiltered'),
+            api.call('getInternalActivityBoardNames')
           ]);
 
           setApprovalsData(approvals || []);
@@ -2295,6 +2541,10 @@
           setApprovals2026Columns(approvals2026Cols || []);
           setChartData(statsData || { labels: [], datasets: [] });
           setFlowConfig2026(flowConfig || { groups: [], columns: [] });
+          setPartnerActivitiesData(partnerActs?.data || []);
+          setPartnerHeatmapData(heatmap || []);
+          setInternalActivitiesData(internalActs?.data || []);
+          setInternalBoardNames(boardNames || []);
 
         } catch (err) {
           console.error('Error loading data:', err);
@@ -2324,7 +2574,7 @@
           console.log('Monday sync complete, now loading fresh data...');
 
           // Then load the fresh data
-          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
             api.call('getAll2026Approvals'),
@@ -2333,7 +2583,11 @@
             api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID),
             api.call('getBoardColumnsStructure', APPROVALS_2026_BOARD_ID),
             api.call('getMarketingCalendarStats'),
-            api.call('get2026FlowConfig')
+            api.call('get2026FlowConfig'),
+            api.call('getAllPartnerActivitiesUnfiltered'),
+            api.call('getAllPartnerHeatmapUnfiltered'),
+            api.call('getAllInternalActivitiesUnfiltered'),
+            api.call('getInternalActivityBoardNames')
           ]);
 
           setApprovalsData(approvals || []);
@@ -2345,6 +2599,10 @@
           setApprovals2026Columns(approvals2026Cols || []);
           setChartData(statsData || { labels: [], datasets: [] });
           setFlowConfig2026(flowConfig || { groups: [], columns: [] });
+          setPartnerActivitiesData(partnerActs?.data || []);
+          setPartnerHeatmapData(heatmap || []);
+          setInternalActivitiesData(internalActs?.data || []);
+          setInternalBoardNames(boardNames || []);
 
         } catch (err) {
           console.error('Error refreshing from Monday:', err);
@@ -2375,7 +2633,7 @@
             )}
 
             {/* Tabs */}
-            <ul className="nav nav-tabs">
+            <ul className="nav nav-tabs" style={{ flexWrap: 'wrap' }}>
               <li className="nav-item">
                 <button
                   className={`nav-link ${activeTab === 'approvals' ? 'active' : ''}`}
@@ -2406,6 +2664,30 @@
                   onClick={() => setActiveTab('stats')}
                 >
                   Activity Stats
+                </button>
+              </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'partnerActivities' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('partnerActivities')}
+                >
+                  Partner Activities ({partnerActivitiesData.length})
+                </button>
+              </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'heatmap' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('heatmap')}
+                >
+                  Partner Heatmap ({partnerHeatmapData.length})
+                </button>
+              </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'internalActivities' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('internalActivities')}
+                >
+                  Internal Activities ({internalActivitiesData.length})
                 </button>
               </li>
             </ul>
@@ -2453,6 +2735,25 @@
                 {activeTab === 'stats' && (
                   <MarketingStatsTab
                     chartData={chartData}
+                    onRefresh={loadData}
+                  />
+                )}
+                {activeTab === 'partnerActivities' && (
+                  <PartnerActivitiesTab
+                    data={partnerActivitiesData}
+                    onRefresh={loadData}
+                  />
+                )}
+                {activeTab === 'heatmap' && (
+                  <PartnerHeatmapTab
+                    data={partnerHeatmapData}
+                    onRefresh={loadData}
+                  />
+                )}
+                {activeTab === 'internalActivities' && (
+                  <InternalActivitiesTab
+                    data={internalActivitiesData}
+                    boardNames={internalBoardNames}
                     onRefresh={loadData}
                   />
                 )}
