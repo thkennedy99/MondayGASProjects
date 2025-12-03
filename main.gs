@@ -360,6 +360,12 @@ function clearMarketingCaches() {
     cacheKeysToRemove.push('all_marketing_approvals');
     cacheKeysToRemove.push('all_marketing_calendar');
 
+    // Clear 2026 Approvals cache keys
+    cacheKeysToRemove.push('all_2026_approvals');
+    managers.forEach(managerEmail => {
+      cacheKeysToRemove.push(`approvals_2026_${managerEmail}`);
+    });
+
     // Remove all cache keys (GAS allows removing up to 100 keys at once)
     if (cacheKeysToRemove.length > 0) {
       cache.removeAll(cacheKeysToRemove);
@@ -371,6 +377,44 @@ function clearMarketingCaches() {
   } catch (error) {
     console.error('Error clearing marketing caches:', error);
     // Don't throw - cache clearing failure shouldn't break the sync
+  }
+}
+
+/**
+ * Refresh all data from Monday.com
+ * This syncs ALL boards to spreadsheets and clears ALL caches
+ * Called by the Marketing Manager Portal "Refresh Data" button
+ */
+function refreshMarketingDataFromMonday() {
+  try {
+    console.log('Starting full data refresh from Monday.com...');
+
+    // Step 1: Sync all Monday data (Dashboard, Partner Activities, Marketing, Guidewire)
+    console.log('Step 1: Syncing all Monday.com boards...');
+    syncMondayData();
+
+    // Step 2: Sync 2026 Approvals board
+    console.log('Step 2: Syncing 2026 Approvals board...');
+    sync2026ApprovalsBoard();
+
+    // Step 3: Clear ALL data caches (marketing, activities, heatmap, etc.)
+    console.log('Step 3: Clearing all data caches...');
+    clearAllDataCaches();
+
+    // Step 4: Also clear internal activity caches
+    console.log('Step 4: Clearing internal activity caches...');
+    clearInternalActivityCaches();
+
+    // Step 5: Clear 2026 approvals caches
+    console.log('Step 5: Clearing 2026 approvals caches...');
+    clear2026ApprovalsCaches();
+
+    console.log('Full data refresh completed successfully');
+    return { success: true, message: 'All data refreshed from Monday.com' };
+
+  } catch (error) {
+    console.error('Error refreshing data from Monday:', error);
+    return { success: false, message: error.toString() };
   }
 }
 
@@ -425,6 +469,32 @@ function clearMarketingCalendarCaches() {
 
   } catch (error) {
     console.error('Error clearing marketing calendar caches:', error);
+  }
+}
+
+/**
+ * Clear only 2026 Approvals caches
+ * Use this for targeted cache invalidation when only 2026 approvals are affected
+ */
+function clear2026ApprovalsCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      cacheKeysToRemove.push(`approvals_2026_${managerEmail}`);
+    });
+
+    cacheKeysToRemove.push('all_2026_approvals');
+
+    if (cacheKeysToRemove.length > 0) {
+      cache.removeAll(cacheKeysToRemove);
+      console.log(`Cleared ${cacheKeysToRemove.length} 2026 approvals cache keys`);
+    }
+
+  } catch (error) {
+    console.error('Error clearing 2026 approvals caches:', error);
   }
 }
 
@@ -1366,6 +1436,7 @@ function nuclearClearAllMarketingCaches() {
   managers.forEach(email => {
     keysToRemove.push(`marketing_approvals_${email}`);
     keysToRemove.push(`marketing_calendar_${email}`);
+    keysToRemove.push(`approvals_2026_${email}`);
     keysToRemove.push(`heatmap_${email}`);
     keysToRemove.push(`manager_partners_${email}`);
     keysToRemove.push(`manager_name_${email}`);
@@ -1376,6 +1447,7 @@ function nuclearClearAllMarketingCaches() {
   keysToRemove.push('all_marketing_approvals');
   keysToRemove.push('marketing_calendar_all');
   keysToRemove.push('all_marketing_calendar');
+  keysToRemove.push('all_2026_approvals');
   keysToRemove.push('heatmap_all');
   keysToRemove.push('manager_list');
 

@@ -727,37 +727,39 @@ get2026ApprovalsData(managerEmail) {
     }
 
     const data = this.getSheetData(sheet);
-    const managerName = this.getManagerName(managerEmail);
+    const managerName = this.getManagerName(managerEmail) || '';
+    const managerFirstName = managerName ? managerName.split(' ')[0] : '';
 
     console.log(`Getting 2026 approvals for: ${managerEmail} / ${managerName}`);
+    console.log(`Manager first name: ${managerFirstName}`);
     console.log(`Total 2026 approval rows from sheet: ${data.length}`);
 
     // Get managed partners for this manager
-    const managedPartners = this.getManagerPartners(managerEmail);
+    const managedPartners = this.getManagerPartners(managerEmail) || [];
     console.log(`Manager ${managerName} manages partners: ${managedPartners.join(', ')}`);
 
     // Filter by Partner field (matching managed partners) or by Alliance Manager
     const filtered = data.filter(row => {
       const partner = row['Partner'] || '';
-      const allianceManager = this.getAllianceManager(row);
-      const owner = row['Owner'];
+      const allianceManager = this.getAllianceManager(row) || '';
+      const owner = row['Owner'] || '';
 
       // Check if partner is in managed partners list
       let matchesPartner = false;
       if (partner) {
         matchesPartner = managedPartners.some(p =>
-          p.toLowerCase() === partner.toString().toLowerCase()
+          p && p.toLowerCase() === partner.toString().toLowerCase()
         );
       }
 
       // Check if Alliance Manager or Owner matches
       const matchesManager =
-        allianceManager === managerEmail ||
-        allianceManager === managerName ||
-        (allianceManager && allianceManager.includes(managerName.split(' ')[0])) ||
-        owner === managerEmail ||
-        owner === managerName ||
-        (owner && owner.includes(managerName.split(' ')[0]));
+        (managerEmail && allianceManager === managerEmail) ||
+        (managerName && allianceManager === managerName) ||
+        (managerFirstName && allianceManager && allianceManager.includes(managerFirstName)) ||
+        (managerEmail && owner === managerEmail) ||
+        (managerName && owner === managerName) ||
+        (managerFirstName && owner && owner.includes(managerFirstName));
 
       return matchesPartner || matchesManager;
     });
@@ -1638,6 +1640,205 @@ function getPartnerHeatmap(managerEmail) {
 }
 
 /**
+ * Get ALL partner activities without manager filtering
+ * For Marketing Manager Portal to show all partner activities
+ */
+function getAllPartnerActivitiesUnfiltered(filters, sort, pagination) {
+  try {
+    console.log('=== getAllPartnerActivitiesUnfiltered ===');
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MondayData');
+    if (!sheet) throw new Error('MondayData sheet not found');
+
+    const service = new DataService();
+    let data = service.getSheetData(sheet);
+    console.log(`Total rows from sheet: ${data.length}`);
+
+    // Apply filters if provided
+    if (filters && Object.keys(filters).length > 0) {
+      data = service.applyFilters(data, filters);
+    }
+
+    // Apply sorting
+    const sortField = sort?.field === 'Name' ? 'Item Name' : (sort?.field || 'Item Name');
+    data = service.sortData(data, sortField, sort?.order || 'asc');
+
+    // Apply pagination
+    const totalItems = data.length;
+    const page = pagination?.page || 1;
+    const pageSize = pagination?.pageSize || 200;
+    const startIndex = (page - 1) * pageSize;
+    data = data.slice(startIndex, startIndex + pageSize);
+
+    // Sanitize data
+    const sanitizedData = data.map(row => {
+      const sanitized = {};
+      if (row['Item Name'] !== undefined) {
+        sanitized['Name'] = service.convertToString(row['Item Name']);
+      }
+      for (const key in row) {
+        if (key === 'Item Name') continue;
+        sanitized[key] = service.convertToString(row[key]);
+      }
+      return sanitized;
+    });
+
+    console.log(`Returning ${sanitizedData.length} unfiltered partner activities`);
+    return {
+      data: sanitizedData,
+      total: String(totalItems),
+      page: String(page),
+      pageSize: String(pageSize),
+      pages: String(Math.ceil(totalItems / pageSize))
+    };
+
+  } catch (error) {
+    console.error('Error in getAllPartnerActivitiesUnfiltered:', error);
+    return { data: [], total: '0', page: '1', pageSize: '200', pages: '0', error: error.message };
+  }
+}
+
+/**
+ * Get ALL partner heatmap data without manager filtering
+ * For Marketing Manager Portal to show all partners
+ */
+function getAllPartnerHeatmapUnfiltered() {
+  try {
+    console.log('=== getAllPartnerHeatmapUnfiltered ===');
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MondayDashboard');
+    if (!sheet) {
+      console.log('MondayDashboard sheet not found');
+      return [];
+    }
+
+    const service = new DataService();
+    const data = service.getSheetData(sheet);
+    console.log(`Total rows from MondayDashboard: ${data.length}`);
+
+    // Sanitize data
+    const serialized = data.map(row => {
+      const clean = {};
+      for (const key in row) {
+        const value = row[key];
+        if (value === null || value === undefined) {
+          clean[key] = '';
+        } else if (value instanceof Date) {
+          clean[key] = value.toISOString().split('T')[0];
+        } else if (typeof value === 'boolean') {
+          clean[key] = value ? 'true' : 'false';
+        } else if (typeof value === 'object') {
+          clean[key] = JSON.stringify(value);
+        } else {
+          clean[key] = String(value);
+        }
+      }
+      return clean;
+    });
+
+    console.log(`Returning ${serialized.length} unfiltered heatmap entries`);
+    return serialized;
+
+  } catch (error) {
+    console.error('Error in getAllPartnerHeatmapUnfiltered:', error);
+    return [];
+  }
+}
+
+/**
+ * Get ALL internal activities without manager filtering
+ * For Marketing Manager Portal to show all internal activities
+ * @param {string} boardFilter - Optional board name to filter by (e.g., "Partner Management Tracker")
+ */
+function getAllInternalActivitiesUnfiltered(boardFilter, filters, sort, pagination) {
+  try {
+    console.log('=== getAllInternalActivitiesUnfiltered ===');
+    console.log('Board filter:', boardFilter);
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('GWMondayData');
+    if (!sheet) throw new Error('GWMondayData sheet not found');
+
+    const service = new DataService();
+    let data = service.getSheetData(sheet);
+    console.log(`Total rows from GWMondayData: ${data.length}`);
+
+    // Apply board filter if specified
+    if (boardFilter) {
+      data = data.filter(row => row['Board Name'] === boardFilter);
+      console.log(`Filtered to ${data.length} rows for board: ${boardFilter}`);
+    }
+
+    // Apply additional filters if provided
+    if (filters && Object.keys(filters).length > 0) {
+      data = service.applyFilters(data, filters);
+    }
+
+    // Apply sorting
+    const sortField = sort?.field === 'Name' ? 'Item Name' : (sort?.field || 'Item Name');
+    data = service.sortData(data, sortField, sort?.order || 'asc');
+
+    // Apply pagination
+    const totalItems = data.length;
+    const page = pagination?.page || 1;
+    const pageSize = pagination?.pageSize || 200;
+    const startIndex = (page - 1) * pageSize;
+    data = data.slice(startIndex, startIndex + pageSize);
+
+    // Sanitize data
+    const sanitizedData = data.map(row => {
+      const sanitized = {};
+      if (row['Item Name'] !== undefined) {
+        sanitized['Name'] = service.convertToString(row['Item Name']);
+      }
+      if (row['Assigned To'] !== undefined) {
+        sanitized['Assigned By'] = service.convertToString(row['Assigned To']);
+      }
+      for (const key in row) {
+        if (key === 'Item Name' || key === 'Assigned To') continue;
+        sanitized[key] = service.convertToString(row[key]);
+      }
+      return sanitized;
+    });
+
+    console.log(`Returning ${sanitizedData.length} unfiltered internal activities`);
+    return {
+      data: sanitizedData,
+      total: String(totalItems),
+      page: String(page),
+      pageSize: String(pageSize),
+      pages: String(Math.ceil(totalItems / pageSize))
+    };
+
+  } catch (error) {
+    console.error('Error in getAllInternalActivitiesUnfiltered:', error);
+    return { data: [], total: '0', page: '1', pageSize: '200', pages: '0', error: error.message };
+  }
+}
+
+/**
+ * Get distinct board names from GWMondayData for internal activities
+ */
+function getInternalActivityBoardNames() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('GWMondayData');
+    if (!sheet) return [];
+
+    const service = new DataService();
+    const data = service.getSheetData(sheet);
+
+    const boardNames = [...new Set(data.map(row => row['Board Name']).filter(Boolean))];
+    console.log('Internal activity board names:', boardNames);
+    return boardNames.sort();
+
+  } catch (error) {
+    console.error('Error in getInternalActivityBoardNames:', error);
+    return [];
+  }
+}
+
+/**
  * Debug function to test manager filtering
  */
 function testManagerFiltering(managerEmail) {
@@ -2351,6 +2552,22 @@ function getBoardColumnsStructure(boardId) {
     const monday = new MondayAPI();
     const columns = monday.getBoardColumns(boardId);
 
+    // Log each column name and ID on its own line (avoids log truncation)
+    console.log('');
+    console.log('=== COLUMN LIST (Copy-Paste Ready) ===');
+    console.log('Board ID: ' + boardId);
+    console.log('Column Name, Column ID');
+    console.log('------------------------');
+
+    // Log each column individually to avoid truncation
+    columns.forEach(col => {
+      console.log(col.title + ', ' + col.id);
+    });
+
+    console.log('------------------------');
+    console.log('Total columns: ' + columns.length);
+    console.log('');
+
     // Return simplified column structure
     return columns.map(col => ({
       id: col.id,
@@ -2954,30 +3171,47 @@ function getAllMarketingCalendar() {
  */
 function getAll2026Approvals() {
   try {
+    console.log('=== getAll2026Approvals START ===');
+
     const cache = CacheService.getScriptCache();
     const cacheKey = 'all_2026_approvals';
     const cached = cache.get(cacheKey);
 
     if (cached) {
-      return JSON.parse(cached);
+      console.log('*** CACHE HIT *** - Returning cached 2026 approvals data');
+      const cachedData = JSON.parse(cached);
+      console.log(`Cached data contains ${cachedData.length} items`);
+      return cachedData;
     }
 
+    console.log('*** CACHE MISS *** - Fetching 2026 approvals from spreadsheet');
+
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    console.log('Spreadsheet ID:', spreadsheet.getId());
+    console.log('Spreadsheet Name:', spreadsheet.getName());
+
     const sheet = spreadsheet.getSheetByName('Approvals2026');
     if (!sheet) {
-      console.log('Approvals2026 sheet not found');
+      console.log('ERROR: Approvals2026 sheet NOT FOUND');
+      console.log('Available sheets:', spreadsheet.getSheets().map(s => s.getName()).join(', '));
       return [];
     }
 
+    console.log('Approvals2026 sheet found');
+
     const data = sheet.getDataRange().getValues();
+    console.log(`Sheet data range: ${data.length} rows x ${data[0] ? data[0].length : 0} columns`);
+
     if (data.length < 2) {
+      console.log('No data rows found (only header or empty)');
       return [];
     }
 
     const headers = data[0];
-    const rows = data.slice(1);
+    console.log('Headers:', headers.join(', '));
 
-    console.log(`Getting ALL 2026 approvals: ${rows.length} total rows`);
+    const rows = data.slice(1);
+    console.log(`Data rows (excluding header): ${rows.length}`);
 
     // Convert to objects and sanitize
     const approvals = rows.map((row, index) => {
@@ -3000,21 +3234,94 @@ function getAll2026Approvals() {
       return item;
     }).filter(item => item['Item Name'] || item['Monday Item ID']); // Filter out empty rows
 
-    console.log(`Returning ${approvals.length} 2026 approval entries`);
+    console.log(`After filtering empty rows: ${approvals.length} 2026 approval entries`);
+
+    if (approvals.length > 0) {
+      console.log('Sample item keys:', Object.keys(approvals[0]).join(', '));
+      console.log('Sample item values:', JSON.stringify(approvals[0]));
+    }
 
     // Cache for 2 minutes
     try {
       cache.put(cacheKey, JSON.stringify(approvals), 120);
+      console.log('Data cached successfully for 2 minutes');
     } catch (e) {
       console.log('Could not cache results:', e);
     }
 
+    console.log('=== getAll2026Approvals END - returning', approvals.length, 'items ===');
     return approvals;
 
   } catch (error) {
-    console.error('Error in getAll2026Approvals:', error);
+    console.error('ERROR in getAll2026Approvals:', error);
+    console.error('Stack:', error.stack);
     return [];
   }
+}
+
+/**
+ * Debug function to test 2026 Approvals data retrieval
+ * Run this manually to check if data is being fetched correctly
+ *
+ * IMPORTANT: Run sync2026ApprovalsBoard() or syncAllMarketingBoards() first
+ * to populate the Approvals2026 sheet from Monday.com
+ */
+function debug2026ApprovalsData() {
+  console.log('=== DEBUG 2026 APPROVALS DATA ===');
+
+  // First, try syncing from Monday
+  console.log('Step 1: Syncing from Monday.com...');
+  try {
+    const syncResult = sync2026ApprovalsBoard();
+    console.log('Sync result:', JSON.stringify(syncResult));
+  } catch (e) {
+    console.error('Sync failed:', e);
+    console.error('Error details:', e.stack);
+  }
+
+  // Then, clear cache and fetch fresh data
+  console.log('Step 2: Clearing cache...');
+  const cache = CacheService.getScriptCache();
+  cache.remove('all_2026_approvals');
+  console.log('Cache cleared');
+
+  // Fetch fresh data
+  console.log('Step 3: Fetching data from spreadsheet...');
+  const data = getAll2026Approvals();
+  console.log('Data returned:', data.length, 'items');
+
+  if (data.length > 0) {
+    console.log('First item:', JSON.stringify(data[0]));
+  } else {
+    console.log('NO DATA FOUND - Check if:');
+    console.log('  1. The Monday board 18389979949 has items');
+    console.log('  2. The sync completed without errors');
+    console.log('  3. The Approvals2026 sheet exists and has data');
+  }
+
+  return { success: true, itemCount: data.length, sampleItem: data[0] || null };
+}
+
+/**
+ * One-time setup function to populate all Marketing Manager sheets
+ * Run this from the script editor to initially populate:
+ * - MarketingApproval sheet
+ * - MarketingCalendar sheet
+ * - Approvals2026 sheet
+ */
+function setupMarketingManagerSheets() {
+  console.log('=== MARKETING MANAGER SHEETS SETUP ===');
+  console.log('This will sync all marketing boards from Monday.com to the spreadsheet');
+
+  const results = syncAllMarketingBoards();
+
+  console.log('');
+  console.log('=== SETUP COMPLETE ===');
+  console.log('Marketing Approval items:', results.marketingApproval?.itemCount || 0);
+  console.log('Marketing Calendar items:', results.marketingCalendar?.itemCount || 0);
+  console.log('2026 Approvals items:', results.approvals2026?.itemCount || 0);
+
+  return results;
 }
 
 /**
@@ -3024,9 +3331,16 @@ function getAll2026Approvals() {
  */
 function getMarketingManagerFilterOptions() {
   try {
+    console.log('=== getMarketingManagerFilterOptions START ===');
+
     const approvals = getAllMarketingApprovals();
+    console.log('Marketing Approvals:', approvals.length, 'items');
+
     const calendar = getAllMarketingCalendar();
+    console.log('Marketing Calendar:', calendar.length, 'items');
+
     const approvals2026 = getAll2026Approvals();
+    console.log('2026 Approvals:', approvals2026.length, 'items');
 
     // Collect unique values for Marketing Approvals filters
     const approvalFilters = {
@@ -3051,6 +3365,12 @@ function getMarketingManagerFilterOptions() {
       partners: [...new Set(approvals2026.map(a => a['Partner']).filter(v => v))].sort()
     };
 
+    console.log('2026 Approvals filter options:');
+    console.log('  - Funding Types:', approvals2026Filters.fundingTypes.length);
+    console.log('  - Overall Statuses:', approvals2026Filters.overallStatuses.length);
+    console.log('  - Partners:', approvals2026Filters.partners.length);
+    console.log('=== getMarketingManagerFilterOptions END ===');
+
     return {
       approvalFilters,
       calendarFilters,
@@ -3058,11 +3378,242 @@ function getMarketingManagerFilterOptions() {
     };
 
   } catch (error) {
-    console.error('Error getting filter options:', error);
+    console.error('ERROR in getMarketingManagerFilterOptions:', error);
+    console.error('Stack:', error.stack);
     return {
       approvalFilters: { fundingTypes: [], overallStatuses: [], allianceManagers: [], partners: [], requestTypes: [] },
       calendarFilters: { partners: [], owners: [], activityTypes: [] },
       approvals2026Filters: { fundingTypes: [], overallStatuses: [], partners: [] }
     };
+  }
+}
+
+/**
+ * Get Marketing Calendar Stats data for stacked column chart
+ * Reads from MarketingCalendarStats sheet where:
+ * - Column A (A2:A) contains activity/task names
+ * - Row 1 (B1:M1) contains month names (January through December)
+ * - Cells contain counts of activities per task per month
+ * @returns {Object} Chart data with labels (months), datasets (tasks with monthly counts)
+ */
+function getMarketingCalendarStats() {
+  try {
+    console.log('=== getMarketingCalendarStats START ===');
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MarketingCalendarStats');
+
+    if (!sheet) {
+      console.log('MarketingCalendarStats sheet not found');
+      return { labels: [], datasets: [], error: 'MarketingCalendarStats sheet not found' };
+    }
+
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+
+    console.log(`Sheet dimensions: ${lastRow} rows x ${lastCol} columns`);
+
+    if (lastRow < 2 || lastCol < 2) {
+      console.log('Sheet has insufficient data');
+      return { labels: [], datasets: [], error: 'Insufficient data in sheet' };
+    }
+
+    // Get all data from the sheet
+    const allData = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+
+    // Extract month labels from row 1 (B1:M1 or however many columns there are)
+    const headerRow = allData[0];
+    const months = [];
+    for (let i = 1; i < headerRow.length; i++) {
+      if (headerRow[i] && headerRow[i].toString().trim() !== '') {
+        months.push(headerRow[i].toString().trim());
+      }
+    }
+
+    console.log('Months found:', months.join(', '));
+
+    // Extract activity data from rows 2 onwards
+    const datasets = [];
+
+    // Color palette for different activities
+    const colors = [
+      { bg: 'rgba(54, 162, 235, 0.8)', border: 'rgba(54, 162, 235, 1)' },    // Blue
+      { bg: 'rgba(255, 99, 132, 0.8)', border: 'rgba(255, 99, 132, 1)' },    // Red
+      { bg: 'rgba(75, 192, 192, 0.8)', border: 'rgba(75, 192, 192, 1)' },    // Teal
+      { bg: 'rgba(255, 206, 86, 0.8)', border: 'rgba(255, 206, 86, 1)' },    // Yellow
+      { bg: 'rgba(153, 102, 255, 0.8)', border: 'rgba(153, 102, 255, 1)' },  // Purple
+      { bg: 'rgba(255, 159, 64, 0.8)', border: 'rgba(255, 159, 64, 1)' },    // Orange
+      { bg: 'rgba(46, 204, 113, 0.8)', border: 'rgba(46, 204, 113, 1)' },    // Green
+      { bg: 'rgba(231, 76, 60, 0.8)', border: 'rgba(231, 76, 60, 1)' },      // Dark Red
+      { bg: 'rgba(52, 152, 219, 0.8)', border: 'rgba(52, 152, 219, 1)' },    // Light Blue
+      { bg: 'rgba(155, 89, 182, 0.8)', border: 'rgba(155, 89, 182, 1)' },    // Violet
+      { bg: 'rgba(241, 196, 15, 0.8)', border: 'rgba(241, 196, 15, 1)' },    // Gold
+      { bg: 'rgba(26, 188, 156, 0.8)', border: 'rgba(26, 188, 156, 1)' },    // Turquoise
+      { bg: 'rgba(230, 126, 34, 0.8)', border: 'rgba(230, 126, 34, 1)' },    // Carrot
+      { bg: 'rgba(149, 165, 166, 0.8)', border: 'rgba(149, 165, 166, 1)' },  // Gray
+      { bg: 'rgba(192, 57, 43, 0.8)', border: 'rgba(192, 57, 43, 1)' }       // Pomegranate
+    ];
+
+    for (let i = 1; i < allData.length; i++) {
+      const row = allData[i];
+      const activityName = row[0] ? row[0].toString().trim() : '';
+
+      if (!activityName) continue;
+
+      // Get monthly values for this activity
+      const data = [];
+      for (let j = 1; j <= months.length; j++) {
+        const value = row[j];
+        // Handle empty cells, strings, and numbers
+        const numValue = (value === '' || value === null || value === undefined) ? 0 : Number(value) || 0;
+        data.push(numValue);
+      }
+
+      const colorIndex = datasets.length % colors.length;
+
+      datasets.push({
+        label: activityName,
+        data: data,
+        backgroundColor: colors[colorIndex].bg,
+        borderColor: colors[colorIndex].border,
+        borderWidth: 1
+      });
+    }
+
+    console.log(`Found ${datasets.length} activities`);
+    console.log('Activities:', datasets.map(d => d.label).join(', '));
+    console.log('=== getMarketingCalendarStats END ===');
+
+    return {
+      labels: months,
+      datasets: datasets
+    };
+
+  } catch (error) {
+    console.error('ERROR in getMarketingCalendarStats:', error);
+    console.error('Stack:', error.stack);
+    return { labels: [], datasets: [], error: error.message };
+  }
+}
+
+/**
+ * Get the 2026 Flow configuration for grouping columns in Add/Edit modals
+ * Reads from the 2026Flow sheet which defines how columns are grouped
+ *
+ * Sheet columns:
+ * - Column ID: The Monday column ID
+ * - Section Grouping: Group 1, Group 2, etc.
+ * - Group Name: Display name for the group
+ * - Monday Column: Optional condition - column ID to check
+ * - Value: Optional condition - value to match
+ *
+ * @returns {Object} Configuration with groups array and column mappings
+ */
+function get2026FlowConfig() {
+  try {
+    console.log('=== get2026FlowConfig START ===');
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('2026Flow');
+
+    if (!sheet) {
+      console.log('2026Flow sheet not found');
+      return { groups: [], columns: [], error: '2026Flow sheet not found' };
+    }
+
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+
+    console.log(`Sheet dimensions: ${lastRow} rows x ${lastCol} columns`);
+
+    if (lastRow < 2) {
+      console.log('Sheet has no data rows');
+      return { groups: [], columns: [], error: 'No data in 2026Flow sheet' };
+    }
+
+    // Get header row to find column indices
+    const headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+
+    // Find column indices (case-insensitive)
+    const colIndices = {
+      columnId: -1,
+      sectionGrouping: -1,
+      groupName: -1,
+      mondayColumn: -1,
+      value: -1,
+      mandatory: -1
+    };
+
+    headerRow.forEach((header, idx) => {
+      const h = header.toString().toLowerCase().trim();
+      if (h === 'column id' || h === 'columnid') colIndices.columnId = idx;
+      else if (h === 'section grouping' || h === 'sectiongrouping') colIndices.sectionGrouping = idx;
+      else if (h === 'group name' || h === 'groupname') colIndices.groupName = idx;
+      else if (h === 'monday column' || h === 'mondaycolumn') colIndices.mondayColumn = idx;
+      else if (h === 'value') colIndices.value = idx;
+      else if (h === 'mandatory') colIndices.mandatory = idx;
+    });
+
+    console.log('Column indices:', JSON.stringify(colIndices));
+
+    if (colIndices.columnId === -1 || colIndices.sectionGrouping === -1) {
+      console.log('Required columns not found');
+      return { groups: [], columns: [], error: 'Required columns (Column ID, Section Grouping) not found' };
+    }
+
+    // Get all data rows
+    const dataRows = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+
+    // Build column configuration and group list
+    const columns = [];
+    const groupsMap = new Map(); // To track unique groups in order
+
+    dataRows.forEach((row, idx) => {
+      const columnId = row[colIndices.columnId]?.toString().trim();
+      const sectionGrouping = row[colIndices.sectionGrouping]?.toString().trim();
+      const groupName = colIndices.groupName >= 0 ? row[colIndices.groupName]?.toString().trim() : '';
+      const mondayColumn = colIndices.mondayColumn >= 0 ? row[colIndices.mondayColumn]?.toString().trim() : '';
+      const value = colIndices.value >= 0 ? row[colIndices.value]?.toString().trim() : '';
+      const mandatoryRaw = colIndices.mandatory >= 0 ? row[colIndices.mandatory]?.toString().trim().toLowerCase() : '';
+      const mandatory = mandatoryRaw === 'yes' || mandatoryRaw === 'true' || mandatoryRaw === 'y' || mandatoryRaw === '1';
+
+      if (columnId && sectionGrouping) {
+        columns.push({
+          columnId: columnId,
+          group: sectionGrouping,
+          groupName: groupName || sectionGrouping,
+          condition: mondayColumn ? { columnId: mondayColumn, value: value } : null,
+          mandatory: mandatory
+        });
+
+        // Track groups in order they appear
+        if (!groupsMap.has(sectionGrouping)) {
+          groupsMap.set(sectionGrouping, groupName || sectionGrouping);
+        }
+      }
+    });
+
+    // Convert groups map to array
+    const groups = [];
+    groupsMap.forEach((groupName, groupKey) => {
+      groups.push({
+        key: groupKey,
+        name: groupName
+      });
+    });
+
+    console.log(`Found ${columns.length} column configurations across ${groups.length} groups`);
+    console.log('Groups:', groups.map(g => g.key).join(', '));
+    console.log('=== get2026FlowConfig END ===');
+
+    return {
+      groups: groups,
+      columns: columns
+    };
+
+  } catch (error) {
+    console.error('ERROR in get2026FlowConfig:', error);
+    console.error('Stack:', error.stack);
+    return { groups: [], columns: [], error: error.message };
   }
 }

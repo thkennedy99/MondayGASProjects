@@ -14,6 +14,12 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+  <!-- Chart.js for stacked column chart -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- jsPDF for PDF export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
   <style>
     :root {
       --gw-blue: #00739d;
@@ -26,6 +32,7 @@
 
     html, body {
       height: 100%;
+      height: 100vh;
       margin: 0;
       overflow: hidden;
     }
@@ -37,8 +44,18 @@
 
     #root {
       height: 100%;
+      height: 100vh;
       display: flex;
       flex-direction: column;
+    }
+
+    /* Tab content container - ensure proper resize */
+    .tab-content-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .app-container {
@@ -310,7 +327,7 @@
         setDeleting(true);
         setError(null);
         try {
-          const result = await api.call('deleteMondayItem', boardId, item['Monday Item ID']);
+          const result = await api.call('deleteMondayItem', item['Monday Item ID'], boardId);
           if (result && result.success) {
             onConfirm();
           } else {
@@ -734,6 +751,506 @@
       );
     }
 
+    // Edit 2026 Approval Modal with Grouped Sections
+    function Edit2026ApprovalModal({ item, columns, flowConfig, onClose, onSave, partnerOptions }) {
+      const [formData, setFormData] = useState({});
+      const [itemName, setItemName] = useState('');
+      const [saving, setSaving] = useState(false);
+      const [error, setError] = useState(null);
+      const [selectedGroup, setSelectedGroup] = useState(null);
+
+      // Initialize form data and set default group
+      useEffect(() => {
+        const initialData = {};
+        Object.keys(item).forEach(key => {
+          if (!['Monday Item ID', 'Board ID', '_rowIndex'].includes(key)) {
+            initialData[key] = item[key] || '';
+          }
+        });
+        setFormData(initialData);
+        setItemName(item['Item Name'] || item['Name'] || item['Activity'] || '');
+
+        // Set default group to first group
+        if (flowConfig?.groups?.length > 0 && !selectedGroup) {
+          setSelectedGroup(flowConfig.groups[0].key);
+        }
+      }, [item, flowConfig]);
+
+      const handleChange = (columnTitle, value) => {
+        setFormData(prev => ({ ...prev, [columnTitle]: value }));
+      };
+
+      // Check if all mandatory fields are filled
+      const allMandatoryFieldsFilled = useMemo(() => {
+        if (!flowConfig?.columns || !columns) return true;
+
+        // Check each mandatory field in the flow config
+        for (const flowCol of flowConfig.columns) {
+          if (!flowCol.mandatory) continue;
+
+          // Find the column definition to get the title
+          const column = columns.find(c => c.id === flowCol.columnId);
+          if (!column) continue;
+
+          // Check if the field has a value
+          const value = formData[column.title];
+          if (value === undefined || value === null || value === '') {
+            return false;
+          }
+        }
+
+        // Also check item name
+        if (!itemName || itemName.trim() === '') {
+          return false;
+        }
+
+        return true;
+      }, [flowConfig, columns, formData, itemName]);
+
+      const handleSave = async () => {
+        setSaving(true);
+        setError(null);
+        try {
+          onSave({ ...formData, 'Item Name': itemName, 'Name': itemName });
+        } catch (err) {
+          setError(err.message || 'Failed to update item');
+          setSaving(false);
+        }
+      };
+
+      // Get columns for the selected group
+      const getGroupColumns = () => {
+        if (!flowConfig?.columns || !selectedGroup) return [];
+
+        return flowConfig.columns.filter(flowCol => {
+          // Check if column belongs to selected group
+          if (flowCol.group !== selectedGroup) return false;
+
+          // Check conditional visibility
+          if (flowCol.condition && flowCol.condition.columnId) {
+            const conditionColumn = columns.find(c => c.id === flowCol.condition.columnId);
+            if (conditionColumn) {
+              const currentValue = formData[conditionColumn.title] || '';
+              if (currentValue !== flowCol.condition.value) {
+                return false;
+              }
+            }
+          }
+
+          return true;
+        });
+      };
+
+      const renderFormControl = (flowCol) => {
+        // Find the column definition by ID
+        const column = columns.find(c => c.id === flowCol.columnId);
+        if (!column) return null;
+
+        const { title, type, settings } = column;
+        const value = formData[title] || '';
+
+        // Skip system columns
+        const skipColumns = ['Monday Item ID', 'Board ID', 'Board Name', 'Group', '_rowIndex'];
+        if (skipColumns.includes(title)) return null;
+        if (type === 'formula' || type === 'mirror' || type === 'board-relation') return null;
+
+        // Item Name is handled separately
+        if (title === 'Item Name' || title === 'Name' || title === 'Activity') return null;
+
+        // Partner dropdown
+        if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">(Blank)</option>
+                {partnerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Status/color columns
+        if (type === 'status' || type === 'color') {
+          const labels = settings?.labels || {};
+          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Dropdown columns
+        if (type === 'dropdown') {
+          const labels = settings?.labels || [];
+          const options = Array.isArray(labels) ? labels.map(l => l.name || l) : Object.values(labels);
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Date columns
+        if (type === 'date') {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <input type="date" className="form-control" value={value ? value.substring(0, 10) : ''} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Number columns
+        if (type === 'numbers' || type === 'numeric') {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <input type="number" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Default text input
+        return (
+          <div className="mb-3" key={column.id}>
+            <label className="form-label">{title}</label>
+            <input type="text" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+          </div>
+        );
+      };
+
+      const groupColumns = getGroupColumns();
+
+      return (
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-xl modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Edit 2026 Approval: {itemName}</h5>
+                <button type="button" className="btn-close" onClick={onClose} disabled={saving}></button>
+              </div>
+              <div className="modal-body" style={{ display: 'flex', minHeight: '400px' }}>
+                {/* Vertical Group Navigation on Left */}
+                {flowConfig?.groups?.length > 0 && (
+                  <div className="nav flex-column me-3" style={{ minWidth: '150px', borderRight: '1px solid #dee2e6', paddingRight: '1rem' }}>
+                    {flowConfig.groups.map((group, idx) => (
+                      <button
+                        key={group.key}
+                        onClick={() => setSelectedGroup(group.key)}
+                        type="button"
+                        style={{
+                          marginBottom: '0.25rem',
+                          padding: '0.5rem 1rem',
+                          border: 'none',
+                          borderRadius: '4px',
+                          textAlign: 'left',
+                          backgroundColor: selectedGroup === group.key ? '#00739d' : 'transparent',
+                          color: selectedGroup === group.key ? 'white' : '#00739d',
+                          fontWeight: selectedGroup === group.key ? '600' : '400',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {group.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Form Fields on Right */}
+                <div style={{ flex: 1, overflowY: 'auto', paddingLeft: '1rem' }}>
+                  {error && <div className="alert alert-danger">{error}</div>}
+
+                  {/* Item Name - always visible */}
+                  <div className="mb-3">
+                    <label className="form-label">Activity Name</label>
+                    <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} />
+                  </div>
+
+                  {/* Group Fields */}
+                  {groupColumns.length > 0 ? (
+                    groupColumns.map(flowCol => renderFormControl(flowCol))
+                  ) : (
+                    <div className="text-muted">No fields available for this section.</div>
+                  )}
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+                <button type="button" className="btn" onClick={handleSave} disabled={saving || !allMandatoryFieldsFilled} style={{ backgroundColor: '#00739d', color: 'white' }}>
+                  {saving ? <><span className="spinner-border spinner-border-sm me-2"></span>Saving...</> : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Add 2026 Approval Modal with Grouped Sections
+    function Add2026ApprovalModal({ columns, flowConfig, onClose, onCreate, partnerOptions }) {
+      const [formData, setFormData] = useState({});
+      const [itemName, setItemName] = useState('');
+      const [creating, setCreating] = useState(false);
+      const [error, setError] = useState(null);
+      const [selectedGroup, setSelectedGroup] = useState(null);
+
+      // Set default group
+      useEffect(() => {
+        if (flowConfig?.groups?.length > 0 && !selectedGroup) {
+          setSelectedGroup(flowConfig.groups[0].key);
+        }
+      }, [flowConfig]);
+
+      const handleChange = (columnTitle, value) => {
+        setFormData(prev => ({ ...prev, [columnTitle]: value }));
+      };
+
+      // Check if all mandatory fields are filled (only visible mandatory fields)
+      const allMandatoryFieldsFilled = useMemo(() => {
+        // If no config yet, allow creation if item name is filled
+        if (!flowConfig?.columns || !columns || columns.length === 0) {
+          return itemName && itemName.trim() !== '';
+        }
+
+        // Check item name first
+        if (!itemName || itemName.trim() === '') {
+          return false;
+        }
+
+        // Check each mandatory field in the flow config (only if visible)
+        for (const flowCol of flowConfig.columns) {
+          if (!flowCol.mandatory) continue;
+
+          // Check conditional visibility - skip hidden fields
+          if (flowCol.condition && flowCol.condition.columnId) {
+            const conditionColumn = columns.find(c => c.id === flowCol.condition.columnId);
+            if (conditionColumn) {
+              const currentValue = formData[conditionColumn.title] || '';
+              if (currentValue !== flowCol.condition.value) {
+                // Field is hidden due to condition, skip validation
+                continue;
+              }
+            }
+          }
+
+          // Find the column definition to get the title
+          const column = columns.find(c => c.id === flowCol.columnId);
+          if (!column) continue;
+
+          // Check if the field has a value
+          const value = formData[column.title];
+          if (value === undefined || value === null || value === '') {
+            return false;
+          }
+        }
+
+        return true;
+      }, [flowConfig, columns, formData, itemName]);
+
+      const handleCreate = async () => {
+        if (!itemName.trim()) {
+          setError('Activity name is required');
+          return;
+        }
+
+        setCreating(true);
+        setError(null);
+        try {
+          onCreate({ ...formData, 'Item Name': itemName, 'Name': itemName });
+        } catch (err) {
+          setError(err.message || 'Failed to create item');
+          setCreating(false);
+        }
+      };
+
+      // Get columns for the selected group
+      const getGroupColumns = () => {
+        if (!flowConfig?.columns || !selectedGroup) return [];
+
+        return flowConfig.columns.filter(flowCol => {
+          // Check if column belongs to selected group
+          if (flowCol.group !== selectedGroup) return false;
+
+          // Check conditional visibility
+          if (flowCol.condition && flowCol.condition.columnId) {
+            const conditionColumn = columns.find(c => c.id === flowCol.condition.columnId);
+            if (conditionColumn) {
+              const currentValue = formData[conditionColumn.title] || '';
+              if (currentValue !== flowCol.condition.value) {
+                return false;
+              }
+            }
+          }
+
+          return true;
+        });
+      };
+
+      const renderFormControl = (flowCol) => {
+        // Find the column definition by ID
+        const column = columns.find(c => c.id === flowCol.columnId);
+        if (!column) return null;
+
+        const { title, type, settings } = column;
+        const value = formData[title] || '';
+
+        // Skip system columns
+        const skipColumns = ['Monday Item ID', 'Board ID', 'Board Name', 'Group', '_rowIndex'];
+        if (skipColumns.includes(title)) return null;
+        if (type === 'formula' || type === 'mirror' || type === 'board-relation') return null;
+
+        // Item Name is handled separately
+        if (title === 'Item Name' || title === 'Name' || title === 'Activity') return null;
+
+        // Partner dropdown
+        if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">(Blank)</option>
+                {partnerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Status/color columns
+        if (type === 'status' || type === 'color') {
+          const labels = settings?.labels || {};
+          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Dropdown columns
+        if (type === 'dropdown') {
+          const labels = settings?.labels || [];
+          const options = Array.isArray(labels) ? labels.map(l => l.name || l) : Object.values(labels);
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Date columns
+        if (type === 'date') {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <input type="date" className="form-control" value={value ? value.substring(0, 10) : ''} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Number columns
+        if (type === 'numbers' || type === 'numeric') {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <input type="number" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Default text input
+        return (
+          <div className="mb-3" key={column.id}>
+            <label className="form-label">{title}</label>
+            <input type="text" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+          </div>
+        );
+      };
+
+      const groupColumns = getGroupColumns();
+
+      return (
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-xl modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Add 2026 Approval</h5>
+                <button type="button" className="btn-close" onClick={onClose} disabled={creating}></button>
+              </div>
+              <div className="modal-body" style={{ display: 'flex', minHeight: '400px' }}>
+                {/* Vertical Group Navigation on Left */}
+                {flowConfig?.groups?.length > 0 && (
+                  <div className="nav flex-column me-3" style={{ minWidth: '150px', borderRight: '1px solid #dee2e6', paddingRight: '1rem' }}>
+                    {flowConfig.groups.map((group, idx) => (
+                      <button
+                        key={group.key}
+                        onClick={() => setSelectedGroup(group.key)}
+                        type="button"
+                        style={{
+                          marginBottom: '0.25rem',
+                          padding: '0.5rem 1rem',
+                          border: 'none',
+                          borderRadius: '4px',
+                          textAlign: 'left',
+                          backgroundColor: selectedGroup === group.key ? '#00739d' : 'transparent',
+                          color: selectedGroup === group.key ? 'white' : '#00739d',
+                          fontWeight: selectedGroup === group.key ? '600' : '400',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {group.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Form Fields on Right */}
+                <div style={{ flex: 1, overflowY: 'auto', paddingLeft: '1rem' }}>
+                  {error && <div className="alert alert-danger">{error}</div>}
+
+                  {/* Item Name - always visible */}
+                  <div className="mb-3">
+                    <label className="form-label">Activity Name <span className="text-danger">*</span></label>
+                    <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} required />
+                  </div>
+
+                  {/* Group Fields */}
+                  {groupColumns.length > 0 ? (
+                    groupColumns.map(flowCol => renderFormControl(flowCol))
+                  ) : (
+                    <div className="text-muted">No fields available for this section.</div>
+                  )}
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={onClose} disabled={creating}>Cancel</button>
+                <button type="button" className="btn" onClick={handleCreate} disabled={creating || !allMandatoryFieldsFilled} style={{ backgroundColor: '#00739d', color: 'white' }}>
+                  {creating ? <><span className="spinner-border spinner-border-sm me-2"></span>Creating...</> : 'Create Item'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // Marketing Approvals Tab Component
     function MarketingApprovalsTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
       const [fundingTypes, setFundingTypes] = useState([]);
@@ -809,7 +1326,7 @@
       };
 
       return (
-        <div className="d-flex flex-column" style={{ height: '100%' }}>
+        <div className="d-flex flex-column" style={{ flex: 1, minHeight: 0 }}>
           {/* Filters */}
           <div className="filter-section">
             <div className="d-flex justify-content-between align-items-center mb-2">
@@ -1003,7 +1520,7 @@
       };
 
       return (
-        <div className="d-flex flex-column" style={{ height: '100%' }}>
+        <div className="d-flex flex-column" style={{ flex: 1, minHeight: 0 }}>
           {/* Filters */}
           <div className="filter-section">
             <div className="d-flex justify-content-between align-items-center mb-2">
@@ -1120,7 +1637,7 @@
     }
 
     // 2026 Approvals Tab Component
-    function Approvals2026Tab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
+    function Approvals2026Tab({ data, filterOptions, columns, flowConfig, onRefresh, autoEditItemId, onAutoEditHandled }) {
       const [fundingTypes, setFundingTypes] = useState([]);
       const [overallStatuses, setOverallStatuses] = useState([]);
       const [partners, setPartners] = useState([]);
@@ -1214,7 +1731,7 @@
 
           console.log('Deleting 2026 approval item:', itemId);
 
-          await api.call('deleteMondayItem', boardId, itemId);
+          await api.call('deleteMondayItem', itemId, boardId);
           setDeletingItem(null);
           onRefresh();
 
@@ -1286,7 +1803,7 @@
       ];
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
           {/* Filter Section */}
           <div className="filter-section">
             <div className="d-flex justify-content-between align-items-center mb-2">
@@ -1313,14 +1830,14 @@
           </div>
 
           {/* Data Section */}
-          <div className="data-section">
+          <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div className="add-btn-container d-flex justify-content-between align-items-center">
               <span className="result-count mb-0">Showing {filteredData.length} of {data.length} items</span>
               <button className="btn btn-primary btn-sm" onClick={() => setShowAddModal(true)}>
                 + Add 2026 Approval
               </button>
             </div>
-            <div className="table-responsive" style={{ maxHeight: 'calc(100vh - 400px)', overflow: 'auto' }}>
+            <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
               <table className="table table-sm table-striped table-hover compact-table">
                 <thead className="table-light sticky-top">
                   <tr>
@@ -1361,16 +1878,15 @@
             </div>
           </div>
 
-          {/* Edit Modal */}
+          {/* Edit Modal - 2026 Approval with grouped sections */}
           {editingItem && (
-            <EditModal
+            <Edit2026ApprovalModal
               item={editingItem}
-              boardId={APPROVALS_2026_BOARD_ID}
               columns={columns}
+              flowConfig={flowConfig}
               onClose={() => setEditingItem(null)}
               onSave={handleEditSave}
               partnerOptions={filterOptions.partners || []}
-              allianceManagerOptions={[]}
             />
           )}
           {/* Delete Confirmation Modal */}
@@ -1382,15 +1898,923 @@
               onConfirm={handleDeleteConfirm}
             />
           )}
-          {/* Add Modal */}
+          {/* Add Modal - 2026 Approval with grouped sections */}
           {showAddModal && (
-            <AddModal
-              boardId={APPROVALS_2026_BOARD_ID}
+            <Add2026ApprovalModal
               columns={columns}
+              flowConfig={flowConfig}
               onClose={() => setShowAddModal(false)}
               onCreate={handleAddCreate}
               partnerOptions={filterOptions.partners || []}
-              allianceManagerOptions={[]}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // Marketing Stats Tab Component - Stacked Column Chart
+    function MarketingStatsTab({ chartData, onRefresh }) {
+      const chartRef = React.useRef(null);
+      const chartInstanceRef = React.useRef(null);
+      const [selectedActivities, setSelectedActivities] = useState([]);
+
+      // Get list of all activity names for the filter
+      const activityOptions = useMemo(() => {
+        if (!chartData || !chartData.datasets) return [];
+        return chartData.datasets.map(d => d.label).sort();
+      }, [chartData]);
+
+      // Filter datasets based on selected activities
+      const filteredChartData = useMemo(() => {
+        if (!chartData || !chartData.datasets) return { labels: [], datasets: [] };
+
+        // If no activities selected, show all
+        if (selectedActivities.length === 0) {
+          return chartData;
+        }
+
+        // Filter to only selected activities
+        const filteredDatasets = chartData.datasets.filter(d =>
+          selectedActivities.includes(d.label)
+        );
+
+        return {
+          labels: chartData.labels,
+          datasets: filteredDatasets
+        };
+      }, [chartData, selectedActivities]);
+
+      useEffect(() => {
+        if (!filteredChartData || !filteredChartData.labels || filteredChartData.labels.length === 0) {
+          return;
+        }
+
+        // Destroy existing chart if it exists
+        if (chartInstanceRef.current) {
+          chartInstanceRef.current.destroy();
+        }
+
+        const ctx = chartRef.current.getContext('2d');
+
+        chartInstanceRef.current = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: filteredChartData.labels,
+            datasets: filteredChartData.datasets
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              title: {
+                display: true,
+                text: 'Marketing Calendar Activities by Month',
+                font: {
+                  size: 18,
+                  weight: 'bold'
+                },
+                color: '#034e6a'
+              },
+              legend: {
+                position: 'bottom',
+                labels: {
+                  padding: 15,
+                  usePointStyle: true,
+                  font: {
+                    size: 17
+                  }
+                }
+              },
+              tooltip: {
+                mode: 'index',
+                intersect: false,
+                titleFont: {
+                  size: 24
+                },
+                bodyFont: {
+                  size: 24
+                },
+                footerFont: {
+                  size: 24
+                }
+              }
+            },
+            scales: {
+              x: {
+                stacked: true,
+                title: {
+                  display: true,
+                  text: 'Month',
+                  font: {
+                    size: 18,
+                    weight: 'bold'
+                  }
+                }
+              },
+              y: {
+                stacked: true,
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: 'Number of Activities',
+                  font: {
+                    size: 17,
+                    weight: 'bold'
+                  }
+                },
+                ticks: {
+                  stepSize: 1
+                }
+              }
+            },
+            interaction: {
+              mode: 'nearest',
+              axis: 'x',
+              intersect: false
+            }
+          }
+        });
+
+        // Handle window resize to update chart dimensions
+        const handleResize = () => {
+          if (chartInstanceRef.current) {
+            chartInstanceRef.current.resize();
+          }
+        };
+
+        window.addEventListener('resize', handleResize);
+
+        // Cleanup on unmount
+        return () => {
+          window.removeEventListener('resize', handleResize);
+          if (chartInstanceRef.current) {
+            chartInstanceRef.current.destroy();
+          }
+        };
+      }, [filteredChartData]);
+
+      // Calculate totals for summary (based on filtered data)
+      const totalActivities = filteredChartData?.datasets?.reduce((sum, dataset) => {
+        return sum + dataset.data.reduce((a, b) => a + b, 0);
+      }, 0) || 0;
+
+      const activityCount = filteredChartData?.datasets?.length || 0;
+
+      // Handle activity filter change
+      const handleActivityFilterChange = (e) => {
+        const options = Array.from(e.target.selectedOptions, option => option.value);
+        setSelectedActivities(options);
+      };
+
+      // Download chart as PDF
+      const handleDownloadPDF = () => {
+        if (!chartRef.current) return;
+
+        try {
+          const canvas = chartRef.current;
+          const imgData = canvas.toDataURL('image/png', 1.0);
+
+          // Create PDF in landscape orientation for better chart display
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF('landscape', 'mm', 'a4');
+
+          // Get page dimensions
+          const pageWidth = pdf.internal.pageSize.getWidth();
+          const pageHeight = pdf.internal.pageSize.getHeight();
+
+          // Add title
+          pdf.setFontSize(20);
+          pdf.setTextColor(3, 78, 106); // --gw-navy color
+          pdf.text('Marketing Calendar Activities by Month', pageWidth / 2, 15, { align: 'center' });
+
+          // Add date
+          pdf.setFontSize(10);
+          pdf.setTextColor(100);
+          const today = new Date().toLocaleDateString();
+          pdf.text(`Generated: ${today}`, pageWidth / 2, 22, { align: 'center' });
+
+          // Add filter info if filters are active
+          if (selectedActivities.length > 0) {
+            pdf.setFontSize(10);
+            pdf.text(`Filtered by: ${selectedActivities.join(', ')}`, pageWidth / 2, 28, { align: 'center' });
+          }
+
+          // Calculate image dimensions to fit the page with margins
+          const margin = 15;
+          const imgWidth = pageWidth - (margin * 2);
+          const imgHeight = (canvas.height / canvas.width) * imgWidth;
+
+          // Position the image
+          const yPosition = selectedActivities.length > 0 ? 35 : 30;
+
+          // Add the chart image
+          pdf.addImage(imgData, 'PNG', margin, yPosition, imgWidth, Math.min(imgHeight, pageHeight - yPosition - margin));
+
+          // Save the PDF
+          const fileName = `Marketing_Activities_Chart_${today.replace(/\//g, '-')}.pdf`;
+          pdf.save(fileName);
+
+        } catch (error) {
+          console.error('Error generating PDF:', error);
+          alert('Failed to generate PDF. Please try again.');
+        }
+      };
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, padding: '1rem', overflow: 'auto' }}>
+          {/* Activity Filter */}
+          <div className="card mb-3">
+            <div className="card-body py-2">
+              <div className="row align-items-center">
+                <div className="col-md-3">
+                  <label className="form-label mb-1 fw-bold">Filter by Activity Type</label>
+                  <select
+                    className="form-select"
+                    multiple
+                    size="4"
+                    value={selectedActivities}
+                    onChange={handleActivityFilterChange}
+                    style={{ fontSize: '0.85rem' }}
+                  >
+                    {activityOptions.map((activity, idx) => (
+                      <option key={idx} value={activity}>{activity}</option>
+                    ))}
+                  </select>
+                  <small className="text-muted">
+                    {selectedActivities.length === 0
+                      ? 'Showing all activities (Ctrl+click to select)'
+                      : `${selectedActivities.length} selected`}
+                  </small>
+                </div>
+                <div className="col-md-9 d-flex align-items-center gap-2">
+                  {selectedActivities.length > 0 && (
+                    <button
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={() => setSelectedActivities([])}
+                    >
+                      Clear Filter
+                    </button>
+                  )}
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={handleDownloadPDF}
+                    disabled={!filteredChartData || !filteredChartData.datasets || filteredChartData.datasets.length === 0}
+                  >
+                    Download PDF
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Summary Stats */}
+          <div className="row mb-3">
+            <div className="col-md-4">
+              <div className="card bg-light">
+                <div className="card-body py-2">
+                  <h6 className="card-subtitle text-muted">Total Activities</h6>
+                  <h4 className="card-title mb-0">{totalActivities}</h4>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-4">
+              <div className="card bg-light">
+                <div className="card-body py-2">
+                  <h6 className="card-subtitle text-muted">Activity Types</h6>
+                  <h4 className="card-title mb-0">{activityCount}</h4>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-4">
+              <div className="card bg-light">
+                <div className="card-body py-2">
+                  <h6 className="card-subtitle text-muted">Months Tracked</h6>
+                  <h4 className="card-title mb-0">{chartData?.labels?.length || 0}</h4>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Chart Container */}
+          <div className="card flex-grow-1" style={{ minHeight: '400px', display: 'flex', flexDirection: 'column' }}>
+            <div className="card-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              {filteredChartData && filteredChartData.labels && filteredChartData.labels.length > 0 ? (
+                <div style={{ flex: 1, position: 'relative', minHeight: '350px' }}>
+                  <canvas ref={chartRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}></canvas>
+                </div>
+              ) : (
+                <div className="d-flex justify-content-center align-items-center h-100">
+                  <div className="text-center text-muted">
+                    <p>No chart data available.</p>
+                    <p className="small">Make sure the MarketingCalendarStats sheet exists and has data.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Error display */}
+          {chartData?.error && (
+            <div className="alert alert-warning mt-3">
+              {chartData.error}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Partner Activities Tab Component
+    function PartnerActivitiesTab({ data, onRefresh }) {
+      const [filterPartner, setFilterPartner] = useState('');
+      const [filterStatus, setFilterStatus] = useState('');
+      const [columnsByBoard, setColumnsByBoard] = useState({});
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
+      const [showAddModal, setShowAddModal] = useState(false);
+      const [selectedPartnerForAdd, setSelectedPartnerForAdd] = useState(null);
+
+      // Get unique partners and statuses for filters
+      const partners = useMemo(() => {
+        return [...new Set(data.map(d => d['Partner Name'] || d['Partner']).filter(Boolean))].sort();
+      }, [data]);
+
+      const statuses = useMemo(() => {
+        return [...new Set(data.map(d => d['Activity Status'] || d['Status']).filter(Boolean))].sort();
+      }, [data]);
+
+      // Filter data
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          const partner = item['Partner Name'] || item['Partner'] || '';
+          const status = item['Activity Status'] || item['Status'] || '';
+          if (filterPartner && partner !== filterPartner) return false;
+          if (filterStatus && status !== filterStatus) return false;
+          return true;
+        });
+      }, [data, filterPartner, filterStatus]);
+
+      // Load column metadata for a board
+      const loadColumnMetadata = async (boardId) => {
+        if (!boardId || columnsByBoard[boardId]) return;
+        try {
+          const cols = await api.call('getBoardColumnsStructure', boardId);
+          setColumnsByBoard(prev => ({ ...prev, [boardId]: cols || [] }));
+        } catch (err) {
+          console.error('Error loading columns for board', boardId, err);
+        }
+      };
+
+      // Handle edit click
+      const handleEdit = async (item) => {
+        const boardId = item['Board ID'];
+        if (boardId && !columnsByBoard[boardId]) {
+          await loadColumnMetadata(boardId);
+        }
+        setEditingItem(item);
+      };
+
+      // Handle delete click
+      const handleDelete = (item) => {
+        setDeletingItem(item);
+      };
+
+      // Handle save edit
+      const handleSaveEdit = (updatedData) => {
+        setEditingItem(null);
+        onRefresh();
+      };
+
+      // Handle confirm delete
+      const handleConfirmDelete = () => {
+        setDeletingItem(null);
+        onRefresh();
+      };
+
+      // Handle add new - need to select partner first
+      const handleAddNew = () => {
+        setShowAddModal(true);
+      };
+
+      // Handle partner selection for add
+      const handlePartnerSelected = async (partnerName) => {
+        try {
+          const boardId = await api.call('getBoardIdForPartner', partnerName);
+          if (boardId && !columnsByBoard[boardId]) {
+            await loadColumnMetadata(boardId);
+          }
+          setSelectedPartnerForAdd({ name: partnerName, boardId });
+        } catch (err) {
+          console.error('Error getting board for partner:', err);
+          alert('Could not find board for partner: ' + partnerName);
+        }
+      };
+
+      // Handle create new item
+      const handleCreate = (newItem) => {
+        setShowAddModal(false);
+        setSelectedPartnerForAdd(null);
+        onRefresh();
+      };
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          {/* Filters */}
+          <div className="filter-section">
+            <div className="row g-2 align-items-end">
+              <div className="col-md-3">
+                <label className="form-label">Partner</label>
+                <select className="form-select form-select-sm" value={filterPartner} onChange={e => setFilterPartner(e.target.value)}>
+                  <option value="">All Partners</option>
+                  {partners.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div className="col-md-3">
+                <label className="form-label">Status</label>
+                <select className="form-select form-select-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                  <option value="">All Statuses</option>
+                  {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="col-md-3">
+                <span className="text-muted">Showing {filteredData.length} of {data.length}</span>
+              </div>
+              <div className="col-md-3 text-end">
+                <button className="btn btn-success btn-sm" onClick={handleAddNew}>
+                  <i className="bi bi-plus-circle me-1"></i>New Item
+                </button>
+              </div>
+            </div>
+          </div>
+          {/* Table */}
+          <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <table className="table table-striped table-hover table-sm">
+                <thead className="table-light sticky-top">
+                  <tr>
+                    <th>Activity</th>
+                    <th>Partner</th>
+                    <th>Status</th>
+                    <th>Owner</th>
+                    <th>Due Date</th>
+                    <th style={{ width: '100px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={item['Monday Item ID'] || idx}>
+                      <td>{item['Name'] || item['Item Name'] || ''}</td>
+                      <td>{item['Partner Name'] || item['Partner'] || ''}</td>
+                      <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
+                      <td>{item['Owner'] || ''}</td>
+                      <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+                      <td>
+                        <div className="action-buttons">
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
+                            Edit
+                          </button>
+                          <button className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(item)} title="Delete">
+                            Del
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Edit Modal */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={editingItem['Board ID']}
+              columns={columnsByBoard[editingItem['Board ID']] || []}
+              onClose={() => setEditingItem(null)}
+              onSave={handleSaveEdit}
+              partnerOptions={partners}
+            />
+          )}
+
+          {/* Delete Modal */}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={deletingItem['Board ID']}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleConfirmDelete}
+            />
+          )}
+
+          {/* Add Modal - Partner Selection First */}
+          {showAddModal && !selectedPartnerForAdd && (
+            <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+              <div className="modal-dialog">
+                <div className="modal-content">
+                  <div className="modal-header">
+                    <h5 className="modal-title">Select Partner</h5>
+                    <button type="button" className="btn-close" onClick={() => setShowAddModal(false)}></button>
+                  </div>
+                  <div className="modal-body">
+                    <p>Select a partner to add a new activity:</p>
+                    <select className="form-select" onChange={(e) => e.target.value && handlePartnerSelected(e.target.value)}>
+                      <option value="">Choose partner...</option>
+                      {partners.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="modal-footer">
+                    <button className="btn btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Add Modal - Item Form */}
+          {showAddModal && selectedPartnerForAdd && (
+            <AddItemModal
+              boardId={selectedPartnerForAdd.boardId}
+              columns={columnsByBoard[selectedPartnerForAdd.boardId] || []}
+              onClose={() => { setShowAddModal(false); setSelectedPartnerForAdd(null); }}
+              onCreate={handleCreate}
+              partnerOptions={partners}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // Partner Heatmap Tab Component
+    function PartnerHeatmapTab({ data, onRefresh }) {
+      const [filterTemperature, setFilterTemperature] = useState('');
+      const [columnsByBoard, setColumnsByBoard] = useState({});
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
+
+      // Get unique temperatures for filter
+      const temperatures = useMemo(() => {
+        return [...new Set(data.map(d => d['Temperature']).filter(Boolean))].sort();
+      }, [data]);
+
+      // Filter data
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          if (filterTemperature && item['Temperature'] !== filterTemperature) return false;
+          return true;
+        });
+      }, [data, filterTemperature]);
+
+      // Get temperature badge class
+      const getTempBadgeClass = (temp) => {
+        if (!temp) return 'bg-secondary';
+        const t = temp.toLowerCase();
+        if (t.includes('hot') || t.includes('red')) return 'bg-danger';
+        if (t.includes('warm') || t.includes('yellow')) return 'bg-warning text-dark';
+        if (t.includes('cold') || t.includes('blue')) return 'bg-info';
+        if (t.includes('green')) return 'bg-success';
+        return 'bg-secondary';
+      };
+
+      // Load column metadata for a board
+      const loadColumnMetadata = async (boardId) => {
+        if (!boardId || columnsByBoard[boardId]) return;
+        try {
+          const cols = await api.call('getBoardColumnsStructure', boardId);
+          setColumnsByBoard(prev => ({ ...prev, [boardId]: cols || [] }));
+        } catch (err) {
+          console.error('Error loading columns for board', boardId, err);
+        }
+      };
+
+      // Handle edit click
+      const handleEdit = async (item) => {
+        const boardId = item['Board ID'];
+        if (boardId && !columnsByBoard[boardId]) {
+          await loadColumnMetadata(boardId);
+        }
+        setEditingItem(item);
+      };
+
+      // Handle delete click
+      const handleDelete = (item) => {
+        setDeletingItem(item);
+      };
+
+      // Handle save edit
+      const handleSaveEdit = (updatedData) => {
+        setEditingItem(null);
+        onRefresh();
+      };
+
+      // Handle confirm delete
+      const handleConfirmDelete = () => {
+        setDeletingItem(null);
+        onRefresh();
+      };
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          {/* Filters */}
+          <div className="filter-section">
+            <div className="row g-2 align-items-end">
+              <div className="col-md-3">
+                <label className="form-label">Temperature</label>
+                <select className="form-select form-select-sm" value={filterTemperature} onChange={e => setFilterTemperature(e.target.value)}>
+                  <option value="">All</option>
+                  {temperatures.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="col-md-3">
+                <span className="text-muted">Showing {filteredData.length} of {data.length}</span>
+              </div>
+            </div>
+          </div>
+          {/* Table */}
+          <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <table className="table table-striped table-hover table-sm">
+                <thead className="table-light sticky-top">
+                  <tr>
+                    <th>Partner</th>
+                    <th>Temperature</th>
+                    <th>Engagement</th>
+                    <th>Alliance Manager</th>
+                    <th>Summary</th>
+                    <th style={{ width: '100px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.map((item, idx) => (
+                    <tr key={item['Board ID'] || idx}>
+                      <td>{item['Partner Name'] || item['Board Name'] || ''}</td>
+                      <td><span className={`badge ${getTempBadgeClass(item['Temperature'])}`}>{item['Temperature'] || ''}</span></td>
+                      <td>{item['Engagement'] || ''}</td>
+                      <td>{item['Alliance Manager'] || ''}</td>
+                      <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item['Summary of Partner Activities'] || ''}>
+                        {item['Summary of Partner Activities'] || ''}
+                      </td>
+                      <td>
+                        <div className="action-buttons">
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
+                            Edit
+                          </button>
+                          <button className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(item)} title="Delete">
+                            Del
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Edit Modal */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={editingItem['Board ID']}
+              columns={columnsByBoard[editingItem['Board ID']] || []}
+              onClose={() => setEditingItem(null)}
+              onSave={handleSaveEdit}
+            />
+          )}
+
+          {/* Delete Modal */}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={deletingItem['Board ID']}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleConfirmDelete}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // Internal Activities Tab Component
+    function InternalActivitiesTab({ data, boardNames, onRefresh }) {
+      // Default to first board if available
+      const [selectedBoard, setSelectedBoard] = useState(boardNames[0] || '');
+      const [filterStatus, setFilterStatus] = useState('');
+      const [columnsByBoard, setColumnsByBoard] = useState({});
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
+      const [showAddModal, setShowAddModal] = useState(false);
+      const [selectedBoardIdForAdd, setSelectedBoardIdForAdd] = useState(null);
+
+      // Update selected board when boardNames loads
+      useEffect(() => {
+        if (boardNames.length > 0 && !selectedBoard) {
+          setSelectedBoard(boardNames[0]);
+        }
+      }, [boardNames]);
+
+      // Get unique statuses for selected board
+      const statuses = useMemo(() => {
+        const boardData = data.filter(d => (d['Board Name'] || '') === selectedBoard);
+        return [...new Set(boardData.map(d => d['Activity Status'] || d['Status']).filter(Boolean))].sort();
+      }, [data, selectedBoard]);
+
+      // Filter data by selected board and status
+      const filteredData = useMemo(() => {
+        return data.filter(item => {
+          const board = item['Board Name'] || '';
+          const status = item['Activity Status'] || item['Status'] || '';
+          if (board !== selectedBoard) return false;
+          if (filterStatus && status !== filterStatus) return false;
+          return true;
+        });
+      }, [data, selectedBoard, filterStatus]);
+
+      // Get count per board
+      const getBoardCount = (boardName) => {
+        return data.filter(d => (d['Board Name'] || '') === boardName).length;
+      };
+
+      // Get board ID for selected board name
+      const getBoardIdForSelectedBoard = () => {
+        const item = data.find(d => d['Board Name'] === selectedBoard);
+        return item ? item['Board ID'] : null;
+      };
+
+      // Load column metadata for a board
+      const loadColumnMetadata = async (boardId) => {
+        if (!boardId || columnsByBoard[boardId]) return;
+        try {
+          const cols = await api.call('getBoardColumnsStructure', boardId);
+          setColumnsByBoard(prev => ({ ...prev, [boardId]: cols || [] }));
+        } catch (err) {
+          console.error('Error loading columns for board', boardId, err);
+        }
+      };
+
+      // Handle edit click
+      const handleEdit = async (item) => {
+        const boardId = item['Board ID'];
+        if (boardId && !columnsByBoard[boardId]) {
+          await loadColumnMetadata(boardId);
+        }
+        setEditingItem(item);
+      };
+
+      // Handle delete click
+      const handleDelete = (item) => {
+        setDeletingItem(item);
+      };
+
+      // Handle save edit
+      const handleSaveEdit = (updatedData) => {
+        setEditingItem(null);
+        onRefresh();
+      };
+
+      // Handle confirm delete
+      const handleConfirmDelete = () => {
+        setDeletingItem(null);
+        onRefresh();
+      };
+
+      // Handle add new
+      const handleAddNew = async () => {
+        const boardId = getBoardIdForSelectedBoard();
+        if (boardId) {
+          if (!columnsByBoard[boardId]) {
+            await loadColumnMetadata(boardId);
+          }
+          setSelectedBoardIdForAdd(boardId);
+          setShowAddModal(true);
+        } else {
+          alert('Could not find board ID for selected board');
+        }
+      };
+
+      // Handle create new item
+      const handleCreate = (newItem) => {
+        setShowAddModal(false);
+        setSelectedBoardIdForAdd(null);
+        onRefresh();
+      };
+
+      return (
+        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+          {/* Vertical Board Tabs on Left */}
+          <div className="nav flex-column" style={{ minWidth: '180px', borderRight: '1px solid #dee2e6', paddingRight: '0.5rem', marginRight: '1rem' }}>
+            {boardNames.map((board) => (
+              <button
+                key={board}
+                onClick={() => { setSelectedBoard(board); setFilterStatus(''); }}
+                type="button"
+                className="text-start mb-1"
+                style={{
+                  backgroundColor: selectedBoard === board ? '#00739d' : 'transparent',
+                  color: selectedBoard === board ? 'white' : '#00739d',
+                  fontWeight: selectedBoard === board ? '600' : '400',
+                  border: selectedBoard === board ? '1px solid #00739d' : '1px solid #dee2e6',
+                  borderRadius: '4px',
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  transition: 'all 0.15s ease-in-out'
+                }}
+              >
+                {board} ({getBoardCount(board)})
+              </button>
+            ))}
+          </div>
+
+          {/* Main Content Area */}
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+            {/* Status Filter and Add Button */}
+            <div className="filter-section" style={{ marginBottom: '0.5rem' }}>
+              <div className="row g-2 align-items-end">
+                <div className="col-md-3">
+                  <label className="form-label">Status</label>
+                  <select className="form-select form-select-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                    <option value="">All Statuses</option>
+                    {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="col-md-3">
+                  <span className="text-muted">Showing {filteredData.length} items</span>
+                </div>
+                <div className="col-md-6 text-end">
+                  <button className="btn btn-success btn-sm" onClick={handleAddNew}>
+                    <i className="bi bi-plus-circle me-1"></i>New Item
+                  </button>
+                </div>
+              </div>
+            </div>
+            {/* Table */}
+            <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                <table className="table table-striped table-hover table-sm">
+                  <thead className="table-light sticky-top">
+                    <tr>
+                      <th>Activity</th>
+                      <th>Status</th>
+                      <th>Owner</th>
+                      <th>Priority</th>
+                      <th>Due Date</th>
+                      <th style={{ width: '100px' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredData.map((item, idx) => (
+                      <tr key={item['Monday Item ID'] || idx}>
+                        <td>{item['Name'] || item['Item Name'] || ''}</td>
+                        <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
+                        <td>{item['Owner'] || ''}</td>
+                        <td>{item['Importance'] || item['Priority'] || ''}</td>
+                        <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+                        <td>
+                          <div className="action-buttons">
+                            <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
+                              Edit
+                            </button>
+                            <button className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(item)} title="Delete">
+                              Del
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Edit Modal */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={editingItem['Board ID']}
+              columns={columnsByBoard[editingItem['Board ID']] || []}
+              onClose={() => setEditingItem(null)}
+              onSave={handleSaveEdit}
+            />
+          )}
+
+          {/* Delete Modal */}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={deletingItem['Board ID']}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleConfirmDelete}
+            />
+          )}
+
+          {/* Add Modal */}
+          {showAddModal && selectedBoardIdForAdd && (
+            <AddItemModal
+              boardId={selectedBoardIdForAdd}
+              columns={columnsByBoard[selectedBoardIdForAdd] || []}
+              onClose={() => { setShowAddModal(false); setSelectedBoardIdForAdd(null); }}
+              onCreate={handleCreate}
             />
           )}
         </div>
@@ -1435,7 +2859,15 @@
         calendarFilters: {},
         approvals2026Filters: {}
       });
+      const [chartData, setChartData] = useState({ labels: [], datasets: [] });
+      const [flowConfig2026, setFlowConfig2026] = useState({ groups: [], columns: [] });
       const [autoEditItemId, setAutoEditItemId] = useState(editItemIdFromUrl);
+
+      // New tabs data
+      const [partnerActivitiesData, setPartnerActivitiesData] = useState([]);
+      const [partnerHeatmapData, setPartnerHeatmapData] = useState([]);
+      const [internalActivitiesData, setInternalActivitiesData] = useState([]);
+      const [internalBoardNames, setInternalBoardNames] = useState([]);
 
       // Debug logging for deep link
       useEffect(() => {
@@ -1461,14 +2893,20 @@
 
         try {
           // Load all data in parallel
-          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
             api.call('getAll2026Approvals'),
             api.call('getMarketingManagerFilterOptions'),
             api.call('getBoardColumnsStructure', MARKETING_APPROVAL_BOARD_ID),
             api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID),
-            api.call('getBoardColumnsStructure', APPROVALS_2026_BOARD_ID)
+            api.call('getBoardColumnsStructure', APPROVALS_2026_BOARD_ID),
+            api.call('getMarketingCalendarStats'),
+            api.call('get2026FlowConfig'),
+            api.call('getAllPartnerActivitiesUnfiltered'),
+            api.call('getAllPartnerHeatmapUnfiltered'),
+            api.call('getAllInternalActivitiesUnfiltered'),
+            api.call('getInternalActivityBoardNames')
           ]);
 
           setApprovalsData(approvals || []);
@@ -1478,10 +2916,74 @@
           setApprovalColumns(approvalCols || []);
           setCalendarColumns(calendarCols || []);
           setApprovals2026Columns(approvals2026Cols || []);
+          setChartData(statsData || { labels: [], datasets: [] });
+          setFlowConfig2026(flowConfig || { groups: [], columns: [] });
+          setPartnerActivitiesData(partnerActs?.data || []);
+          setPartnerHeatmapData(heatmap || []);
+          setInternalActivitiesData(internalActs?.data || []);
+          setInternalBoardNames(boardNames || []);
 
         } catch (err) {
           console.error('Error loading data:', err);
           setError('Failed to load data. Please try refreshing the page.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      // Refresh data from Monday.com (sync boards, clear caches, then reload)
+      const refreshFromMonday = async () => {
+        setLoading(true);
+        setError(null);
+
+        try {
+          // First, sync from Monday.com and clear caches
+          console.log('Refreshing data from Monday.com...');
+          const result = await api.call('refreshMarketingDataFromMonday');
+
+          if (!result.success) {
+            console.error('Refresh from Monday failed:', result.message);
+            setError('Failed to sync from Monday.com: ' + result.message);
+            setLoading(false);
+            return;
+          }
+
+          console.log('Monday sync complete, now loading fresh data...');
+
+          // Then load the fresh data
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames] = await Promise.all([
+            api.call('getAllMarketingApprovals'),
+            api.call('getAllMarketingCalendar'),
+            api.call('getAll2026Approvals'),
+            api.call('getMarketingManagerFilterOptions'),
+            api.call('getBoardColumnsStructure', MARKETING_APPROVAL_BOARD_ID),
+            api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID),
+            api.call('getBoardColumnsStructure', APPROVALS_2026_BOARD_ID),
+            api.call('getMarketingCalendarStats'),
+            api.call('get2026FlowConfig'),
+            api.call('getAllPartnerActivitiesUnfiltered'),
+            api.call('getAllPartnerHeatmapUnfiltered'),
+            api.call('getAllInternalActivitiesUnfiltered'),
+            api.call('getInternalActivityBoardNames')
+          ]);
+
+          setApprovalsData(approvals || []);
+          setCalendarData(calendar || []);
+          setApprovals2026Data(approvals2026 || []);
+          setFilterOptions(filters || { approvalFilters: {}, calendarFilters: {}, approvals2026Filters: {} });
+          setApprovalColumns(approvalCols || []);
+          setCalendarColumns(calendarCols || []);
+          setApprovals2026Columns(approvals2026Cols || []);
+          setChartData(statsData || { labels: [], datasets: [] });
+          setFlowConfig2026(flowConfig || { groups: [], columns: [] });
+          setPartnerActivitiesData(partnerActs?.data || []);
+          setPartnerHeatmapData(heatmap || []);
+          setInternalActivitiesData(internalActs?.data || []);
+          setInternalBoardNames(boardNames || []);
+
+        } catch (err) {
+          console.error('Error refreshing from Monday:', err);
+          setError('Failed to refresh data from Monday.com. Please try again.');
         } finally {
           setLoading(false);
         }
@@ -1493,8 +2995,8 @@
           <div className="header">
             <div className="d-flex justify-content-between align-items-center">
               <h1>Marketing Manager Portal</h1>
-              <button className="btn btn-light btn-sm" onClick={loadData} disabled={loading}>
-                {loading ? 'Loading...' : 'Refresh Data'}
+              <button className="btn btn-light btn-sm" onClick={refreshFromMonday} disabled={loading}>
+                {loading ? 'Syncing from Monday...' : 'Refresh Data'}
               </button>
             </div>
           </div>
@@ -1508,7 +3010,7 @@
             )}
 
             {/* Tabs */}
-            <ul className="nav nav-tabs">
+            <ul className="nav nav-tabs" style={{ flexWrap: 'wrap' }}>
               <li className="nav-item">
                 <button
                   className={`nav-link ${activeTab === 'approvals' ? 'active' : ''}`}
@@ -1533,6 +3035,38 @@
                   2026 Approvals ({approvals2026Data.length})
                 </button>
               </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'stats' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('stats')}
+                >
+                  Activity Stats
+                </button>
+              </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'partnerActivities' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('partnerActivities')}
+                >
+                  Partner Activities ({partnerActivitiesData.length})
+                </button>
+              </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'heatmap' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('heatmap')}
+                >
+                  Partner Heatmap ({partnerHeatmapData.length})
+                </button>
+              </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'internalActivities' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('internalActivities')}
+                >
+                  Internal Activities ({internalActivitiesData.length})
+                </button>
+              </li>
             </ul>
 
             {/* Tab Content */}
@@ -1543,7 +3077,7 @@
                 </div>
               </div>
             ) : (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div className="tab-content-container">
                 {activeTab === 'approvals' && (
                   <MarketingApprovalsTab
                     data={approvalsData}
@@ -1569,9 +3103,35 @@
                     data={approvals2026Data}
                     filterOptions={filterOptions.approvals2026Filters || {}}
                     columns={approvals2026Columns}
+                    flowConfig={flowConfig2026}
                     onRefresh={loadData}
                     autoEditItemId={String(editBoardIdFromUrl) === APPROVALS_2026_BOARD_ID ? autoEditItemId : null}
                     onAutoEditHandled={handleAutoEditHandled}
+                  />
+                )}
+                {activeTab === 'stats' && (
+                  <MarketingStatsTab
+                    chartData={chartData}
+                    onRefresh={loadData}
+                  />
+                )}
+                {activeTab === 'partnerActivities' && (
+                  <PartnerActivitiesTab
+                    data={partnerActivitiesData}
+                    onRefresh={loadData}
+                  />
+                )}
+                {activeTab === 'heatmap' && (
+                  <PartnerHeatmapTab
+                    data={partnerHeatmapData}
+                    onRefresh={loadData}
+                  />
+                )}
+                {activeTab === 'internalActivities' && (
+                  <InternalActivitiesTab
+                    data={internalActivitiesData}
+                    boardNames={internalBoardNames}
+                    onRefresh={loadData}
                   />
                 )}
               </div>
