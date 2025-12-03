@@ -300,25 +300,319 @@ function testGetManagerList() {
     const managers = getManagerList();
     console.log('Manager List Test Results:');
     console.log('Total managers found:', managers.length);
-    
+
     if (managers.length > 0) {
       console.log('First 5 managers:', managers.slice(0, 5));
     } else {
       console.log('No managers found - check AllianceManager sheet');
     }
-    
+
     // Test cache
     const cachedManagers = getManagerList(); // Should come from cache
     console.log('Cache working:', cachedManagers.length === managers.length);
-    
+
     // Test isManager function
     if (managers.length > 0) {
       console.log('isManager test:', isManager(managers[0]));
     }
-    
+
     return managers;
   } catch (error) {
     console.error('Test failed:', error);
     return null;
+  }
+}
+
+/**
+ * Get manager authorization data from TechAllianceManager sheet
+ * Returns which Monday board tabs to show, the user's role, and their reports (for Manager role)
+ * @param {string} managerEmail - Manager's email address
+ * @returns {Object} Authorization data containing:
+ *   - mondayBoards: Array of board tab names the user can access
+ *   - role: User's role (User, Manager, Admin, SrDirector)
+ *   - reports: Comma-separated list of names (for Manager role)
+ *   - managerName: The manager's name
+ */
+function getManagerAuthorization(managerEmail) {
+  try {
+    if (!managerEmail || typeof managerEmail !== 'string') {
+      console.log('getManagerAuthorization: Invalid manager email provided');
+      return {
+        mondayBoards: [],
+        role: 'User',
+        reports: '',
+        managerName: ''
+      };
+    }
+
+    const searchEmail = managerEmail.trim().toLowerCase();
+    console.log(`Getting authorization for manager: "${managerEmail}"`);
+
+    // Check cache first
+    const cache = CacheService.getScriptCache();
+    const cacheKey = `manager_auth_${searchEmail.replace(/[@.]/g, '_')}`;
+    const cached = cache.get(cacheKey);
+
+    if (cached) {
+      try {
+        console.log(`Found cached authorization for ${managerEmail}`);
+        return JSON.parse(cached);
+      } catch (e) {
+        console.log('Cache parse error, fetching fresh data');
+      }
+    }
+
+    // Get the TechAllianceManager sheet
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('TechAllianceManager');
+
+    if (!sheet) {
+      console.error('TechAllianceManager sheet not found');
+      return {
+        mondayBoards: [],
+        role: 'User',
+        reports: '',
+        managerName: ''
+      };
+    }
+
+    // Get all data from the sheet
+    const dataRange = sheet.getDataRange();
+    const values = dataRange.getValues();
+
+    if (values.length < 2) {
+      console.log('No data found in TechAllianceManager sheet');
+      return {
+        mondayBoards: [],
+        role: 'User',
+        reports: '',
+        managerName: ''
+      };
+    }
+
+    // Find column indices
+    const headers = values[0];
+    let nameColumnIndex = -1;
+    let emailColumnIndex = -1;
+    let mondayBoardsColumnIndex = -1;
+    let mondayRoleColumnIndex = -1;
+    let reportsColumnIndex = -1;
+
+    for (let i = 0; i < headers.length; i++) {
+      const header = headers[i] ? headers[i].toString().toLowerCase().trim() : '';
+      if (header === 'manager' || header === 'name' || header === 'full name') {
+        nameColumnIndex = i;
+      }
+      if (header === 'email') {
+        emailColumnIndex = i;
+      }
+      if (header === 'mondayboards') {
+        mondayBoardsColumnIndex = i;
+      }
+      if (header === 'mondayrole') {
+        mondayRoleColumnIndex = i;
+      }
+      if (header === 'reports') {
+        reportsColumnIndex = i;
+      }
+    }
+
+    if (emailColumnIndex === -1) {
+      console.error('Email column not found in TechAllianceManager sheet');
+      return {
+        mondayBoards: [],
+        role: 'User',
+        reports: '',
+        managerName: ''
+      };
+    }
+
+    // Default authorization
+    let authorization = {
+      mondayBoards: [],
+      role: 'User',
+      reports: '',
+      managerName: ''
+    };
+
+    // Search for the manager by email
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const email = row[emailColumnIndex] ? row[emailColumnIndex].toString().trim().toLowerCase() : '';
+
+      if (email === searchEmail) {
+        console.log(`Found manager in TechAllianceManager: ${managerEmail}`);
+
+        // Get manager name
+        if (nameColumnIndex !== -1) {
+          authorization.managerName = row[nameColumnIndex] ? row[nameColumnIndex].toString().trim() : '';
+        }
+
+        // Get MondayBoards - comma-separated list of tab names
+        if (mondayBoardsColumnIndex !== -1) {
+          const boardsValue = row[mondayBoardsColumnIndex] ? row[mondayBoardsColumnIndex].toString().trim() : '';
+          authorization.mondayBoards = boardsValue
+            .split(',')
+            .map(board => board.trim())
+            .filter(board => board !== '');
+        }
+
+        // Get MondayRole
+        if (mondayRoleColumnIndex !== -1) {
+          const roleValue = row[mondayRoleColumnIndex] ? row[mondayRoleColumnIndex].toString().trim() : 'User';
+          // Validate role - must be one of the allowed values
+          const validRoles = ['User', 'Manager', 'Admin', 'SrDirector'];
+          authorization.role = validRoles.includes(roleValue) ? roleValue : 'User';
+        }
+
+        // Get Reports - comma-separated list of names (for Manager role)
+        if (reportsColumnIndex !== -1) {
+          authorization.reports = row[reportsColumnIndex] ? row[reportsColumnIndex].toString().trim() : '';
+        }
+
+        break;
+      }
+    }
+
+    console.log(`Authorization for ${managerEmail}:`, JSON.stringify(authorization));
+
+    // Cache the result for 1 hour (3600 seconds)
+    cache.put(cacheKey, JSON.stringify(authorization), 3600);
+
+    return authorization;
+
+  } catch (error) {
+    console.error('Error in getManagerAuthorization:', error);
+    return {
+      mondayBoards: [],
+      role: 'User',
+      reports: '',
+      managerName: ''
+    };
+  }
+}
+
+/**
+ * Clear the manager authorization cache for a specific email
+ * @param {string} managerEmail - Manager's email address
+ */
+function clearManagerAuthorizationCache(managerEmail) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const searchEmail = managerEmail ? managerEmail.trim().toLowerCase() : '';
+    const cacheKey = `manager_auth_${searchEmail.replace(/[@.]/g, '_')}`;
+    cache.remove(cacheKey);
+    console.log(`Manager authorization cache cleared for ${managerEmail}`);
+    return true;
+  } catch (error) {
+    console.error('Error clearing manager authorization cache:', error);
+    return false;
+  }
+}
+
+/**
+ * Get list of report names for a manager (parsed from Reports column)
+ * @param {string} managerEmail - Manager's email address
+ * @returns {string[]} Array of report names
+ */
+function getManagerReportsList(managerEmail) {
+  const authorization = getManagerAuthorization(managerEmail);
+  if (!authorization.reports) {
+    return [];
+  }
+  return authorization.reports
+    .split(',')
+    .map(name => name.trim())
+    .filter(name => name !== '');
+}
+
+/**
+ * Get list of emails for all report names under a manager
+ * Looks up each name in AllianceManager sheet to get their email
+ * @param {string} managerEmail - Manager's email address
+ * @returns {string[]} Array of email addresses for the manager's reports
+ */
+function getManagerReportsEmails(managerEmail) {
+  try {
+    const reportNames = getManagerReportsList(managerEmail);
+    if (reportNames.length === 0) {
+      return [];
+    }
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const managerSheet = spreadsheet.getSheetByName('AllianceManager');
+
+    if (!managerSheet) {
+      console.error('AllianceManager sheet not found');
+      return [];
+    }
+
+    const dataRange = managerSheet.getDataRange();
+    const values = dataRange.getValues();
+
+    if (values.length < 2) {
+      return [];
+    }
+
+    // Find column indices
+    const headers = values[0];
+    let nameColumnIndex = -1;
+    let emailColumnIndex = -1;
+
+    for (let i = 0; i < headers.length; i++) {
+      const header = headers[i] ? headers[i].toString().toLowerCase().trim() : '';
+      if (header === 'manager' || header === 'name' || header === 'full name') {
+        nameColumnIndex = i;
+      }
+      if (header === 'email') {
+        emailColumnIndex = i;
+      }
+    }
+
+    if (emailColumnIndex === -1) {
+      return [];
+    }
+
+    const reportEmails = [];
+
+    // Look up each report name
+    for (const reportName of reportNames) {
+      const searchName = reportName.toLowerCase();
+
+      for (let i = 1; i < values.length; i++) {
+        const row = values[i];
+        const email = row[emailColumnIndex] ? row[emailColumnIndex].toString().trim().toLowerCase() : '';
+
+        // Match by name column if available
+        if (nameColumnIndex !== -1) {
+          const name = row[nameColumnIndex] ? row[nameColumnIndex].toString().trim().toLowerCase() : '';
+          if (name === searchName || name.includes(searchName) || searchName.includes(name)) {
+            if (email && !reportEmails.includes(email)) {
+              reportEmails.push(email);
+            }
+            break;
+          }
+        }
+
+        // Try matching by email username
+        if (email) {
+          const emailUsername = email.split('@')[0];
+          const nameFromEmail = emailUsername.replace(/\./g, ' ').toLowerCase();
+          if (nameFromEmail === searchName || nameFromEmail.includes(searchName)) {
+            if (!reportEmails.includes(email)) {
+              reportEmails.push(email);
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    console.log(`Report emails for ${managerEmail}:`, reportEmails);
+    return reportEmails;
+
+  } catch (error) {
+    console.error('Error in getManagerReportsEmails:', error);
+    return [];
   }
 }
