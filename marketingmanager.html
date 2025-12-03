@@ -1363,7 +1363,7 @@
 
           {/* Edit Modal */}
           {editingItem && (
-            <EditModal
+            <EditItemModal
               item={editingItem}
               boardId={APPROVALS_2026_BOARD_ID}
               columns={columns}
@@ -1384,7 +1384,7 @@
           )}
           {/* Add Modal */}
           {showAddModal && (
-            <AddModal
+            <AddItemModal
               boardId={APPROVALS_2026_BOARD_ID}
               columns={columns}
               onClose={() => setShowAddModal(false)}
