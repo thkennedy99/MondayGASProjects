@@ -3341,7 +3341,8 @@ function get2026FlowConfig() {
       sectionGrouping: -1,
       groupName: -1,
       mondayColumn: -1,
-      value: -1
+      value: -1,
+      mandatory: -1
     };
 
     headerRow.forEach((header, idx) => {
@@ -3351,6 +3352,7 @@ function get2026FlowConfig() {
       else if (h === 'group name' || h === 'groupname') colIndices.groupName = idx;
       else if (h === 'monday column' || h === 'mondaycolumn') colIndices.mondayColumn = idx;
       else if (h === 'value') colIndices.value = idx;
+      else if (h === 'mandatory') colIndices.mandatory = idx;
     });
 
     console.log('Column indices:', JSON.stringify(colIndices));
@@ -3373,13 +3375,16 @@ function get2026FlowConfig() {
       const groupName = colIndices.groupName >= 0 ? row[colIndices.groupName]?.toString().trim() : '';
       const mondayColumn = colIndices.mondayColumn >= 0 ? row[colIndices.mondayColumn]?.toString().trim() : '';
       const value = colIndices.value >= 0 ? row[colIndices.value]?.toString().trim() : '';
+      const mandatoryRaw = colIndices.mandatory >= 0 ? row[colIndices.mandatory]?.toString().trim().toLowerCase() : '';
+      const mandatory = mandatoryRaw === 'yes' || mandatoryRaw === 'true' || mandatoryRaw === 'y' || mandatoryRaw === '1';
 
       if (columnId && sectionGrouping) {
         columns.push({
           columnId: columnId,
           group: sectionGrouping,
           groupName: groupName || sectionGrouping,
-          condition: mondayColumn ? { columnId: mondayColumn, value: value } : null
+          condition: mondayColumn ? { columnId: mondayColumn, value: value } : null,
+          mandatory: mandatory
         });
 
         // Track groups in order they appear
