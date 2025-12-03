@@ -3047,6 +3047,9 @@ function getAll2026Approvals() {
 /**
  * Debug function to test 2026 Approvals data retrieval
  * Run this manually to check if data is being fetched correctly
+ *
+ * IMPORTANT: Run sync2026ApprovalsBoard() or syncAllMarketingBoards() first
+ * to populate the Approvals2026 sheet from Monday.com
  */
 function debug2026ApprovalsData() {
   console.log('=== DEBUG 2026 APPROVALS DATA ===');
@@ -3058,6 +3061,7 @@ function debug2026ApprovalsData() {
     console.log('Sync result:', JSON.stringify(syncResult));
   } catch (e) {
     console.error('Sync failed:', e);
+    console.error('Error details:', e.stack);
   }
 
   // Then, clear cache and fetch fresh data
@@ -3067,15 +3071,42 @@ function debug2026ApprovalsData() {
   console.log('Cache cleared');
 
   // Fetch fresh data
-  console.log('Step 3: Fetching data...');
+  console.log('Step 3: Fetching data from spreadsheet...');
   const data = getAll2026Approvals();
   console.log('Data returned:', data.length, 'items');
 
   if (data.length > 0) {
     console.log('First item:', JSON.stringify(data[0]));
+  } else {
+    console.log('NO DATA FOUND - Check if:');
+    console.log('  1. The Monday board 18389979949 has items');
+    console.log('  2. The sync completed without errors');
+    console.log('  3. The Approvals2026 sheet exists and has data');
   }
 
   return { success: true, itemCount: data.length, sampleItem: data[0] || null };
+}
+
+/**
+ * One-time setup function to populate all Marketing Manager sheets
+ * Run this from the script editor to initially populate:
+ * - MarketingApproval sheet
+ * - MarketingCalendar sheet
+ * - Approvals2026 sheet
+ */
+function setupMarketingManagerSheets() {
+  console.log('=== MARKETING MANAGER SHEETS SETUP ===');
+  console.log('This will sync all marketing boards from Monday.com to the spreadsheet');
+
+  const results = syncAllMarketingBoards();
+
+  console.log('');
+  console.log('=== SETUP COMPLETE ===');
+  console.log('Marketing Approval items:', results.marketingApproval?.itemCount || 0);
+  console.log('Marketing Calendar items:', results.marketingCalendar?.itemCount || 0);
+  console.log('2026 Approvals items:', results.approvals2026?.itemCount || 0);
+
+  return results;
 }
 
 /**

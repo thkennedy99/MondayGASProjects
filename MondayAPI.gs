@@ -1876,6 +1876,53 @@ function sync2026ApprovalsBoard() {
 }
 
 /**
+ * Sync ALL Marketing Boards from Monday to Google Sheets
+ * Run this function to populate all marketing-related sheets
+ * Includes: Marketing Approval, Marketing Calendar, 2026 Approvals
+ */
+function syncAllMarketingBoards() {
+  console.log('=== syncAllMarketingBoards START ===');
+
+  const results = {
+    marketingApproval: null,
+    marketingCalendar: null,
+    approvals2026: null
+  };
+
+  try {
+    console.log('1. Syncing Marketing Approval Board...');
+    results.marketingApproval = syncMarketingApprovalBoard();
+    console.log('   Marketing Approval sync complete:', results.marketingApproval);
+  } catch (e) {
+    console.error('   Marketing Approval sync failed:', e);
+    results.marketingApproval = { success: false, error: e.toString() };
+  }
+
+  try {
+    console.log('2. Syncing Marketing Calendar Board...');
+    results.marketingCalendar = syncMarketingCalendarBoard();
+    console.log('   Marketing Calendar sync complete:', results.marketingCalendar);
+  } catch (e) {
+    console.error('   Marketing Calendar sync failed:', e);
+    results.marketingCalendar = { success: false, error: e.toString() };
+  }
+
+  try {
+    console.log('3. Syncing 2026 Approvals Board...');
+    results.approvals2026 = sync2026ApprovalsBoard();
+    console.log('   2026 Approvals sync complete:', results.approvals2026);
+  } catch (e) {
+    console.error('   2026 Approvals sync failed:', e);
+    results.approvals2026 = { success: false, error: e.toString() };
+  }
+
+  console.log('=== syncAllMarketingBoards END ===');
+  console.log('Results:', JSON.stringify(results, null, 2));
+
+  return results;
+}
+
+/**
  * Sync Partner Activities (MondayData sheet) from Monday to Google Sheets
  * Exposed function that can be called from the UI
  */
