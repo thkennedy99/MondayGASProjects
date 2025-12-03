@@ -2353,6 +2353,22 @@ function getBoardColumnsStructure(boardId) {
     const monday = new MondayAPI();
     const columns = monday.getBoardColumns(boardId);
 
+    // Log each column name and ID on its own line (avoids log truncation)
+    console.log('');
+    console.log('=== COLUMN LIST (Copy-Paste Ready) ===');
+    console.log('Board ID: ' + boardId);
+    console.log('Column Name, Column ID');
+    console.log('------------------------');
+
+    // Log each column individually to avoid truncation
+    columns.forEach(col => {
+      console.log(col.title + ', ' + col.id);
+    });
+
+    console.log('------------------------');
+    console.log('Total columns: ' + columns.length);
+    console.log('');
+
     // Return simplified column structure
     return columns.map(col => ({
       id: col.id,
