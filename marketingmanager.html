@@ -32,6 +32,7 @@
 
     html, body {
       height: 100%;
+      height: 100vh;
       margin: 0;
       overflow: hidden;
     }
@@ -43,8 +44,18 @@
 
     #root {
       height: 100%;
+      height: 100vh;
       display: flex;
       flex-direction: column;
+    }
+
+    /* Tab content container - ensure proper resize */
+    .tab-content-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .app-container {
@@ -815,7 +826,7 @@
       };
 
       return (
-        <div className="d-flex flex-column" style={{ height: '100%' }}>
+        <div className="d-flex flex-column" style={{ flex: 1, minHeight: 0 }}>
           {/* Filters */}
           <div className="filter-section">
             <div className="d-flex justify-content-between align-items-center mb-2">
@@ -1009,7 +1020,7 @@
       };
 
       return (
-        <div className="d-flex flex-column" style={{ height: '100%' }}>
+        <div className="d-flex flex-column" style={{ flex: 1, minHeight: 0 }}>
           {/* Filters */}
           <div className="filter-section">
             <div className="d-flex justify-content-between align-items-center mb-2">
@@ -1292,7 +1303,7 @@
       ];
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
           {/* Filter Section */}
           <div className="filter-section">
             <div className="d-flex justify-content-between align-items-center mb-2">
@@ -1319,14 +1330,14 @@
           </div>
 
           {/* Data Section */}
-          <div className="data-section">
+          <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div className="add-btn-container d-flex justify-content-between align-items-center">
               <span className="result-count mb-0">Showing {filteredData.length} of {data.length} items</span>
               <button className="btn btn-primary btn-sm" onClick={() => setShowAddModal(true)}>
                 + Add 2026 Approval
               </button>
             </div>
-            <div className="table-responsive" style={{ maxHeight: 'calc(100vh - 400px)', overflow: 'auto' }}>
+            <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
               <table className="table table-sm table-striped table-hover compact-table">
                 <thead className="table-light sticky-top">
                   <tr>
@@ -1526,8 +1537,18 @@
           }
         });
 
+        // Handle window resize to update chart dimensions
+        const handleResize = () => {
+          if (chartInstanceRef.current) {
+            chartInstanceRef.current.resize();
+          }
+        };
+
+        window.addEventListener('resize', handleResize);
+
         // Cleanup on unmount
         return () => {
+          window.removeEventListener('resize', handleResize);
           if (chartInstanceRef.current) {
             chartInstanceRef.current.destroy();
           }
@@ -1602,7 +1623,7 @@
       };
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '1rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, padding: '1rem', overflow: 'auto' }}>
           {/* Activity Filter */}
           <div className="card mb-3">
             <div className="card-body py-2">
@@ -1677,11 +1698,11 @@
           </div>
 
           {/* Chart Container */}
-          <div className="card flex-grow-1" style={{ minHeight: '400px' }}>
-            <div className="card-body">
+          <div className="card flex-grow-1" style={{ minHeight: '400px', display: 'flex', flexDirection: 'column' }}>
+            <div className="card-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               {filteredChartData && filteredChartData.labels && filteredChartData.labels.length > 0 ? (
-                <div style={{ height: '100%', minHeight: '350px' }}>
-                  <canvas ref={chartRef}></canvas>
+                <div style={{ flex: 1, position: 'relative', minHeight: '350px' }}>
+                  <canvas ref={chartRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}></canvas>
                 </div>
               ) : (
                 <div className="d-flex justify-content-center align-items-center h-100">
@@ -1861,7 +1882,7 @@
                 </div>
               </div>
             ) : (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div className="tab-content-container">
                 {activeTab === 'approvals' && (
                   <MarketingApprovalsTab
                     data={approvalsData}
