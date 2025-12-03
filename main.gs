@@ -381,31 +381,39 @@ function clearMarketingCaches() {
 }
 
 /**
- * Refresh all marketing data from Monday.com
- * This syncs all marketing boards to spreadsheets and clears all marketing caches
+ * Refresh all data from Monday.com
+ * This syncs ALL boards to spreadsheets and clears ALL caches
  * Called by the Marketing Manager Portal "Refresh Data" button
  */
 function refreshMarketingDataFromMonday() {
   try {
-    console.log('Starting full marketing data refresh from Monday.com...');
+    console.log('Starting full data refresh from Monday.com...');
 
-    // Step 1: Sync all marketing boards from Monday to spreadsheets
-    console.log('Step 1: Syncing marketing boards from Monday.com...');
-    syncMarketingBoards();
+    // Step 1: Sync all Monday data (Dashboard, Partner Activities, Marketing, Guidewire)
+    console.log('Step 1: Syncing all Monday.com boards...');
+    syncMondayData();
 
     // Step 2: Sync 2026 Approvals board
     console.log('Step 2: Syncing 2026 Approvals board...');
     sync2026ApprovalsBoard();
 
-    // Step 3: Clear all marketing caches
-    console.log('Step 3: Clearing all marketing caches...');
-    clearMarketingCaches();
+    // Step 3: Clear ALL data caches (marketing, activities, heatmap, etc.)
+    console.log('Step 3: Clearing all data caches...');
+    clearAllDataCaches();
 
-    console.log('Full marketing data refresh completed successfully');
-    return { success: true, message: 'Marketing data refreshed from Monday.com' };
+    // Step 4: Also clear internal activity caches
+    console.log('Step 4: Clearing internal activity caches...');
+    clearInternalActivityCaches();
+
+    // Step 5: Clear 2026 approvals caches
+    console.log('Step 5: Clearing 2026 approvals caches...');
+    clear2026ApprovalsCaches();
+
+    console.log('Full data refresh completed successfully');
+    return { success: true, message: 'All data refreshed from Monday.com' };
 
   } catch (error) {
-    console.error('Error refreshing marketing data from Monday:', error);
+    console.error('Error refreshing data from Monday:', error);
     return { success: false, message: error.toString() };
   }
 }

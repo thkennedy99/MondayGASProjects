@@ -1640,6 +1640,205 @@ function getPartnerHeatmap(managerEmail) {
 }
 
 /**
+ * Get ALL partner activities without manager filtering
+ * For Marketing Manager Portal to show all partner activities
+ */
+function getAllPartnerActivitiesUnfiltered(filters, sort, pagination) {
+  try {
+    console.log('=== getAllPartnerActivitiesUnfiltered ===');
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MondayData');
+    if (!sheet) throw new Error('MondayData sheet not found');
+
+    const service = new DataService();
+    let data = service.getSheetData(sheet);
+    console.log(`Total rows from sheet: ${data.length}`);
+
+    // Apply filters if provided
+    if (filters && Object.keys(filters).length > 0) {
+      data = service.applyFilters(data, filters);
+    }
+
+    // Apply sorting
+    const sortField = sort?.field === 'Name' ? 'Item Name' : (sort?.field || 'Item Name');
+    data = service.sortData(data, sortField, sort?.order || 'asc');
+
+    // Apply pagination
+    const totalItems = data.length;
+    const page = pagination?.page || 1;
+    const pageSize = pagination?.pageSize || 200;
+    const startIndex = (page - 1) * pageSize;
+    data = data.slice(startIndex, startIndex + pageSize);
+
+    // Sanitize data
+    const sanitizedData = data.map(row => {
+      const sanitized = {};
+      if (row['Item Name'] !== undefined) {
+        sanitized['Name'] = service.convertToString(row['Item Name']);
+      }
+      for (const key in row) {
+        if (key === 'Item Name') continue;
+        sanitized[key] = service.convertToString(row[key]);
+      }
+      return sanitized;
+    });
+
+    console.log(`Returning ${sanitizedData.length} unfiltered partner activities`);
+    return {
+      data: sanitizedData,
+      total: String(totalItems),
+      page: String(page),
+      pageSize: String(pageSize),
+      pages: String(Math.ceil(totalItems / pageSize))
+    };
+
+  } catch (error) {
+    console.error('Error in getAllPartnerActivitiesUnfiltered:', error);
+    return { data: [], total: '0', page: '1', pageSize: '200', pages: '0', error: error.message };
+  }
+}
+
+/**
+ * Get ALL partner heatmap data without manager filtering
+ * For Marketing Manager Portal to show all partners
+ */
+function getAllPartnerHeatmapUnfiltered() {
+  try {
+    console.log('=== getAllPartnerHeatmapUnfiltered ===');
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MondayDashboard');
+    if (!sheet) {
+      console.log('MondayDashboard sheet not found');
+      return [];
+    }
+
+    const service = new DataService();
+    const data = service.getSheetData(sheet);
+    console.log(`Total rows from MondayDashboard: ${data.length}`);
+
+    // Sanitize data
+    const serialized = data.map(row => {
+      const clean = {};
+      for (const key in row) {
+        const value = row[key];
+        if (value === null || value === undefined) {
+          clean[key] = '';
+        } else if (value instanceof Date) {
+          clean[key] = value.toISOString().split('T')[0];
+        } else if (typeof value === 'boolean') {
+          clean[key] = value ? 'true' : 'false';
+        } else if (typeof value === 'object') {
+          clean[key] = JSON.stringify(value);
+        } else {
+          clean[key] = String(value);
+        }
+      }
+      return clean;
+    });
+
+    console.log(`Returning ${serialized.length} unfiltered heatmap entries`);
+    return serialized;
+
+  } catch (error) {
+    console.error('Error in getAllPartnerHeatmapUnfiltered:', error);
+    return [];
+  }
+}
+
+/**
+ * Get ALL internal activities without manager filtering
+ * For Marketing Manager Portal to show all internal activities
+ * @param {string} boardFilter - Optional board name to filter by (e.g., "Partner Management Tracker")
+ */
+function getAllInternalActivitiesUnfiltered(boardFilter, filters, sort, pagination) {
+  try {
+    console.log('=== getAllInternalActivitiesUnfiltered ===');
+    console.log('Board filter:', boardFilter);
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('GWMondayData');
+    if (!sheet) throw new Error('GWMondayData sheet not found');
+
+    const service = new DataService();
+    let data = service.getSheetData(sheet);
+    console.log(`Total rows from GWMondayData: ${data.length}`);
+
+    // Apply board filter if specified
+    if (boardFilter) {
+      data = data.filter(row => row['Board Name'] === boardFilter);
+      console.log(`Filtered to ${data.length} rows for board: ${boardFilter}`);
+    }
+
+    // Apply additional filters if provided
+    if (filters && Object.keys(filters).length > 0) {
+      data = service.applyFilters(data, filters);
+    }
+
+    // Apply sorting
+    const sortField = sort?.field === 'Name' ? 'Item Name' : (sort?.field || 'Item Name');
+    data = service.sortData(data, sortField, sort?.order || 'asc');
+
+    // Apply pagination
+    const totalItems = data.length;
+    const page = pagination?.page || 1;
+    const pageSize = pagination?.pageSize || 200;
+    const startIndex = (page - 1) * pageSize;
+    data = data.slice(startIndex, startIndex + pageSize);
+
+    // Sanitize data
+    const sanitizedData = data.map(row => {
+      const sanitized = {};
+      if (row['Item Name'] !== undefined) {
+        sanitized['Name'] = service.convertToString(row['Item Name']);
+      }
+      if (row['Assigned To'] !== undefined) {
+        sanitized['Assigned By'] = service.convertToString(row['Assigned To']);
+      }
+      for (const key in row) {
+        if (key === 'Item Name' || key === 'Assigned To') continue;
+        sanitized[key] = service.convertToString(row[key]);
+      }
+      return sanitized;
+    });
+
+    console.log(`Returning ${sanitizedData.length} unfiltered internal activities`);
+    return {
+      data: sanitizedData,
+      total: String(totalItems),
+      page: String(page),
+      pageSize: String(pageSize),
+      pages: String(Math.ceil(totalItems / pageSize))
+    };
+
+  } catch (error) {
+    console.error('Error in getAllInternalActivitiesUnfiltered:', error);
+    return { data: [], total: '0', page: '1', pageSize: '200', pages: '0', error: error.message };
+  }
+}
+
+/**
+ * Get distinct board names from GWMondayData for internal activities
+ */
+function getInternalActivityBoardNames() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('GWMondayData');
+    if (!sheet) return [];
+
+    const service = new DataService();
+    const data = service.getSheetData(sheet);
+
+    const boardNames = [...new Set(data.map(row => row['Board Name']).filter(Boolean))];
+    console.log('Internal activity board names:', boardNames);
+    return boardNames.sort();
+
+  } catch (error) {
+    console.error('Error in getInternalActivityBoardNames:', error);
+    return [];
+  }
+}
+
+/**
  * Debug function to test manager filtering
  */
 function testManagerFiltering(managerEmail) {
