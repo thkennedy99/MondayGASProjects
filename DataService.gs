@@ -727,37 +727,39 @@ get2026ApprovalsData(managerEmail) {
     }
 
     const data = this.getSheetData(sheet);
-    const managerName = this.getManagerName(managerEmail);
+    const managerName = this.getManagerName(managerEmail) || '';
+    const managerFirstName = managerName ? managerName.split(' ')[0] : '';
 
     console.log(`Getting 2026 approvals for: ${managerEmail} / ${managerName}`);
+    console.log(`Manager first name: ${managerFirstName}`);
     console.log(`Total 2026 approval rows from sheet: ${data.length}`);
 
     // Get managed partners for this manager
-    const managedPartners = this.getManagerPartners(managerEmail);
+    const managedPartners = this.getManagerPartners(managerEmail) || [];
     console.log(`Manager ${managerName} manages partners: ${managedPartners.join(', ')}`);
 
     // Filter by Partner field (matching managed partners) or by Alliance Manager
     const filtered = data.filter(row => {
       const partner = row['Partner'] || '';
-      const allianceManager = this.getAllianceManager(row);
-      const owner = row['Owner'];
+      const allianceManager = this.getAllianceManager(row) || '';
+      const owner = row['Owner'] || '';
 
       // Check if partner is in managed partners list
       let matchesPartner = false;
       if (partner) {
         matchesPartner = managedPartners.some(p =>
-          p.toLowerCase() === partner.toString().toLowerCase()
+          p && p.toLowerCase() === partner.toString().toLowerCase()
         );
       }
 
       // Check if Alliance Manager or Owner matches
       const matchesManager =
-        allianceManager === managerEmail ||
-        allianceManager === managerName ||
-        (allianceManager && allianceManager.includes(managerName.split(' ')[0])) ||
-        owner === managerEmail ||
-        owner === managerName ||
-        (owner && owner.includes(managerName.split(' ')[0]));
+        (managerEmail && allianceManager === managerEmail) ||
+        (managerName && allianceManager === managerName) ||
+        (managerFirstName && allianceManager && allianceManager.includes(managerFirstName)) ||
+        (managerEmail && owner === managerEmail) ||
+        (managerName && owner === managerName) ||
+        (managerFirstName && owner && owner.includes(managerFirstName));
 
       return matchesPartner || matchesManager;
     });
