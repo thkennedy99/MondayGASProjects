@@ -4,7 +4,7 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Marketing Manager Portal</title>
+  <title>Activity Management Portal</title>
 
   <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -2834,6 +2834,21 @@
 
     // Main App Component
     function App() {
+      // Get current manager from appConfig
+      const currentManager = window.appConfig?.user || '';
+
+      // Authorization state from TechAllianceManager sheet
+      const [authorization, setAuthorization] = useState({
+        mondayBoards: [],
+        role: 'User',
+        reports: '',
+        managerName: ''
+      });
+      const [authLoading, setAuthLoading] = useState(true);
+
+      // View mode for role-based filtering: 'self', 'team', or 'dept'
+      const [viewMode, setViewMode] = useState('self');
+
       // Determine initial tab based on boardId from URL
       const getInitialTab = () => {
         if (String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID) {
@@ -2868,6 +2883,33 @@
       const [partnerHeatmapData, setPartnerHeatmapData] = useState([]);
       const [internalActivitiesData, setInternalActivitiesData] = useState([]);
       const [internalBoardNames, setInternalBoardNames] = useState([]);
+
+      // Load authorization data on mount
+      useEffect(() => {
+        console.log('=== Authorization Load Debug ===');
+        console.log('currentManager:', currentManager);
+        console.log('appConfig:', window.appConfig);
+
+        if (currentManager) {
+          setAuthLoading(true);
+          api.call('getManagerAuthorization', currentManager)
+            .then(auth => {
+              console.log('Loaded authorization:', auth);
+              console.log('Role:', auth.role);
+              console.log('MondayBoards:', auth.mondayBoards);
+              console.log('Reports:', auth.reports);
+              setAuthorization(auth);
+              setAuthLoading(false);
+            })
+            .catch(error => {
+              console.error('Error loading authorization:', error);
+              setAuthLoading(false);
+            });
+        } else {
+          console.log('No currentManager - skipping authorization load');
+          setAuthLoading(false);
+        }
+      }, [currentManager]);
 
       // Debug logging for deep link
       useEffect(() => {
@@ -2989,15 +3031,139 @@
         }
       };
 
+      // Helper to check if a board tab is authorized
+      const isBoardAuthorized = (boardName) => {
+        // If no boards specified, show all (backward compatibility)
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          return true;
+        }
+        return authorization.mondayBoards.includes(boardName);
+      };
+
+      // Render view mode filter buttons based on role
+      const renderViewModeButtons = () => {
+        const role = authorization.role;
+        console.log('renderViewModeButtons - role:', role, 'authorization:', authorization);
+
+        // User role: no buttons (always self view)
+        if (role === 'User') {
+          console.log('Role is User - not showing buttons');
+          return null;
+        }
+
+        // Manager role: Self and Team buttons
+        if (role === 'Manager') {
+          return (
+            <div className="btn-group btn-group-sm me-3" role="group" aria-label="View mode">
+              <button
+                type="button"
+                className={`btn ${viewMode === 'self' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('self')}
+              >
+                Self
+              </button>
+              <button
+                type="button"
+                className={`btn ${viewMode === 'team' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('team')}
+              >
+                Team
+              </button>
+            </div>
+          );
+        }
+
+        // SrDirector role: Self, Team, and Dept buttons
+        if (role === 'SrDirector') {
+          return (
+            <div className="btn-group btn-group-sm me-3" role="group" aria-label="View mode">
+              <button
+                type="button"
+                className={`btn ${viewMode === 'self' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('self')}
+              >
+                Self
+              </button>
+              <button
+                type="button"
+                className={`btn ${viewMode === 'team' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('team')}
+              >
+                Team
+              </button>
+              <button
+                type="button"
+                className={`btn ${viewMode === 'dept' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('dept')}
+              >
+                Dept
+              </button>
+            </div>
+          );
+        }
+
+        // Admin role: Self and Dept buttons
+        if (role === 'Admin') {
+          return (
+            <div className="btn-group btn-group-sm me-3" role="group" aria-label="View mode">
+              <button
+                type="button"
+                className={`btn ${viewMode === 'self' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('self')}
+              >
+                Self
+              </button>
+              <button
+                type="button"
+                className={`btn ${viewMode === 'dept' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('dept')}
+              >
+                Dept
+              </button>
+            </div>
+          );
+        }
+
+        return null;
+      };
+
+      // Show loading state while authorization is being fetched
+      if (authLoading) {
+        return (
+          <div className="app-container">
+            <div className="header">
+              <div className="d-flex justify-content-between align-items-center">
+                <h1>Activity Management Portal</h1>
+              </div>
+            </div>
+            <div className="main-content d-flex justify-content-center align-items-center" style={{ minHeight: '50vh' }}>
+              <div className="text-center">
+                <div className="spinner-border text-primary mb-3" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+                <p className="text-muted">Loading authorization...</p>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div className="app-container">
           {/* Header */}
           <div className="header">
             <div className="d-flex justify-content-between align-items-center">
-              <h1>Marketing Manager Portal</h1>
-              <button className="btn btn-light btn-sm" onClick={refreshFromMonday} disabled={loading}>
-                {loading ? 'Syncing from Monday...' : 'Refresh Data'}
-              </button>
+              <h1>Activity Management Portal</h1>
+              <div className="d-flex align-items-center gap-3">
+                {/* View Mode Buttons */}
+                {renderViewModeButtons()}
+                <span className="text-white small">
+                  {authorization.managerName || currentManager}
+                </span>
+                <button className="btn btn-light btn-sm" onClick={refreshFromMonday} disabled={loading}>
+                  {loading ? 'Syncing from Monday...' : 'Refresh Data'}
+                </button>
+              </div>
             </div>
           </div>
 
