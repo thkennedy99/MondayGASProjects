@@ -906,44 +906,47 @@
 
       return (
         <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-lg modal-dialog-scrollable">
+          <div className="modal-dialog modal-xl modal-dialog-scrollable">
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title">Edit 2026 Approval: {itemName}</h5>
                 <button type="button" className="btn-close" onClick={onClose} disabled={saving}></button>
               </div>
-              <div className="modal-body">
-                {error && <div className="alert alert-danger">{error}</div>}
-
-                {/* Group Selection Tabs */}
+              <div className="modal-body" style={{ display: 'flex', minHeight: '400px' }}>
+                {/* Vertical Group Navigation on Left */}
                 {flowConfig?.groups?.length > 0 && (
-                  <ul className="nav nav-tabs mb-3">
+                  <div className="nav flex-column nav-pills me-3" style={{ minWidth: '150px', borderRight: '1px solid #dee2e6', paddingRight: '1rem' }}>
                     {flowConfig.groups.map((group, idx) => (
-                      <li className="nav-item" key={group.key}>
-                        <button
-                          className={`nav-link ${selectedGroup === group.key ? 'active' : ''}`}
-                          onClick={() => setSelectedGroup(group.key)}
-                          type="button"
-                        >
-                          {group.name}
-                        </button>
-                      </li>
+                      <button
+                        key={group.key}
+                        className={`nav-link text-start ${selectedGroup === group.key ? 'active' : ''}`}
+                        onClick={() => setSelectedGroup(group.key)}
+                        type="button"
+                        style={{ marginBottom: '0.25rem' }}
+                      >
+                        {group.name}
+                      </button>
                     ))}
-                  </ul>
+                  </div>
                 )}
 
-                {/* Item Name - always visible */}
-                <div className="mb-3">
-                  <label className="form-label">Activity Name</label>
-                  <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} />
+                {/* Form Fields on Right */}
+                <div style={{ flex: 1, overflowY: 'auto', paddingLeft: '1rem' }}>
+                  {error && <div className="alert alert-danger">{error}</div>}
+
+                  {/* Item Name - always visible */}
+                  <div className="mb-3">
+                    <label className="form-label">Activity Name</label>
+                    <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} />
+                  </div>
+
+                  {/* Group Fields */}
+                  {groupColumns.length > 0 ? (
+                    groupColumns.map(flowCol => renderFormControl(flowCol))
+                  ) : (
+                    <div className="text-muted">No fields available for this section.</div>
+                  )}
                 </div>
-
-                {/* Group Fields */}
-                {groupColumns.length > 0 ? (
-                  groupColumns.map(flowCol => renderFormControl(flowCol))
-                ) : (
-                  <div className="text-muted">No fields available for this section.</div>
-                )}
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
@@ -1107,44 +1110,47 @@
 
       return (
         <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-lg modal-dialog-scrollable">
+          <div className="modal-dialog modal-xl modal-dialog-scrollable">
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title">Add 2026 Approval</h5>
                 <button type="button" className="btn-close" onClick={onClose} disabled={creating}></button>
               </div>
-              <div className="modal-body">
-                {error && <div className="alert alert-danger">{error}</div>}
-
-                {/* Group Selection Tabs */}
+              <div className="modal-body" style={{ display: 'flex', minHeight: '400px' }}>
+                {/* Vertical Group Navigation on Left */}
                 {flowConfig?.groups?.length > 0 && (
-                  <ul className="nav nav-tabs mb-3">
+                  <div className="nav flex-column nav-pills me-3" style={{ minWidth: '150px', borderRight: '1px solid #dee2e6', paddingRight: '1rem' }}>
                     {flowConfig.groups.map((group, idx) => (
-                      <li className="nav-item" key={group.key}>
-                        <button
-                          className={`nav-link ${selectedGroup === group.key ? 'active' : ''}`}
-                          onClick={() => setSelectedGroup(group.key)}
-                          type="button"
-                        >
-                          {group.name}
-                        </button>
-                      </li>
+                      <button
+                        key={group.key}
+                        className={`nav-link text-start ${selectedGroup === group.key ? 'active' : ''}`}
+                        onClick={() => setSelectedGroup(group.key)}
+                        type="button"
+                        style={{ marginBottom: '0.25rem' }}
+                      >
+                        {group.name}
+                      </button>
                     ))}
-                  </ul>
+                  </div>
                 )}
 
-                {/* Item Name - always visible */}
-                <div className="mb-3">
-                  <label className="form-label">Activity Name <span className="text-danger">*</span></label>
-                  <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} required />
+                {/* Form Fields on Right */}
+                <div style={{ flex: 1, overflowY: 'auto', paddingLeft: '1rem' }}>
+                  {error && <div className="alert alert-danger">{error}</div>}
+
+                  {/* Item Name - always visible */}
+                  <div className="mb-3">
+                    <label className="form-label">Activity Name <span className="text-danger">*</span></label>
+                    <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} required />
+                  </div>
+
+                  {/* Group Fields */}
+                  {groupColumns.length > 0 ? (
+                    groupColumns.map(flowCol => renderFormControl(flowCol))
+                  ) : (
+                    <div className="text-muted">No fields available for this section.</div>
+                  )}
                 </div>
-
-                {/* Group Fields */}
-                {groupColumns.length > 0 ? (
-                  groupColumns.map(flowCol => renderFormControl(flowCol))
-                ) : (
-                  <div className="text-muted">No fields available for this section.</div>
-                )}
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={onClose} disabled={creating}>Cancel</button>
