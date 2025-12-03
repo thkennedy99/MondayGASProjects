@@ -751,6 +751,413 @@
       );
     }
 
+    // Edit 2026 Approval Modal with Grouped Sections
+    function Edit2026ApprovalModal({ item, columns, flowConfig, onClose, onSave, partnerOptions }) {
+      const [formData, setFormData] = useState({});
+      const [itemName, setItemName] = useState('');
+      const [saving, setSaving] = useState(false);
+      const [error, setError] = useState(null);
+      const [selectedGroup, setSelectedGroup] = useState(null);
+
+      // Initialize form data and set default group
+      useEffect(() => {
+        const initialData = {};
+        Object.keys(item).forEach(key => {
+          if (!['Monday Item ID', 'Board ID', '_rowIndex'].includes(key)) {
+            initialData[key] = item[key] || '';
+          }
+        });
+        setFormData(initialData);
+        setItemName(item['Item Name'] || item['Name'] || item['Activity'] || '');
+
+        // Set default group to first group
+        if (flowConfig?.groups?.length > 0 && !selectedGroup) {
+          setSelectedGroup(flowConfig.groups[0].key);
+        }
+      }, [item, flowConfig]);
+
+      const handleChange = (columnTitle, value) => {
+        setFormData(prev => ({ ...prev, [columnTitle]: value }));
+      };
+
+      const handleSave = async () => {
+        setSaving(true);
+        setError(null);
+        try {
+          onSave({ ...formData, 'Item Name': itemName, 'Name': itemName });
+        } catch (err) {
+          setError(err.message || 'Failed to update item');
+          setSaving(false);
+        }
+      };
+
+      // Get columns for the selected group
+      const getGroupColumns = () => {
+        if (!flowConfig?.columns || !selectedGroup) return [];
+
+        return flowConfig.columns.filter(flowCol => {
+          // Check if column belongs to selected group
+          if (flowCol.group !== selectedGroup) return false;
+
+          // Check conditional visibility
+          if (flowCol.condition && flowCol.condition.columnId) {
+            const conditionColumn = columns.find(c => c.id === flowCol.condition.columnId);
+            if (conditionColumn) {
+              const currentValue = formData[conditionColumn.title] || '';
+              if (currentValue !== flowCol.condition.value) {
+                return false;
+              }
+            }
+          }
+
+          return true;
+        });
+      };
+
+      const renderFormControl = (flowCol) => {
+        // Find the column definition by ID
+        const column = columns.find(c => c.id === flowCol.columnId);
+        if (!column) return null;
+
+        const { title, type, settings } = column;
+        const value = formData[title] || '';
+
+        // Skip system columns
+        const skipColumns = ['Monday Item ID', 'Board ID', 'Board Name', 'Group', '_rowIndex'];
+        if (skipColumns.includes(title)) return null;
+        if (type === 'formula' || type === 'mirror' || type === 'board-relation') return null;
+
+        // Item Name is handled separately
+        if (title === 'Item Name' || title === 'Name' || title === 'Activity') return null;
+
+        // Partner dropdown
+        if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">(Blank)</option>
+                {partnerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Status/color columns
+        if (type === 'status' || type === 'color') {
+          const labels = settings?.labels || {};
+          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Dropdown columns
+        if (type === 'dropdown') {
+          const labels = settings?.labels || [];
+          const options = Array.isArray(labels) ? labels.map(l => l.name || l) : Object.values(labels);
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Date columns
+        if (type === 'date') {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <input type="date" className="form-control" value={value ? value.substring(0, 10) : ''} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Number columns
+        if (type === 'numbers' || type === 'numeric') {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <input type="number" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Default text input
+        return (
+          <div className="mb-3" key={column.id}>
+            <label className="form-label">{title}</label>
+            <input type="text" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+          </div>
+        );
+      };
+
+      const groupColumns = getGroupColumns();
+
+      return (
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-lg modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Edit 2026 Approval: {itemName}</h5>
+                <button type="button" className="btn-close" onClick={onClose} disabled={saving}></button>
+              </div>
+              <div className="modal-body">
+                {error && <div className="alert alert-danger">{error}</div>}
+
+                {/* Group Selection Tabs */}
+                {flowConfig?.groups?.length > 0 && (
+                  <ul className="nav nav-tabs mb-3">
+                    {flowConfig.groups.map((group, idx) => (
+                      <li className="nav-item" key={group.key}>
+                        <button
+                          className={`nav-link ${selectedGroup === group.key ? 'active' : ''}`}
+                          onClick={() => setSelectedGroup(group.key)}
+                          type="button"
+                        >
+                          {group.name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* Item Name - always visible */}
+                <div className="mb-3">
+                  <label className="form-label">Activity Name</label>
+                  <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} />
+                </div>
+
+                {/* Group Fields */}
+                {groupColumns.length > 0 ? (
+                  groupColumns.map(flowCol => renderFormControl(flowCol))
+                ) : (
+                  <div className="text-muted">No fields available for this section.</div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                  {saving ? <><span className="spinner-border spinner-border-sm me-2"></span>Saving...</> : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Add 2026 Approval Modal with Grouped Sections
+    function Add2026ApprovalModal({ columns, flowConfig, onClose, onCreate, partnerOptions }) {
+      const [formData, setFormData] = useState({});
+      const [itemName, setItemName] = useState('');
+      const [creating, setCreating] = useState(false);
+      const [error, setError] = useState(null);
+      const [selectedGroup, setSelectedGroup] = useState(null);
+
+      // Set default group
+      useEffect(() => {
+        if (flowConfig?.groups?.length > 0 && !selectedGroup) {
+          setSelectedGroup(flowConfig.groups[0].key);
+        }
+      }, [flowConfig]);
+
+      const handleChange = (columnTitle, value) => {
+        setFormData(prev => ({ ...prev, [columnTitle]: value }));
+      };
+
+      const handleCreate = async () => {
+        if (!itemName.trim()) {
+          setError('Activity name is required');
+          return;
+        }
+
+        setCreating(true);
+        setError(null);
+        try {
+          onCreate({ ...formData, 'Item Name': itemName, 'Name': itemName });
+        } catch (err) {
+          setError(err.message || 'Failed to create item');
+          setCreating(false);
+        }
+      };
+
+      // Get columns for the selected group
+      const getGroupColumns = () => {
+        if (!flowConfig?.columns || !selectedGroup) return [];
+
+        return flowConfig.columns.filter(flowCol => {
+          // Check if column belongs to selected group
+          if (flowCol.group !== selectedGroup) return false;
+
+          // Check conditional visibility
+          if (flowCol.condition && flowCol.condition.columnId) {
+            const conditionColumn = columns.find(c => c.id === flowCol.condition.columnId);
+            if (conditionColumn) {
+              const currentValue = formData[conditionColumn.title] || '';
+              if (currentValue !== flowCol.condition.value) {
+                return false;
+              }
+            }
+          }
+
+          return true;
+        });
+      };
+
+      const renderFormControl = (flowCol) => {
+        // Find the column definition by ID
+        const column = columns.find(c => c.id === flowCol.columnId);
+        if (!column) return null;
+
+        const { title, type, settings } = column;
+        const value = formData[title] || '';
+
+        // Skip system columns
+        const skipColumns = ['Monday Item ID', 'Board ID', 'Board Name', 'Group', '_rowIndex'];
+        if (skipColumns.includes(title)) return null;
+        if (type === 'formula' || type === 'mirror' || type === 'board-relation') return null;
+
+        // Item Name is handled separately
+        if (title === 'Item Name' || title === 'Name' || title === 'Activity') return null;
+
+        // Partner dropdown
+        if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">(Blank)</option>
+                {partnerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Status/color columns
+        if (type === 'status' || type === 'color') {
+          const labels = settings?.labels || {};
+          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Dropdown columns
+        if (type === 'dropdown') {
+          const labels = settings?.labels || [];
+          const options = Array.isArray(labels) ? labels.map(l => l.name || l) : Object.values(labels);
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
+                <option value="">Select...</option>
+                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          );
+        }
+
+        // Date columns
+        if (type === 'date') {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <input type="date" className="form-control" value={value ? value.substring(0, 10) : ''} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Number columns
+        if (type === 'numbers' || type === 'numeric') {
+          return (
+            <div className="mb-3" key={column.id}>
+              <label className="form-label">{title}</label>
+              <input type="number" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+            </div>
+          );
+        }
+
+        // Default text input
+        return (
+          <div className="mb-3" key={column.id}>
+            <label className="form-label">{title}</label>
+            <input type="text" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
+          </div>
+        );
+      };
+
+      const groupColumns = getGroupColumns();
+
+      return (
+        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-lg modal-dialog-scrollable">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Add 2026 Approval</h5>
+                <button type="button" className="btn-close" onClick={onClose} disabled={creating}></button>
+              </div>
+              <div className="modal-body">
+                {error && <div className="alert alert-danger">{error}</div>}
+
+                {/* Group Selection Tabs */}
+                {flowConfig?.groups?.length > 0 && (
+                  <ul className="nav nav-tabs mb-3">
+                    {flowConfig.groups.map((group, idx) => (
+                      <li className="nav-item" key={group.key}>
+                        <button
+                          className={`nav-link ${selectedGroup === group.key ? 'active' : ''}`}
+                          onClick={() => setSelectedGroup(group.key)}
+                          type="button"
+                        >
+                          {group.name}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* Item Name - always visible */}
+                <div className="mb-3">
+                  <label className="form-label">Activity Name <span className="text-danger">*</span></label>
+                  <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} required />
+                </div>
+
+                {/* Group Fields */}
+                {groupColumns.length > 0 ? (
+                  groupColumns.map(flowCol => renderFormControl(flowCol))
+                ) : (
+                  <div className="text-muted">No fields available for this section.</div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={onClose} disabled={creating}>Cancel</button>
+                <button type="button" className="btn btn-primary" onClick={handleCreate} disabled={creating}>
+                  {creating ? <><span className="spinner-border spinner-border-sm me-2"></span>Creating...</> : 'Create Item'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // Marketing Approvals Tab Component
     function MarketingApprovalsTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
       const [fundingTypes, setFundingTypes] = useState([]);
@@ -1137,7 +1544,7 @@
     }
 
     // 2026 Approvals Tab Component
-    function Approvals2026Tab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
+    function Approvals2026Tab({ data, filterOptions, columns, flowConfig, onRefresh, autoEditItemId, onAutoEditHandled }) {
       const [fundingTypes, setFundingTypes] = useState([]);
       const [overallStatuses, setOverallStatuses] = useState([]);
       const [partners, setPartners] = useState([]);
@@ -1378,16 +1785,15 @@
             </div>
           </div>
 
-          {/* Edit Modal */}
+          {/* Edit Modal - 2026 Approval with grouped sections */}
           {editingItem && (
-            <EditItemModal
+            <Edit2026ApprovalModal
               item={editingItem}
-              boardId={APPROVALS_2026_BOARD_ID}
               columns={columns}
+              flowConfig={flowConfig}
               onClose={() => setEditingItem(null)}
               onSave={handleEditSave}
               partnerOptions={filterOptions.partners || []}
-              allianceManagerOptions={[]}
             />
           )}
           {/* Delete Confirmation Modal */}
@@ -1399,15 +1805,14 @@
               onConfirm={handleDeleteConfirm}
             />
           )}
-          {/* Add Modal */}
+          {/* Add Modal - 2026 Approval with grouped sections */}
           {showAddModal && (
-            <AddItemModal
-              boardId={APPROVALS_2026_BOARD_ID}
+            <Add2026ApprovalModal
               columns={columns}
+              flowConfig={flowConfig}
               onClose={() => setShowAddModal(false)}
               onCreate={handleAddCreate}
               partnerOptions={filterOptions.partners || []}
-              allianceManagerOptions={[]}
             />
           )}
         </div>
@@ -1764,6 +2169,7 @@
         approvals2026Filters: {}
       });
       const [chartData, setChartData] = useState({ labels: [], datasets: [] });
+      const [flowConfig2026, setFlowConfig2026] = useState({ groups: [], columns: [] });
       const [autoEditItemId, setAutoEditItemId] = useState(editItemIdFromUrl);
 
       // Debug logging for deep link
@@ -1790,7 +2196,7 @@
 
         try {
           // Load all data in parallel
-          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
             api.call('getAll2026Approvals'),
@@ -1798,7 +2204,8 @@
             api.call('getBoardColumnsStructure', MARKETING_APPROVAL_BOARD_ID),
             api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID),
             api.call('getBoardColumnsStructure', APPROVALS_2026_BOARD_ID),
-            api.call('getMarketingCalendarStats')
+            api.call('getMarketingCalendarStats'),
+            api.call('get2026FlowConfig')
           ]);
 
           setApprovalsData(approvals || []);
@@ -1809,6 +2216,7 @@
           setCalendarColumns(calendarCols || []);
           setApprovals2026Columns(approvals2026Cols || []);
           setChartData(statsData || { labels: [], datasets: [] });
+          setFlowConfig2026(flowConfig || { groups: [], columns: [] });
 
         } catch (err) {
           console.error('Error loading data:', err);
@@ -1838,7 +2246,7 @@
           console.log('Monday sync complete, now loading fresh data...');
 
           // Then load the fresh data
-          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
             api.call('getAll2026Approvals'),
@@ -1846,7 +2254,8 @@
             api.call('getBoardColumnsStructure', MARKETING_APPROVAL_BOARD_ID),
             api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID),
             api.call('getBoardColumnsStructure', APPROVALS_2026_BOARD_ID),
-            api.call('getMarketingCalendarStats')
+            api.call('getMarketingCalendarStats'),
+            api.call('get2026FlowConfig')
           ]);
 
           setApprovalsData(approvals || []);
@@ -1857,6 +2266,7 @@
           setCalendarColumns(calendarCols || []);
           setApprovals2026Columns(approvals2026Cols || []);
           setChartData(statsData || { labels: [], datasets: [] });
+          setFlowConfig2026(flowConfig || { groups: [], columns: [] });
 
         } catch (err) {
           console.error('Error refreshing from Monday:', err);
@@ -1956,6 +2366,7 @@
                     data={approvals2026Data}
                     filterOptions={filterOptions.approvals2026Filters || {}}
                     columns={approvals2026Columns}
+                    flowConfig={flowConfig2026}
                     onRefresh={loadData}
                     autoEditItemId={String(editBoardIdFromUrl) === APPROVALS_2026_BOARD_ID ? autoEditItemId : null}
                     onAutoEditHandled={handleAutoEditHandled}

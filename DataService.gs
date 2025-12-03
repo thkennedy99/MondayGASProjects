@@ -3296,3 +3296,120 @@ function getMarketingCalendarStats() {
     return { labels: [], datasets: [], error: error.message };
   }
 }
+
+/**
+ * Get the 2026 Flow configuration for grouping columns in Add/Edit modals
+ * Reads from the 2026Flow sheet which defines how columns are grouped
+ *
+ * Sheet columns:
+ * - Column ID: The Monday column ID
+ * - Section Grouping: Group 1, Group 2, etc.
+ * - Group Name: Display name for the group
+ * - Monday Column: Optional condition - column ID to check
+ * - Value: Optional condition - value to match
+ *
+ * @returns {Object} Configuration with groups array and column mappings
+ */
+function get2026FlowConfig() {
+  try {
+    console.log('=== get2026FlowConfig START ===');
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('2026Flow');
+
+    if (!sheet) {
+      console.log('2026Flow sheet not found');
+      return { groups: [], columns: [], error: '2026Flow sheet not found' };
+    }
+
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+
+    console.log(`Sheet dimensions: ${lastRow} rows x ${lastCol} columns`);
+
+    if (lastRow < 2) {
+      console.log('Sheet has no data rows');
+      return { groups: [], columns: [], error: 'No data in 2026Flow sheet' };
+    }
+
+    // Get header row to find column indices
+    const headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+
+    // Find column indices (case-insensitive)
+    const colIndices = {
+      columnId: -1,
+      sectionGrouping: -1,
+      groupName: -1,
+      mondayColumn: -1,
+      value: -1
+    };
+
+    headerRow.forEach((header, idx) => {
+      const h = header.toString().toLowerCase().trim();
+      if (h === 'column id' || h === 'columnid') colIndices.columnId = idx;
+      else if (h === 'section grouping' || h === 'sectiongrouping') colIndices.sectionGrouping = idx;
+      else if (h === 'group name' || h === 'groupname') colIndices.groupName = idx;
+      else if (h === 'monday column' || h === 'mondaycolumn') colIndices.mondayColumn = idx;
+      else if (h === 'value') colIndices.value = idx;
+    });
+
+    console.log('Column indices:', JSON.stringify(colIndices));
+
+    if (colIndices.columnId === -1 || colIndices.sectionGrouping === -1) {
+      console.log('Required columns not found');
+      return { groups: [], columns: [], error: 'Required columns (Column ID, Section Grouping) not found' };
+    }
+
+    // Get all data rows
+    const dataRows = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+
+    // Build column configuration and group list
+    const columns = [];
+    const groupsMap = new Map(); // To track unique groups in order
+
+    dataRows.forEach((row, idx) => {
+      const columnId = row[colIndices.columnId]?.toString().trim();
+      const sectionGrouping = row[colIndices.sectionGrouping]?.toString().trim();
+      const groupName = colIndices.groupName >= 0 ? row[colIndices.groupName]?.toString().trim() : '';
+      const mondayColumn = colIndices.mondayColumn >= 0 ? row[colIndices.mondayColumn]?.toString().trim() : '';
+      const value = colIndices.value >= 0 ? row[colIndices.value]?.toString().trim() : '';
+
+      if (columnId && sectionGrouping) {
+        columns.push({
+          columnId: columnId,
+          group: sectionGrouping,
+          groupName: groupName || sectionGrouping,
+          condition: mondayColumn ? { columnId: mondayColumn, value: value } : null
+        });
+
+        // Track groups in order they appear
+        if (!groupsMap.has(sectionGrouping)) {
+          groupsMap.set(sectionGrouping, groupName || sectionGrouping);
+        }
+      }
+    });
+
+    // Convert groups map to array
+    const groups = [];
+    groupsMap.forEach((groupName, groupKey) => {
+      groups.push({
+        key: groupKey,
+        name: groupName
+      });
+    });
+
+    console.log(`Found ${columns.length} column configurations across ${groups.length} groups`);
+    console.log('Groups:', groups.map(g => g.key).join(', '));
+    console.log('=== get2026FlowConfig END ===');
+
+    return {
+      groups: groups,
+      columns: columns
+    };
+
+  } catch (error) {
+    console.error('ERROR in get2026FlowConfig:', error);
+    console.error('Stack:', error.stack);
+    return { groups: [], columns: [], error: error.message };
+  }
+}
