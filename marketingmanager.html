@@ -2914,7 +2914,8 @@
       // Set activeTab to first authorized tab after authorization loads
       useEffect(() => {
         if (!authLoading && authorization.mondayBoards && authorization.mondayBoards.length > 0) {
-          // Define the mapping from board names to tab IDs
+          // Define the mapping from board auth values to tab IDs
+          // Note: Internal boards (PartnerManagement, SolutionOps, MarketingProjects, Compliance) all map to 'internalActivities'
           const boardToTabMapping = [
             { board: 'MarketingApprovals', tab: 'approvals' },
             { board: 'MarketingCalendar', tab: 'calendar' },
@@ -2922,7 +2923,11 @@
             { board: 'Activity Stats', tab: 'stats' },
             { board: 'PartnerActivites', tab: 'partnerActivities' },
             { board: 'PartnerHealthHeatmap', tab: 'heatmap' },
-            { board: 'InternalActivities', tab: 'internalActivities' }
+            // Internal boards - any of these authorizes the internalActivities tab
+            { board: 'PartnerManagement', tab: 'internalActivities' },
+            { board: 'SolutionOps', tab: 'internalActivities' },
+            { board: 'MarketingProjects', tab: 'internalActivities' },
+            { board: 'Compliance', tab: 'internalActivities' }
           ];
 
           // Find the first authorized tab
@@ -2931,9 +2936,12 @@
           );
 
           if (firstAuthorized) {
-            // Check if current tab is not authorized, switch to first authorized
-            const currentTabBoard = boardToTabMapping.find(m => m.tab === activeTab);
-            if (currentTabBoard && !authorization.mondayBoards.includes(currentTabBoard.board)) {
+            // Check if current tab is authorized
+            const isCurrentTabAuthorized = boardToTabMapping
+              .filter(m => m.tab === activeTab)
+              .some(m => authorization.mondayBoards.includes(m.board));
+
+            if (!isCurrentTabAuthorized) {
               console.log('Current tab not authorized, switching to:', firstAuthorized.tab);
               setActiveTab(firstAuthorized.tab);
             }
@@ -3177,6 +3185,36 @@
         return isAuthorized;
       };
 
+      // Mapping from MondayBoards authorization values to Internal Activities board names
+      const internalBoardAuthMapping = {
+        'PartnerManagement': 'Partner Management Tracker',
+        'SolutionOps': 'Solution Ops Tracker',
+        'MarketingProjects': 'Marketing Projects',
+        'Compliance': 'Compliance'
+      };
+
+      // Check if any internal board is authorized (for showing the Internal Activities tab)
+      const isAnyInternalBoardAuthorized = () => {
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          return true; // backward compatibility
+        }
+        const internalAuthKeys = Object.keys(internalBoardAuthMapping);
+        return internalAuthKeys.some(key => authorization.mondayBoards.includes(key));
+      };
+
+      // Filter internal board names to only show authorized ones
+      const getAuthorizedInternalBoardNames = () => {
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          return internalBoardNames; // show all for backward compatibility
+        }
+        // Get the authorized board display names
+        const authorizedDisplayNames = Object.entries(internalBoardAuthMapping)
+          .filter(([authKey, displayName]) => authorization.mondayBoards.includes(authKey))
+          .map(([authKey, displayName]) => displayName);
+        // Filter internalBoardNames to only include authorized ones
+        return internalBoardNames.filter(name => authorizedDisplayNames.includes(name));
+      };
+
       // Render view mode filter buttons based on role
       const renderViewModeButtons = () => {
         const role = authorization.role;
@@ -3374,7 +3412,7 @@
                   </button>
                 </li>
               )}
-              {isBoardAuthorized('InternalActivities') && (
+              {isAnyInternalBoardAuthorized() && (
                 <li className="nav-item">
                   <button
                     className={`nav-link ${activeTab === 'internalActivities' ? 'active' : ''}`}
@@ -3444,10 +3482,10 @@
                     onRefresh={loadData}
                   />
                 )}
-                {activeTab === 'internalActivities' && isBoardAuthorized('InternalActivities') && (
+                {activeTab === 'internalActivities' && isAnyInternalBoardAuthorized() && (
                   <InternalActivitiesTab
                     data={filteredInternalActivitiesData}
-                    boardNames={internalBoardNames}
+                    boardNames={getAuthorizedInternalBoardNames()}
                     onRefresh={loadData}
                   />
                 )}
