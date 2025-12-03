@@ -736,7 +736,8 @@ function deleteMondayItem(itemId, boardId) {
         } else if (boardId === APPROVALS_2026_BOARD_ID) {
           console.log('Syncing 2026 Approvals board after item deletion...');
           sync2026ApprovalsBoard();
-          console.log('2026 Approvals board sync complete');
+          clear2026ApprovalsCaches();
+          console.log('2026 Approvals board sync and cache clear complete');
         } else if (GW_BOARD_IDS.includes(boardId)) {
           // Sync only the specific GW board that was affected
           console.log(`Syncing single GW board ${boardId} after item deletion...`);
@@ -942,7 +943,8 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
       } else if (boardId === APPROVALS_2026_BOARD_ID) {
         console.log('Syncing 2026 Approvals board after item update...');
         sync2026ApprovalsBoard();
-        console.log('2026 Approvals board sync complete');
+        clear2026ApprovalsCaches();
+        console.log('2026 Approvals board sync and cache clear complete');
       } else if (GW_BOARD_IDS.includes(boardId)) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item update...`);
@@ -1395,7 +1397,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
       } else if (boardId === APPROVALS_2026_BOARD_ID) {
         console.log('Syncing 2026 Approvals board after item creation...');
         sync2026ApprovalsBoard();
-        console.log('2026 Approvals board sync complete');
+        clear2026ApprovalsCaches();
+        console.log('2026 Approvals board sync and cache clear complete');
       } else if (GW_BOARD_IDS.includes(boardId)) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item creation...`);
