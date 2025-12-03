@@ -1404,9 +1404,36 @@
     function MarketingStatsTab({ chartData, onRefresh }) {
       const chartRef = React.useRef(null);
       const chartInstanceRef = React.useRef(null);
+      const [selectedActivities, setSelectedActivities] = useState([]);
+
+      // Get list of all activity names for the filter
+      const activityOptions = useMemo(() => {
+        if (!chartData || !chartData.datasets) return [];
+        return chartData.datasets.map(d => d.label).sort();
+      }, [chartData]);
+
+      // Filter datasets based on selected activities
+      const filteredChartData = useMemo(() => {
+        if (!chartData || !chartData.datasets) return { labels: [], datasets: [] };
+
+        // If no activities selected, show all
+        if (selectedActivities.length === 0) {
+          return chartData;
+        }
+
+        // Filter to only selected activities
+        const filteredDatasets = chartData.datasets.filter(d =>
+          selectedActivities.includes(d.label)
+        );
+
+        return {
+          labels: chartData.labels,
+          datasets: filteredDatasets
+        };
+      }, [chartData, selectedActivities]);
 
       useEffect(() => {
-        if (!chartData || !chartData.labels || chartData.labels.length === 0) {
+        if (!filteredChartData || !filteredChartData.labels || filteredChartData.labels.length === 0) {
           return;
         }
 
@@ -1420,8 +1447,8 @@
         chartInstanceRef.current = new Chart(ctx, {
           type: 'bar',
           data: {
-            labels: chartData.labels,
-            datasets: chartData.datasets
+            labels: filteredChartData.labels,
+            datasets: filteredChartData.datasets
           },
           options: {
             responsive: true,
@@ -1493,17 +1520,61 @@
             chartInstanceRef.current.destroy();
           }
         };
-      }, [chartData]);
+      }, [filteredChartData]);
 
-      // Calculate totals for summary
-      const totalActivities = chartData?.datasets?.reduce((sum, dataset) => {
+      // Calculate totals for summary (based on filtered data)
+      const totalActivities = filteredChartData?.datasets?.reduce((sum, dataset) => {
         return sum + dataset.data.reduce((a, b) => a + b, 0);
       }, 0) || 0;
 
-      const activityCount = chartData?.datasets?.length || 0;
+      const activityCount = filteredChartData?.datasets?.length || 0;
+
+      // Handle activity filter change
+      const handleActivityFilterChange = (e) => {
+        const options = Array.from(e.target.selectedOptions, option => option.value);
+        setSelectedActivities(options);
+      };
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '1rem' }}>
+          {/* Activity Filter */}
+          <div className="card mb-3">
+            <div className="card-body py-2">
+              <div className="row align-items-center">
+                <div className="col-md-3">
+                  <label className="form-label mb-1 fw-bold">Filter by Activity Type</label>
+                  <select
+                    className="form-select"
+                    multiple
+                    size="4"
+                    value={selectedActivities}
+                    onChange={handleActivityFilterChange}
+                    style={{ fontSize: '0.85rem' }}
+                  >
+                    {activityOptions.map((activity, idx) => (
+                      <option key={idx} value={activity}>{activity}</option>
+                    ))}
+                  </select>
+                  <small className="text-muted">
+                    {selectedActivities.length === 0
+                      ? 'Showing all activities (Ctrl+click to select)'
+                      : `${selectedActivities.length} selected`}
+                  </small>
+                </div>
+                <div className="col-md-9 d-flex align-items-center">
+                  {selectedActivities.length > 0 && (
+                    <button
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={() => setSelectedActivities([])}
+                    >
+                      Clear Filter
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Summary Stats */}
           <div className="row mb-3">
             <div className="col-md-4">
@@ -1535,7 +1606,7 @@
           {/* Chart Container */}
           <div className="card flex-grow-1" style={{ minHeight: '400px' }}>
             <div className="card-body">
-              {chartData && chartData.labels && chartData.labels.length > 0 ? (
+              {filteredChartData && filteredChartData.labels && filteredChartData.labels.length > 0 ? (
                 <div style={{ height: '100%', minHeight: '350px' }}>
                   <canvas ref={chartRef}></canvas>
                 </div>
