@@ -2911,6 +2911,110 @@
         }
       }, [currentManager]);
 
+      // Get team member names from Reports field
+      const getTeamMemberNames = () => {
+        if (!authorization.reports) return [];
+        return authorization.reports
+          .split(',')
+          .map(name => name.trim().toLowerCase())
+          .filter(name => name !== '');
+      };
+
+      // Get the current manager's name for matching
+      const getManagerName = () => {
+        return (authorization.managerName || '').toLowerCase();
+      };
+
+      // Filter function that checks if a row involves a person
+      const rowInvolvesPerson = (row, personNames) => {
+        // Convert all values we're checking to lowercase for comparison
+        const fieldsToCheck = [
+          'Owner', 'Alliance Manager', 'AllianceManager', 'Assigned To', 'AssignedTo',
+          'Partner Manager', 'PartnerManager', 'Requestor', 'Created By'
+        ];
+
+        for (const field of fieldsToCheck) {
+          const value = row[field];
+          if (value) {
+            const valueLower = String(value).toLowerCase();
+            for (const personName of personNames) {
+              // Check if the field contains the person's name
+              if (valueLower.includes(personName) || personName.includes(valueLower)) {
+                return true;
+              }
+            }
+          }
+        }
+
+        // Also check if the partner is managed by this person
+        // (This would require partner-to-manager mapping which we may not have client-side)
+
+        return false;
+      };
+
+      // Filter data based on view mode
+      const filterDataByViewMode = (data, viewModeValue) => {
+        console.log('filterDataByViewMode called with viewMode:', viewModeValue, 'data length:', data?.length);
+
+        // Dept mode = show all
+        if (viewModeValue === 'dept') {
+          console.log('Dept mode - returning all data');
+          return data;
+        }
+
+        if (!data || data.length === 0) {
+          return data;
+        }
+
+        const managerName = getManagerName();
+        let peopleToMatch = [];
+
+        if (viewModeValue === 'self') {
+          // Self mode - only match the current manager
+          peopleToMatch = [managerName].filter(n => n);
+          console.log('Self mode - matching:', peopleToMatch);
+        } else if (viewModeValue === 'team') {
+          // Team mode - match the manager AND all their reports
+          const teamNames = getTeamMemberNames();
+          peopleToMatch = [managerName, ...teamNames].filter(n => n);
+          console.log('Team mode - matching:', peopleToMatch);
+        }
+
+        if (peopleToMatch.length === 0) {
+          console.log('No people to match - returning all data');
+          return data;
+        }
+
+        const filteredData = data.filter(row => rowInvolvesPerson(row, peopleToMatch));
+        console.log('Filtered data length:', filteredData.length);
+        return filteredData;
+      };
+
+      // Memoized filtered data for each dataset
+      const filteredApprovalsData = useMemo(() => {
+        return filterDataByViewMode(approvalsData, viewMode);
+      }, [approvalsData, viewMode, authorization]);
+
+      const filteredCalendarData = useMemo(() => {
+        return filterDataByViewMode(calendarData, viewMode);
+      }, [calendarData, viewMode, authorization]);
+
+      const filteredApprovals2026Data = useMemo(() => {
+        return filterDataByViewMode(approvals2026Data, viewMode);
+      }, [approvals2026Data, viewMode, authorization]);
+
+      const filteredPartnerActivitiesData = useMemo(() => {
+        return filterDataByViewMode(partnerActivitiesData, viewMode);
+      }, [partnerActivitiesData, viewMode, authorization]);
+
+      const filteredPartnerHeatmapData = useMemo(() => {
+        return filterDataByViewMode(partnerHeatmapData, viewMode);
+      }, [partnerHeatmapData, viewMode, authorization]);
+
+      const filteredInternalActivitiesData = useMemo(() => {
+        return filterDataByViewMode(internalActivitiesData, viewMode);
+      }, [internalActivitiesData, viewMode, authorization]);
+
       // Debug logging for deep link
       useEffect(() => {
         console.log('App: editItemIdFromUrl =', editItemIdFromUrl, typeof editItemIdFromUrl);
@@ -3182,7 +3286,7 @@
                   className={`nav-link ${activeTab === 'approvals' ? 'active' : ''}`}
                   onClick={() => setActiveTab('approvals')}
                 >
-                  Marketing Approvals ({approvalsData.length})
+                  Marketing Approvals ({filteredApprovalsData.length})
                 </button>
               </li>
               <li className="nav-item">
@@ -3190,7 +3294,7 @@
                   className={`nav-link ${activeTab === 'calendar' ? 'active' : ''}`}
                   onClick={() => setActiveTab('calendar')}
                 >
-                  Marketing Calendar ({calendarData.length})
+                  Marketing Calendar ({filteredCalendarData.length})
                 </button>
               </li>
               <li className="nav-item">
@@ -3198,7 +3302,7 @@
                   className={`nav-link ${activeTab === 'approvals2026' ? 'active' : ''}`}
                   onClick={() => setActiveTab('approvals2026')}
                 >
-                  2026 Approvals ({approvals2026Data.length})
+                  2026 Approvals ({filteredApprovals2026Data.length})
                 </button>
               </li>
               <li className="nav-item">
@@ -3214,7 +3318,7 @@
                   className={`nav-link ${activeTab === 'partnerActivities' ? 'active' : ''}`}
                   onClick={() => setActiveTab('partnerActivities')}
                 >
-                  Partner Activities ({partnerActivitiesData.length})
+                  Partner Activities ({filteredPartnerActivitiesData.length})
                 </button>
               </li>
               <li className="nav-item">
@@ -3222,7 +3326,7 @@
                   className={`nav-link ${activeTab === 'heatmap' ? 'active' : ''}`}
                   onClick={() => setActiveTab('heatmap')}
                 >
-                  Partner Heatmap ({partnerHeatmapData.length})
+                  Partner Heatmap ({filteredPartnerHeatmapData.length})
                 </button>
               </li>
               <li className="nav-item">
@@ -3230,7 +3334,7 @@
                   className={`nav-link ${activeTab === 'internalActivities' ? 'active' : ''}`}
                   onClick={() => setActiveTab('internalActivities')}
                 >
-                  Internal Activities ({internalActivitiesData.length})
+                  Internal Activities ({filteredInternalActivitiesData.length})
                 </button>
               </li>
             </ul>
@@ -3246,7 +3350,7 @@
               <div className="tab-content-container">
                 {activeTab === 'approvals' && (
                   <MarketingApprovalsTab
-                    data={approvalsData}
+                    data={filteredApprovalsData}
                     filterOptions={filterOptions.approvalFilters || {}}
                     columns={approvalColumns}
                     onRefresh={loadData}
@@ -3256,7 +3360,7 @@
                 )}
                 {activeTab === 'calendar' && (
                   <MarketingCalendarTab
-                    data={calendarData}
+                    data={filteredCalendarData}
                     filterOptions={filterOptions.calendarFilters || {}}
                     columns={calendarColumns}
                     onRefresh={loadData}
@@ -3266,7 +3370,7 @@
                 )}
                 {activeTab === 'approvals2026' && (
                   <Approvals2026Tab
-                    data={approvals2026Data}
+                    data={filteredApprovals2026Data}
                     filterOptions={filterOptions.approvals2026Filters || {}}
                     columns={approvals2026Columns}
                     flowConfig={flowConfig2026}
@@ -3283,19 +3387,19 @@
                 )}
                 {activeTab === 'partnerActivities' && (
                   <PartnerActivitiesTab
-                    data={partnerActivitiesData}
+                    data={filteredPartnerActivitiesData}
                     onRefresh={loadData}
                   />
                 )}
                 {activeTab === 'heatmap' && (
                   <PartnerHeatmapTab
-                    data={partnerHeatmapData}
+                    data={filteredPartnerHeatmapData}
                     onRefresh={loadData}
                   />
                 )}
                 {activeTab === 'internalActivities' && (
                   <InternalActivitiesTab
-                    data={internalActivitiesData}
+                    data={filteredInternalActivitiesData}
                     boardNames={internalBoardNames}
                     onRefresh={loadData}
                   />
