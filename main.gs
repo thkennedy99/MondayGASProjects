@@ -360,6 +360,12 @@ function clearMarketingCaches() {
     cacheKeysToRemove.push('all_marketing_approvals');
     cacheKeysToRemove.push('all_marketing_calendar');
 
+    // Clear 2026 Approvals cache keys
+    cacheKeysToRemove.push('all_2026_approvals');
+    managers.forEach(managerEmail => {
+      cacheKeysToRemove.push(`approvals_2026_${managerEmail}`);
+    });
+
     // Remove all cache keys (GAS allows removing up to 100 keys at once)
     if (cacheKeysToRemove.length > 0) {
       cache.removeAll(cacheKeysToRemove);
@@ -425,6 +431,32 @@ function clearMarketingCalendarCaches() {
 
   } catch (error) {
     console.error('Error clearing marketing calendar caches:', error);
+  }
+}
+
+/**
+ * Clear only 2026 Approvals caches
+ * Use this for targeted cache invalidation when only 2026 approvals are affected
+ */
+function clear2026ApprovalsCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const managers = getManagerList();
+    const cacheKeysToRemove = [];
+
+    managers.forEach(managerEmail => {
+      cacheKeysToRemove.push(`approvals_2026_${managerEmail}`);
+    });
+
+    cacheKeysToRemove.push('all_2026_approvals');
+
+    if (cacheKeysToRemove.length > 0) {
+      cache.removeAll(cacheKeysToRemove);
+      console.log(`Cleared ${cacheKeysToRemove.length} 2026 approvals cache keys`);
+    }
+
+  } catch (error) {
+    console.error('Error clearing 2026 approvals caches:', error);
   }
 }
 
@@ -1366,6 +1398,7 @@ function nuclearClearAllMarketingCaches() {
   managers.forEach(email => {
     keysToRemove.push(`marketing_approvals_${email}`);
     keysToRemove.push(`marketing_calendar_${email}`);
+    keysToRemove.push(`approvals_2026_${email}`);
     keysToRemove.push(`heatmap_${email}`);
     keysToRemove.push(`manager_partners_${email}`);
     keysToRemove.push(`manager_name_${email}`);
@@ -1376,6 +1409,7 @@ function nuclearClearAllMarketingCaches() {
   keysToRemove.push('all_marketing_approvals');
   keysToRemove.push('marketing_calendar_all');
   keysToRemove.push('all_marketing_calendar');
+  keysToRemove.push('all_2026_approvals');
   keysToRemove.push('heatmap_all');
   keysToRemove.push('manager_list');
 
