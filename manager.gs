@@ -538,6 +538,86 @@ function clearManagerAuthorizationCache(managerEmail) {
 }
 
 /**
+ * Nuclear option - clear ALL caches (manager list, all authorizations, email lookups)
+ * Use this when you've made changes to TechAllianceManager or AllianceManager sheets
+ * and want to ensure fresh data is loaded for everyone
+ */
+function clearAllManagerCaches() {
+  try {
+    const cache = CacheService.getScriptCache();
+
+    // Clear the manager list cache
+    cache.remove('manager_list');
+    console.log('Cleared manager_list cache');
+
+    // Get all managers from AllianceManager sheet to clear their individual caches
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Clear authorization caches for all managers in TechAllianceManager
+    const techSheet = spreadsheet.getSheetByName('TechAllianceManager');
+    if (techSheet) {
+      const techData = techSheet.getDataRange().getValues();
+      const techHeaders = techData[0];
+      let emailColIndex = -1;
+
+      for (let i = 0; i < techHeaders.length; i++) {
+        if (techHeaders[i] && techHeaders[i].toString().toLowerCase().trim() === 'email') {
+          emailColIndex = i;
+          break;
+        }
+      }
+
+      if (emailColIndex !== -1) {
+        for (let i = 1; i < techData.length; i++) {
+          const email = techData[i][emailColIndex];
+          if (email) {
+            const normalizedEmail = email.toString().trim().toLowerCase();
+            const authCacheKey = `manager_auth_${normalizedEmail.replace(/[@.]/g, '_')}`;
+            cache.remove(authCacheKey);
+            console.log(`Cleared auth cache for: ${normalizedEmail}`);
+          }
+        }
+      }
+    }
+
+    // Clear email lookup caches for all managers in AllianceManager
+    const allianceSheet = spreadsheet.getSheetByName('AllianceManager');
+    if (allianceSheet) {
+      const allianceData = allianceSheet.getDataRange().getValues();
+      const allianceHeaders = allianceData[0];
+      let nameColIndex = -1;
+
+      for (let i = 0; i < allianceHeaders.length; i++) {
+        const header = allianceHeaders[i] ? allianceHeaders[i].toString().toLowerCase().trim() : '';
+        if (header === 'manager' || header === 'name' || header === 'full name') {
+          nameColIndex = i;
+          break;
+        }
+      }
+
+      if (nameColIndex !== -1) {
+        for (let i = 1; i < allianceData.length; i++) {
+          const name = allianceData[i][nameColIndex];
+          if (name) {
+            const searchName = name.toString().trim().toLowerCase();
+            const emailCacheKey = `manager_email_${searchName.replace(/\s+/g, '_')}`;
+            cache.remove(emailCacheKey);
+            console.log(`Cleared email lookup cache for: ${name}`);
+          }
+        }
+      }
+    }
+
+    console.log('=== ALL MANAGER CACHES CLEARED ===');
+    return { success: true, message: 'All manager caches cleared successfully' };
+
+  } catch (error) {
+    console.error('Error in clearAllManagerCaches:', error);
+    return { success: false, message: error.toString() };
+  }
+}
+
+/**
  * Get list of report names for a manager (parsed from Reports column)
  * @param {string} managerEmail - Manager's email address
  * @returns {string[]} Array of report names
