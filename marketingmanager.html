@@ -17,6 +17,9 @@
   <!-- Chart.js for stacked column chart -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
+  <!-- jsPDF for PDF export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
   <style>
     :root {
       --gw-blue: #00739d;
@@ -1544,6 +1547,60 @@
         setSelectedActivities(options);
       };
 
+      // Download chart as PDF
+      const handleDownloadPDF = () => {
+        if (!chartRef.current) return;
+
+        try {
+          const canvas = chartRef.current;
+          const imgData = canvas.toDataURL('image/png', 1.0);
+
+          // Create PDF in landscape orientation for better chart display
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF('landscape', 'mm', 'a4');
+
+          // Get page dimensions
+          const pageWidth = pdf.internal.pageSize.getWidth();
+          const pageHeight = pdf.internal.pageSize.getHeight();
+
+          // Add title
+          pdf.setFontSize(20);
+          pdf.setTextColor(3, 78, 106); // --gw-navy color
+          pdf.text('Marketing Calendar Activities by Month', pageWidth / 2, 15, { align: 'center' });
+
+          // Add date
+          pdf.setFontSize(10);
+          pdf.setTextColor(100);
+          const today = new Date().toLocaleDateString();
+          pdf.text(`Generated: ${today}`, pageWidth / 2, 22, { align: 'center' });
+
+          // Add filter info if filters are active
+          if (selectedActivities.length > 0) {
+            pdf.setFontSize(10);
+            pdf.text(`Filtered by: ${selectedActivities.join(', ')}`, pageWidth / 2, 28, { align: 'center' });
+          }
+
+          // Calculate image dimensions to fit the page with margins
+          const margin = 15;
+          const imgWidth = pageWidth - (margin * 2);
+          const imgHeight = (canvas.height / canvas.width) * imgWidth;
+
+          // Position the image
+          const yPosition = selectedActivities.length > 0 ? 35 : 30;
+
+          // Add the chart image
+          pdf.addImage(imgData, 'PNG', margin, yPosition, imgWidth, Math.min(imgHeight, pageHeight - yPosition - margin));
+
+          // Save the PDF
+          const fileName = `Marketing_Activities_Chart_${today.replace(/\//g, '-')}.pdf`;
+          pdf.save(fileName);
+
+        } catch (error) {
+          console.error('Error generating PDF:', error);
+          alert('Failed to generate PDF. Please try again.');
+        }
+      };
+
       return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '1rem' }}>
           {/* Activity Filter */}
@@ -1570,7 +1627,7 @@
                       : `${selectedActivities.length} selected`}
                   </small>
                 </div>
-                <div className="col-md-9 d-flex align-items-center">
+                <div className="col-md-9 d-flex align-items-center gap-2">
                   {selectedActivities.length > 0 && (
                     <button
                       className="btn btn-sm btn-outline-secondary"
@@ -1579,6 +1636,13 @@
                       Clear Filter
                     </button>
                   )}
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={handleDownloadPDF}
+                    disabled={!filteredChartData || !filteredChartData.datasets || filteredChartData.datasets.length === 0}
+                  >
+                    Download PDF
+                  </button>
                 </div>
               </div>
             </div>
