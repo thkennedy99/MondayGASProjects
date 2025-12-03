@@ -14,6 +14,9 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+  <!-- Chart.js for stacked column chart -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
   <style>
     :root {
       --gw-blue: #00739d;
@@ -1397,6 +1400,164 @@
       );
     }
 
+    // Marketing Stats Tab Component - Stacked Column Chart
+    function MarketingStatsTab({ chartData, onRefresh }) {
+      const chartRef = React.useRef(null);
+      const chartInstanceRef = React.useRef(null);
+
+      useEffect(() => {
+        if (!chartData || !chartData.labels || chartData.labels.length === 0) {
+          return;
+        }
+
+        // Destroy existing chart if it exists
+        if (chartInstanceRef.current) {
+          chartInstanceRef.current.destroy();
+        }
+
+        const ctx = chartRef.current.getContext('2d');
+
+        chartInstanceRef.current = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: chartData.labels,
+            datasets: chartData.datasets
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              title: {
+                display: true,
+                text: 'Marketing Calendar Activities by Month',
+                font: {
+                  size: 18,
+                  weight: 'bold'
+                },
+                color: '#034e6a'
+              },
+              legend: {
+                position: 'bottom',
+                labels: {
+                  padding: 15,
+                  usePointStyle: true,
+                  font: {
+                    size: 11
+                  }
+                }
+              },
+              tooltip: {
+                mode: 'index',
+                intersect: false
+              }
+            },
+            scales: {
+              x: {
+                stacked: true,
+                title: {
+                  display: true,
+                  text: 'Month',
+                  font: {
+                    weight: 'bold'
+                  }
+                }
+              },
+              y: {
+                stacked: true,
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: 'Number of Activities',
+                  font: {
+                    weight: 'bold'
+                  }
+                },
+                ticks: {
+                  stepSize: 1
+                }
+              }
+            },
+            interaction: {
+              mode: 'nearest',
+              axis: 'x',
+              intersect: false
+            }
+          }
+        });
+
+        // Cleanup on unmount
+        return () => {
+          if (chartInstanceRef.current) {
+            chartInstanceRef.current.destroy();
+          }
+        };
+      }, [chartData]);
+
+      // Calculate totals for summary
+      const totalActivities = chartData?.datasets?.reduce((sum, dataset) => {
+        return sum + dataset.data.reduce((a, b) => a + b, 0);
+      }, 0) || 0;
+
+      const activityCount = chartData?.datasets?.length || 0;
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '1rem' }}>
+          {/* Summary Stats */}
+          <div className="row mb-3">
+            <div className="col-md-4">
+              <div className="card bg-light">
+                <div className="card-body py-2">
+                  <h6 className="card-subtitle text-muted">Total Activities</h6>
+                  <h4 className="card-title mb-0">{totalActivities}</h4>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-4">
+              <div className="card bg-light">
+                <div className="card-body py-2">
+                  <h6 className="card-subtitle text-muted">Activity Types</h6>
+                  <h4 className="card-title mb-0">{activityCount}</h4>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-4">
+              <div className="card bg-light">
+                <div className="card-body py-2">
+                  <h6 className="card-subtitle text-muted">Months Tracked</h6>
+                  <h4 className="card-title mb-0">{chartData?.labels?.length || 0}</h4>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Chart Container */}
+          <div className="card flex-grow-1" style={{ minHeight: '400px' }}>
+            <div className="card-body">
+              {chartData && chartData.labels && chartData.labels.length > 0 ? (
+                <div style={{ height: '100%', minHeight: '350px' }}>
+                  <canvas ref={chartRef}></canvas>
+                </div>
+              ) : (
+                <div className="d-flex justify-content-center align-items-center h-100">
+                  <div className="text-center text-muted">
+                    <p>No chart data available.</p>
+                    <p className="small">Make sure the MarketingCalendarStats sheet exists and has data.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Error display */}
+          {chartData?.error && (
+            <div className="alert alert-warning mt-3">
+              {chartData.error}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // Helper function for status badge colors
     function getStatusBadgeClass(status) {
       if (!status) return 'bg-secondary';
@@ -1435,6 +1596,7 @@
         calendarFilters: {},
         approvals2026Filters: {}
       });
+      const [chartData, setChartData] = useState({ labels: [], datasets: [] });
       const [autoEditItemId, setAutoEditItemId] = useState(editItemIdFromUrl);
 
       // Debug logging for deep link
@@ -1461,14 +1623,15 @@
 
         try {
           // Load all data in parallel
-          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
             api.call('getAll2026Approvals'),
             api.call('getMarketingManagerFilterOptions'),
             api.call('getBoardColumnsStructure', MARKETING_APPROVAL_BOARD_ID),
             api.call('getBoardColumnsStructure', MARKETING_CALENDAR_BOARD_ID),
-            api.call('getBoardColumnsStructure', APPROVALS_2026_BOARD_ID)
+            api.call('getBoardColumnsStructure', APPROVALS_2026_BOARD_ID),
+            api.call('getMarketingCalendarStats')
           ]);
 
           setApprovalsData(approvals || []);
@@ -1478,6 +1641,7 @@
           setApprovalColumns(approvalCols || []);
           setCalendarColumns(calendarCols || []);
           setApprovals2026Columns(approvals2026Cols || []);
+          setChartData(statsData || { labels: [], datasets: [] });
 
         } catch (err) {
           console.error('Error loading data:', err);
@@ -1533,6 +1697,14 @@
                   2026 Approvals ({approvals2026Data.length})
                 </button>
               </li>
+              <li className="nav-item">
+                <button
+                  className={`nav-link ${activeTab === 'stats' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('stats')}
+                >
+                  Activity Stats
+                </button>
+              </li>
             </ul>
 
             {/* Tab Content */}
@@ -1572,6 +1744,12 @@
                     onRefresh={loadData}
                     autoEditItemId={String(editBoardIdFromUrl) === APPROVALS_2026_BOARD_ID ? autoEditItemId : null}
                     onAutoEditHandled={handleAutoEditHandled}
+                  />
+                )}
+                {activeTab === 'stats' && (
+                  <MarketingStatsTab
+                    chartData={chartData}
+                    onRefresh={loadData}
                   />
                 )}
               </div>

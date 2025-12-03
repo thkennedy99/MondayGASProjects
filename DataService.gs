@@ -3172,3 +3172,111 @@ function getMarketingManagerFilterOptions() {
     };
   }
 }
+
+/**
+ * Get Marketing Calendar Stats data for stacked column chart
+ * Reads from MarketingCalendarStats sheet where:
+ * - Column A (A2:A) contains activity/task names
+ * - Row 1 (B1:M1) contains month names (January through December)
+ * - Cells contain counts of activities per task per month
+ * @returns {Object} Chart data with labels (months), datasets (tasks with monthly counts)
+ */
+function getMarketingCalendarStats() {
+  try {
+    console.log('=== getMarketingCalendarStats START ===');
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName('MarketingCalendarStats');
+
+    if (!sheet) {
+      console.log('MarketingCalendarStats sheet not found');
+      return { labels: [], datasets: [], error: 'MarketingCalendarStats sheet not found' };
+    }
+
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+
+    console.log(`Sheet dimensions: ${lastRow} rows x ${lastCol} columns`);
+
+    if (lastRow < 2 || lastCol < 2) {
+      console.log('Sheet has insufficient data');
+      return { labels: [], datasets: [], error: 'Insufficient data in sheet' };
+    }
+
+    // Get all data from the sheet
+    const allData = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+
+    // Extract month labels from row 1 (B1:M1 or however many columns there are)
+    const headerRow = allData[0];
+    const months = [];
+    for (let i = 1; i < headerRow.length; i++) {
+      if (headerRow[i] && headerRow[i].toString().trim() !== '') {
+        months.push(headerRow[i].toString().trim());
+      }
+    }
+
+    console.log('Months found:', months.join(', '));
+
+    // Extract activity data from rows 2 onwards
+    const datasets = [];
+
+    // Color palette for different activities
+    const colors = [
+      { bg: 'rgba(54, 162, 235, 0.8)', border: 'rgba(54, 162, 235, 1)' },    // Blue
+      { bg: 'rgba(255, 99, 132, 0.8)', border: 'rgba(255, 99, 132, 1)' },    // Red
+      { bg: 'rgba(75, 192, 192, 0.8)', border: 'rgba(75, 192, 192, 1)' },    // Teal
+      { bg: 'rgba(255, 206, 86, 0.8)', border: 'rgba(255, 206, 86, 1)' },    // Yellow
+      { bg: 'rgba(153, 102, 255, 0.8)', border: 'rgba(153, 102, 255, 1)' },  // Purple
+      { bg: 'rgba(255, 159, 64, 0.8)', border: 'rgba(255, 159, 64, 1)' },    // Orange
+      { bg: 'rgba(46, 204, 113, 0.8)', border: 'rgba(46, 204, 113, 1)' },    // Green
+      { bg: 'rgba(231, 76, 60, 0.8)', border: 'rgba(231, 76, 60, 1)' },      // Dark Red
+      { bg: 'rgba(52, 152, 219, 0.8)', border: 'rgba(52, 152, 219, 1)' },    // Light Blue
+      { bg: 'rgba(155, 89, 182, 0.8)', border: 'rgba(155, 89, 182, 1)' },    // Violet
+      { bg: 'rgba(241, 196, 15, 0.8)', border: 'rgba(241, 196, 15, 1)' },    // Gold
+      { bg: 'rgba(26, 188, 156, 0.8)', border: 'rgba(26, 188, 156, 1)' },    // Turquoise
+      { bg: 'rgba(230, 126, 34, 0.8)', border: 'rgba(230, 126, 34, 1)' },    // Carrot
+      { bg: 'rgba(149, 165, 166, 0.8)', border: 'rgba(149, 165, 166, 1)' },  // Gray
+      { bg: 'rgba(192, 57, 43, 0.8)', border: 'rgba(192, 57, 43, 1)' }       // Pomegranate
+    ];
+
+    for (let i = 1; i < allData.length; i++) {
+      const row = allData[i];
+      const activityName = row[0] ? row[0].toString().trim() : '';
+
+      if (!activityName) continue;
+
+      // Get monthly values for this activity
+      const data = [];
+      for (let j = 1; j <= months.length; j++) {
+        const value = row[j];
+        // Handle empty cells, strings, and numbers
+        const numValue = (value === '' || value === null || value === undefined) ? 0 : Number(value) || 0;
+        data.push(numValue);
+      }
+
+      const colorIndex = datasets.length % colors.length;
+
+      datasets.push({
+        label: activityName,
+        data: data,
+        backgroundColor: colors[colorIndex].bg,
+        borderColor: colors[colorIndex].border,
+        borderWidth: 1
+      });
+    }
+
+    console.log(`Found ${datasets.length} activities`);
+    console.log('Activities:', datasets.map(d => d.label).join(', '));
+    console.log('=== getMarketingCalendarStats END ===');
+
+    return {
+      labels: months,
+      datasets: datasets
+    };
+
+  } catch (error) {
+    console.error('ERROR in getMarketingCalendarStats:', error);
+    console.error('Stack:', error.stack);
+    return { labels: [], datasets: [], error: error.message };
+  }
+}
