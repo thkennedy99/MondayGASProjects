@@ -4665,11 +4665,18 @@
 
               // Load authorization data on mount
               useEffect(() => {
+                  console.log('=== Authorization Load Debug ===');
+                  console.log('currentManager:', currentManager);
+                  console.log('appConfig:', window.appConfig);
+
                   if (currentManager) {
                       setAuthLoading(true);
                       api.call('getManagerAuthorization', currentManager)
                           .then(auth => {
                               console.log('Loaded authorization:', auth);
+                              console.log('Role:', auth.role);
+                              console.log('MondayBoards:', auth.mondayBoards);
+                              console.log('Reports:', auth.reports);
                               setAuthorization(auth);
                               setAuthLoading(false);
                           })
@@ -4678,6 +4685,7 @@
                               setAuthLoading(false);
                           });
                   } else {
+                      console.log('No currentManager - skipping authorization load');
                       setAuthLoading(false);
                   }
               }, [currentManager]);
@@ -4726,9 +4734,11 @@
               // Render view mode filter buttons based on role
               const renderViewModeButtons = () => {
                   const role = authorization.role;
+                  console.log('renderViewModeButtons - role:', role, 'authorization:', authorization);
 
                   // User role: no buttons (always self view)
                   if (role === 'User') {
+                      console.log('Role is User - not showing buttons');
                       return null;
                   }
 

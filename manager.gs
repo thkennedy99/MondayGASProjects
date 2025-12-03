@@ -400,22 +400,31 @@ function getManagerAuthorization(managerEmail) {
 
     for (let i = 0; i < headers.length; i++) {
       const header = headers[i] ? headers[i].toString().toLowerCase().trim() : '';
+      // Remove spaces for more flexible matching
+      const headerNoSpaces = header.replace(/\s+/g, '');
+
       if (header === 'manager' || header === 'name' || header === 'full name') {
         nameColumnIndex = i;
       }
       if (header === 'email') {
         emailColumnIndex = i;
       }
-      if (header === 'mondayboards') {
+      // Match 'mondayboards', 'monday boards', 'MondayBoards', etc.
+      if (headerNoSpaces === 'mondayboards') {
         mondayBoardsColumnIndex = i;
       }
-      if (header === 'mondayrole') {
+      // Match 'mondayrole', 'monday role', 'MondayRole', etc.
+      if (headerNoSpaces === 'mondayrole') {
         mondayRoleColumnIndex = i;
       }
       if (header === 'reports') {
         reportsColumnIndex = i;
       }
     }
+
+    console.log('Column indices found - name:', nameColumnIndex, 'email:', emailColumnIndex,
+                'mondayBoards:', mondayBoardsColumnIndex, 'mondayRole:', mondayRoleColumnIndex,
+                'reports:', reportsColumnIndex);
 
     if (emailColumnIndex === -1) {
       console.error('Email column not found in TechAllianceManager sheet');
