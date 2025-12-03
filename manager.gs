@@ -392,6 +392,9 @@ function getManagerAuthorization(managerEmail) {
 
     // Find column indices
     const headers = values[0];
+    console.log('=== TechAllianceManager Headers ===');
+    console.log('Raw headers:', JSON.stringify(headers));
+
     let nameColumnIndex = -1;
     let emailColumnIndex = -1;
     let mondayBoardsColumnIndex = -1;
@@ -451,6 +454,8 @@ function getManagerAuthorization(managerEmail) {
 
       if (email === searchEmail) {
         console.log(`Found manager in TechAllianceManager: ${managerEmail}`);
+        console.log('Row index:', i);
+        console.log('Row data:', JSON.stringify(row));
 
         // Get manager name
         if (nameColumnIndex !== -1) {
@@ -468,10 +473,23 @@ function getManagerAuthorization(managerEmail) {
 
         // Get MondayRole
         if (mondayRoleColumnIndex !== -1) {
-          const roleValue = row[mondayRoleColumnIndex] ? row[mondayRoleColumnIndex].toString().trim() : 'User';
+          const rawRoleValue = row[mondayRoleColumnIndex];
+          const roleValue = rawRoleValue ? rawRoleValue.toString().trim() : 'User';
+          console.log('=== Role Processing ===');
+          console.log('Raw role value from sheet:', rawRoleValue);
+          console.log('Trimmed role value:', roleValue);
+          console.log('Role value type:', typeof rawRoleValue);
+
           // Validate role - must be one of the allowed values
           const validRoles = ['User', 'Manager', 'Admin', 'SrDirector'];
-          authorization.role = validRoles.includes(roleValue) ? roleValue : 'User';
+          const isValidRole = validRoles.includes(roleValue);
+          console.log('Valid roles:', validRoles);
+          console.log('Is role valid?:', isValidRole);
+
+          authorization.role = isValidRole ? roleValue : 'User';
+          console.log('Final assigned role:', authorization.role);
+        } else {
+          console.log('MondayRole column not found (index: -1), defaulting to User');
         }
 
         // Get Reports - comma-separated list of names (for Manager role)
