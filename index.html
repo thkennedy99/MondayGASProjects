@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Technology Alliances Activity Management</title>
+    <title>Activity Management Portal</title>
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -1909,7 +1909,7 @@
               );
             }
 
-          function PartnerActivities({ manager }) {
+          function PartnerActivities({ manager, viewMode, authorization }) {
             console.log('PartnerActivities component rendered with manager:', manager);
 
             const [activities, setActivities] = React.useState([]);
@@ -2558,7 +2558,7 @@
               })
             );
           }
-              function InternalActivities({ manager }) {
+              function InternalActivities({ manager, viewMode, authorization }) {
                 const [activities, setActivities] = React.useState([]);
                 const [loading, setLoading] = React.useState(false);
                 const [error, setError] = React.useState(null);
@@ -3239,55 +3239,76 @@
 
 
 
-            function ActivityTracker({ manager }) {
-              const [activeTab, setActiveTab] = React.useState('partner');
+            function ActivityTracker({ manager, viewMode, authorization, showPartnerActivities = true, showHeatmap = true }) {
+              // Determine default tab based on what's available
+              const defaultTab = showPartnerActivities ? 'partner' : (showHeatmap ? 'heatmap' : 'partner');
+              const [activeTab, setActiveTab] = React.useState(defaultTab);
+
+              // Build tab items based on what's authorized
+              const tabItems = [];
+              if (showPartnerActivities) {
+                tabItems.push(
+                  React.createElement('li', { className: 'nav-item', key: 'partner' },
+                    React.createElement('button', {
+                      className: `nav-link ${activeTab === 'partner' ? 'active' : ''}`,
+                      onClick: () => setActiveTab('partner'),
+                      type: 'button',
+                      role: 'tab'
+                    }, '🤝 Partner Activities')
+                  )
+                );
+              }
+              if (showHeatmap) {
+                tabItems.push(
+                  React.createElement('li', { className: 'nav-item', key: 'heatmap' },
+                    React.createElement('button', {
+                      className: `nav-link ${activeTab === 'heatmap' ? 'active' : ''}`,
+                      onClick: () => setActiveTab('heatmap'),
+                      type: 'button',
+                      role: 'tab'
+                    }, '🔥 Partner Health Heatmap')
+                  )
+                );
+              }
+
+              // Render tab content based on active tab
+              const renderTabContent = () => {
+                if (activeTab === 'partner' && showPartnerActivities) {
+                  return React.createElement(PartnerActivities, { manager: manager, viewMode: viewMode, authorization: authorization });
+                }
+                if (activeTab === 'heatmap' && showHeatmap) {
+                  return React.createElement(PartnerHeatmap, { manager: manager, viewMode: viewMode, authorization: authorization });
+                }
+                return null;
+              };
 
               return React.createElement('div', { className: 'card h-100' },
                 React.createElement('div', { className: 'card-header' },
                   React.createElement('ul', {
                     className: 'nav nav-tabs card-header-tabs',
                     role: 'tablist'
-                  },
-                    React.createElement('li', { className: 'nav-item' },
-                      React.createElement('button', {
-                        className: `nav-link ${activeTab === 'partner' ? 'active' : ''}`,
-                        onClick: () => setActiveTab('partner'),
-                        type: 'button',
-                        role: 'tab'
-                      }, '🤝 Partner Activities')
-                    ),
-                    React.createElement('li', { className: 'nav-item' },
-                      React.createElement('button', {
-                        className: `nav-link ${activeTab === 'heatmap' ? 'active' : ''}`,
-                        onClick: () => setActiveTab('heatmap'),
-                        type: 'button',
-                        role: 'tab'
-                      }, '🔥 Partner Health Heatmap')
-                    )
-                  )
+                  }, tabItems)
                 ),
                 React.createElement('div', { className: 'card-body' },
                   React.createElement('div', { className: 'tab-content' },
-                    activeTab === 'partner'
-                      ? React.createElement(PartnerActivities, { manager: manager })
-                      : React.createElement(PartnerHeatmap, { manager: manager })
+                    renderTabContent()
                   )
                 )
               );
             }
 
-            function InternalActivitiesCard({ manager }) {
+            function InternalActivitiesCard({ manager, viewMode, authorization }) {
               return React.createElement('div', { className: 'card h-100' },
                 React.createElement('div', { className: 'card-header' },
                   React.createElement('h5', { className: 'mb-0' }, '🏢 Internal Activities')
                 ),
                 React.createElement('div', { className: 'card-body' },
-                  React.createElement(InternalActivities, { manager: manager })
+                  React.createElement(InternalActivities, { manager: manager, viewMode: viewMode, authorization: authorization })
                 )
               );
             }
 
-        function MarketingCalendar({ manager }) {
+        function MarketingCalendar({ manager, viewMode, authorization }) {
           const [calendarData, setCalendarData] = React.useState([]);
           const [loading, setLoading] = React.useState(false);
           const [error, setError] = React.useState(null);
@@ -3703,7 +3724,7 @@
           );
         }
 
-       function PartnerHeatmap({ manager }) {
+       function PartnerHeatmap({ manager, viewMode, authorization }) {
           const [heatmapData, setHeatmapData] = React.useState([]);
           const [loading, setLoading] = React.useState(false);
           const [error, setError] = React.useState(null);
@@ -4234,7 +4255,7 @@
         }
 
 
-        function MarketingApprovals({ manager }) {
+        function MarketingApprovals({ manager, viewMode, authorization }) {
           const [approvals, setApprovals] = React.useState([]);
           const [loading, setLoading] = React.useState(false);
           const [error, setError] = React.useState(null);
@@ -4630,6 +4651,45 @@
               const [currentManager, setCurrentManager] = useState(window.appConfig?.user || '');
               const [loading, setLoading] = useState(false);
 
+              // Authorization state from TechAllianceManager sheet
+              const [authorization, setAuthorization] = useState({
+                  mondayBoards: [],
+                  role: 'User',
+                  reports: '',
+                  managerName: ''
+              });
+              const [authLoading, setAuthLoading] = useState(true);
+
+              // View mode for role-based filtering: 'self', 'team', or 'dept'
+              const [viewMode, setViewMode] = useState('self');
+
+              // Load authorization data on mount
+              useEffect(() => {
+                  console.log('=== Authorization Load Debug ===');
+                  console.log('currentManager:', currentManager);
+                  console.log('appConfig:', window.appConfig);
+
+                  if (currentManager) {
+                      setAuthLoading(true);
+                      api.call('getManagerAuthorization', currentManager)
+                          .then(auth => {
+                              console.log('Loaded authorization:', auth);
+                              console.log('Role:', auth.role);
+                              console.log('MondayBoards:', auth.mondayBoards);
+                              console.log('Reports:', auth.reports);
+                              setAuthorization(auth);
+                              setAuthLoading(false);
+                          })
+                          .catch(error => {
+                              console.error('Error loading authorization:', error);
+                              setAuthLoading(false);
+                          });
+                  } else {
+                      console.log('No currentManager - skipping authorization load');
+                      setAuthLoading(false);
+                  }
+              }, [currentManager]);
+
               useEffect(() => {
                   // Apply dark mode
                   document.documentElement.setAttribute('data-bs-theme', darkMode ? 'dark' : 'light');
@@ -4662,19 +4722,141 @@
                   setTimeout(() => setLoading(false), 1000);
               };
 
+              // Helper to check if a board tab is authorized
+              const isBoardAuthorized = (boardName) => {
+                  // If no boards specified, show all (backward compatibility)
+                  if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+                      return true;
+                  }
+                  return authorization.mondayBoards.includes(boardName);
+              };
+
+              // Render view mode filter buttons based on role
+              const renderViewModeButtons = () => {
+                  const role = authorization.role;
+                  console.log('renderViewModeButtons - role:', role, 'authorization:', authorization);
+
+                  // User role: no buttons (always self view)
+                  if (role === 'User') {
+                      console.log('Role is User - not showing buttons');
+                      return null;
+                  }
+
+                  // Manager role: Self and Team buttons
+                  if (role === 'Manager') {
+                      return (
+                          <div className="btn-group btn-group-sm me-3" role="group" aria-label="View mode">
+                              <button
+                                  type="button"
+                                  className={`btn ${viewMode === 'self' ? 'btn-primary' : 'btn-outline-light'}`}
+                                  onClick={() => setViewMode('self')}
+                              >
+                                  Self
+                              </button>
+                              <button
+                                  type="button"
+                                  className={`btn ${viewMode === 'team' ? 'btn-primary' : 'btn-outline-light'}`}
+                                  onClick={() => setViewMode('team')}
+                              >
+                                  Team
+                              </button>
+                          </div>
+                      );
+                  }
+
+                  // SrDirector role: Self, Team, and Dept buttons
+                  if (role === 'SrDirector') {
+                      return (
+                          <div className="btn-group btn-group-sm me-3" role="group" aria-label="View mode">
+                              <button
+                                  type="button"
+                                  className={`btn ${viewMode === 'self' ? 'btn-primary' : 'btn-outline-light'}`}
+                                  onClick={() => setViewMode('self')}
+                              >
+                                  Self
+                              </button>
+                              <button
+                                  type="button"
+                                  className={`btn ${viewMode === 'team' ? 'btn-primary' : 'btn-outline-light'}`}
+                                  onClick={() => setViewMode('team')}
+                              >
+                                  Team
+                              </button>
+                              <button
+                                  type="button"
+                                  className={`btn ${viewMode === 'dept' ? 'btn-primary' : 'btn-outline-light'}`}
+                                  onClick={() => setViewMode('dept')}
+                              >
+                                  Dept
+                              </button>
+                          </div>
+                      );
+                  }
+
+                  // Admin role: Self and Dept buttons
+                  if (role === 'Admin') {
+                      return (
+                          <div className="btn-group btn-group-sm me-3" role="group" aria-label="View mode">
+                              <button
+                                  type="button"
+                                  className={`btn ${viewMode === 'self' ? 'btn-primary' : 'btn-outline-light'}`}
+                                  onClick={() => setViewMode('self')}
+                              >
+                                  Self
+                              </button>
+                              <button
+                                  type="button"
+                                  className={`btn ${viewMode === 'dept' ? 'btn-primary' : 'btn-outline-light'}`}
+                                  onClick={() => setViewMode('dept')}
+                              >
+                                  Dept
+                              </button>
+                          </div>
+                      );
+                  }
+
+                  return null;
+              };
+
+              // Show loading state while authorization is being fetched
+              if (authLoading) {
+                  return (
+                      <div className="app-container">
+                          <nav className="navbar navbar-expand-lg navbar-dark navbar-custom">
+                              <div className="container-fluid">
+                                  <a className="navbar-brand" href="#">
+                                      <i className="bi bi-grid-3x3-gap-fill"></i>
+                                      Activity Management Portal
+                                  </a>
+                              </div>
+                          </nav>
+                          <div className="main-content d-flex justify-content-center align-items-center" style={{ minHeight: '50vh' }}>
+                              <div className="text-center">
+                                  <div className="spinner-border text-primary mb-3" role="status">
+                                      <span className="visually-hidden">Loading...</span>
+                                  </div>
+                                  <p className="text-muted">Loading authorization...</p>
+                              </div>
+                          </div>
+                      </div>
+                  );
+              }
+
               return (
-                  <AppContext.Provider value={{ currentManager, darkMode }}>
+                  <AppContext.Provider value={{ currentManager, darkMode, viewMode, authorization }}>
                       <div className="app-container">
                           {/* Navigation */}
                           <nav className="navbar navbar-expand-lg navbar-dark navbar-custom">
                               <div className="container-fluid">
                                   <a className="navbar-brand" href="#">
                                       <i className="bi bi-grid-3x3-gap-fill"></i>
-                                      Alliance Manager Portal
+                                      Activity Management Portal
                                   </a>
                                   <div className="d-flex align-items-center gap-3">
+                                      {/* View Mode Buttons */}
+                                      {renderViewModeButtons()}
                                       <span className="text-white small">
-                                          {currentManager}
+                                          {authorization.managerName || currentManager}
                                       </span>
                                       <button
                                           className="theme-toggle"
@@ -4686,36 +4868,54 @@
                                   </div>
                               </div>
                           </nav>
-                          
+
                           {/* Main Content */}
                           <div className="main-content">
                               <div className="container-fluid">
                                   {/* First Row - Marketing Approvals & Marketing Calendar */}
-                                  <div className="row mb-3">
-                                      <div className="col-lg-6 mb-3 mb-lg-0">
-                                          <MarketingApprovals manager={currentManager} />
+                                  {(isBoardAuthorized('MarketingApprovals') || isBoardAuthorized('2026MarketingApprovals') || isBoardAuthorized('MarketingCalendar')) && (
+                                      <div className="row mb-3">
+                                          {(isBoardAuthorized('MarketingApprovals') || isBoardAuthorized('2026MarketingApprovals')) && (
+                                              <div className={isBoardAuthorized('MarketingCalendar') ? 'col-lg-6 mb-3 mb-lg-0' : 'col-12'}>
+                                                  <MarketingApprovals manager={currentManager} viewMode={viewMode} authorization={authorization} />
+                                              </div>
+                                          )}
+                                          {isBoardAuthorized('MarketingCalendar') && (
+                                              <div className={(isBoardAuthorized('MarketingApprovals') || isBoardAuthorized('2026MarketingApprovals')) ? 'col-lg-6' : 'col-12'}>
+                                                  <MarketingCalendar manager={currentManager} viewMode={viewMode} authorization={authorization} />
+                                              </div>
+                                          )}
                                       </div>
-                                      <div className="col-lg-6">
-                                          <MarketingCalendar manager={currentManager} />
-                                      </div>
-                                  </div>
-                                  
+                                  )}
+
                                   {/* Second Row - Activity Tracker (with Partner Activities & Partner Health Heatmap tabs) & Internal Activities */}
-                                  <div className="row mb-3">
-                                      <div className="col-xl-6 mb-3 mb-xl-0">
-                                          <ActivityTracker manager={currentManager} />
+                                  {(isBoardAuthorized('PartnerActivites') || isBoardAuthorized('PartnerHealthHeatmap') || isBoardAuthorized('Activity Stats')) && (
+                                      <div className="row mb-3">
+                                          {(isBoardAuthorized('PartnerActivites') || isBoardAuthorized('PartnerHealthHeatmap')) && (
+                                              <div className={isBoardAuthorized('Activity Stats') ? 'col-xl-6 mb-3 mb-xl-0' : 'col-12'}>
+                                                  <ActivityTracker
+                                                      manager={currentManager}
+                                                      viewMode={viewMode}
+                                                      authorization={authorization}
+                                                      showPartnerActivities={isBoardAuthorized('PartnerActivites')}
+                                                      showHeatmap={isBoardAuthorized('PartnerHealthHeatmap')}
+                                                  />
+                                              </div>
+                                          )}
+                                          {isBoardAuthorized('Activity Stats') && (
+                                              <div className={(isBoardAuthorized('PartnerActivites') || isBoardAuthorized('PartnerHealthHeatmap')) ? 'col-xl-6' : 'col-12'}>
+                                                  <InternalActivitiesCard manager={currentManager} viewMode={viewMode} authorization={authorization} />
+                                              </div>
+                                          )}
                                       </div>
-                                      <div className="col-xl-6">
-                                          <InternalActivitiesCard manager={currentManager} />
-                                      </div>
-                                  </div>
+                                  )}
                               </div>
                           </div>
-                          
+
                           {/* Footer */}
                           <footer className="bg-dark text-light text-center py-2 mt-3">
                               <small>
-                                  © 2025 Guidewire Software. Alliance Manager Portal v2.0
+                                  © 2025 Guidewire Software. Activity Management Portal v2.0
                               </small>
                           </footer>
                       </div>

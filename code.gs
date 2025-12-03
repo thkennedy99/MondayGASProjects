@@ -8,7 +8,7 @@
 
 // Configuration
 const CONFIG = {
-  APP_NAME: 'Alliance Manager Portal',
+  APP_NAME: 'Activity Management Portal',
   VERSION: '2.0.0',
   CACHE_DURATION: 300, // 5 minutes
   SESSION_TIMEOUT: 1800, // 30 minutes
@@ -207,7 +207,7 @@ function createErrorResponse(message, code) {
   template.code = code;
   
   return template.evaluate()
-    .setTitle('Error - Alliance Manager Portal')
+    .setTitle('Error - Activity Management Portal')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 

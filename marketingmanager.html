@@ -4,7 +4,7 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Marketing Manager Portal</title>
+  <title>Activity Management Portal</title>
 
   <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -2834,6 +2834,21 @@
 
     // Main App Component
     function App() {
+      // Get current manager from appConfig
+      const currentManager = window.appConfig?.user || '';
+
+      // Authorization state from TechAllianceManager sheet
+      const [authorization, setAuthorization] = useState({
+        mondayBoards: [],
+        role: 'User',
+        reports: '',
+        managerName: ''
+      });
+      const [authLoading, setAuthLoading] = useState(true);
+
+      // View mode for role-based filtering: 'self', 'team', or 'dept'
+      const [viewMode, setViewMode] = useState('self');
+
       // Determine initial tab based on boardId from URL
       const getInitialTab = () => {
         if (String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID) {
@@ -2868,6 +2883,137 @@
       const [partnerHeatmapData, setPartnerHeatmapData] = useState([]);
       const [internalActivitiesData, setInternalActivitiesData] = useState([]);
       const [internalBoardNames, setInternalBoardNames] = useState([]);
+
+      // Load authorization data on mount
+      useEffect(() => {
+        console.log('=== Authorization Load Debug ===');
+        console.log('currentManager:', currentManager);
+        console.log('appConfig:', window.appConfig);
+
+        if (currentManager) {
+          setAuthLoading(true);
+          api.call('getManagerAuthorization', currentManager)
+            .then(auth => {
+              console.log('Loaded authorization:', auth);
+              console.log('Role:', auth.role);
+              console.log('MondayBoards:', auth.mondayBoards);
+              console.log('Reports:', auth.reports);
+              setAuthorization(auth);
+              setAuthLoading(false);
+            })
+            .catch(error => {
+              console.error('Error loading authorization:', error);
+              setAuthLoading(false);
+            });
+        } else {
+          console.log('No currentManager - skipping authorization load');
+          setAuthLoading(false);
+        }
+      }, [currentManager]);
+
+      // Get team member names from Reports field
+      const getTeamMemberNames = () => {
+        if (!authorization.reports) return [];
+        return authorization.reports
+          .split(',')
+          .map(name => name.trim().toLowerCase())
+          .filter(name => name !== '');
+      };
+
+      // Get the current manager's name for matching
+      const getManagerName = () => {
+        return (authorization.managerName || '').toLowerCase();
+      };
+
+      // Filter function that checks if a row involves a person
+      const rowInvolvesPerson = (row, personNames) => {
+        // Convert all values we're checking to lowercase for comparison
+        const fieldsToCheck = [
+          'Owner', 'Alliance Manager', 'AllianceManager', 'Assigned To', 'AssignedTo',
+          'Partner Manager', 'PartnerManager', 'Requestor', 'Created By'
+        ];
+
+        for (const field of fieldsToCheck) {
+          const value = row[field];
+          if (value) {
+            const valueLower = String(value).toLowerCase();
+            for (const personName of personNames) {
+              // Check if the field contains the person's name
+              if (valueLower.includes(personName) || personName.includes(valueLower)) {
+                return true;
+              }
+            }
+          }
+        }
+
+        // Also check if the partner is managed by this person
+        // (This would require partner-to-manager mapping which we may not have client-side)
+
+        return false;
+      };
+
+      // Filter data based on view mode
+      const filterDataByViewMode = (data, viewModeValue) => {
+        console.log('filterDataByViewMode called with viewMode:', viewModeValue, 'data length:', data?.length);
+
+        // Dept mode = show all
+        if (viewModeValue === 'dept') {
+          console.log('Dept mode - returning all data');
+          return data;
+        }
+
+        if (!data || data.length === 0) {
+          return data;
+        }
+
+        const managerName = getManagerName();
+        let peopleToMatch = [];
+
+        if (viewModeValue === 'self') {
+          // Self mode - only match the current manager
+          peopleToMatch = [managerName].filter(n => n);
+          console.log('Self mode - matching:', peopleToMatch);
+        } else if (viewModeValue === 'team') {
+          // Team mode - match the manager AND all their reports
+          const teamNames = getTeamMemberNames();
+          peopleToMatch = [managerName, ...teamNames].filter(n => n);
+          console.log('Team mode - matching:', peopleToMatch);
+        }
+
+        if (peopleToMatch.length === 0) {
+          console.log('No people to match - returning all data');
+          return data;
+        }
+
+        const filteredData = data.filter(row => rowInvolvesPerson(row, peopleToMatch));
+        console.log('Filtered data length:', filteredData.length);
+        return filteredData;
+      };
+
+      // Memoized filtered data for each dataset
+      const filteredApprovalsData = useMemo(() => {
+        return filterDataByViewMode(approvalsData, viewMode);
+      }, [approvalsData, viewMode, authorization]);
+
+      const filteredCalendarData = useMemo(() => {
+        return filterDataByViewMode(calendarData, viewMode);
+      }, [calendarData, viewMode, authorization]);
+
+      const filteredApprovals2026Data = useMemo(() => {
+        return filterDataByViewMode(approvals2026Data, viewMode);
+      }, [approvals2026Data, viewMode, authorization]);
+
+      const filteredPartnerActivitiesData = useMemo(() => {
+        return filterDataByViewMode(partnerActivitiesData, viewMode);
+      }, [partnerActivitiesData, viewMode, authorization]);
+
+      const filteredPartnerHeatmapData = useMemo(() => {
+        return filterDataByViewMode(partnerHeatmapData, viewMode);
+      }, [partnerHeatmapData, viewMode, authorization]);
+
+      const filteredInternalActivitiesData = useMemo(() => {
+        return filterDataByViewMode(internalActivitiesData, viewMode);
+      }, [internalActivitiesData, viewMode, authorization]);
 
       // Debug logging for deep link
       useEffect(() => {
@@ -2989,15 +3135,139 @@
         }
       };
 
+      // Helper to check if a board tab is authorized
+      const isBoardAuthorized = (boardName) => {
+        // If no boards specified, show all (backward compatibility)
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          return true;
+        }
+        return authorization.mondayBoards.includes(boardName);
+      };
+
+      // Render view mode filter buttons based on role
+      const renderViewModeButtons = () => {
+        const role = authorization.role;
+        console.log('renderViewModeButtons - role:', role, 'authorization:', authorization);
+
+        // User role: no buttons (always self view)
+        if (role === 'User') {
+          console.log('Role is User - not showing buttons');
+          return null;
+        }
+
+        // Manager role: Self and Team buttons
+        if (role === 'Manager') {
+          return (
+            <div className="btn-group btn-group-sm me-3" role="group" aria-label="View mode">
+              <button
+                type="button"
+                className={`btn ${viewMode === 'self' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('self')}
+              >
+                Self
+              </button>
+              <button
+                type="button"
+                className={`btn ${viewMode === 'team' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('team')}
+              >
+                Team
+              </button>
+            </div>
+          );
+        }
+
+        // SrDirector role: Self, Team, and Dept buttons
+        if (role === 'SrDirector') {
+          return (
+            <div className="btn-group btn-group-sm me-3" role="group" aria-label="View mode">
+              <button
+                type="button"
+                className={`btn ${viewMode === 'self' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('self')}
+              >
+                Self
+              </button>
+              <button
+                type="button"
+                className={`btn ${viewMode === 'team' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('team')}
+              >
+                Team
+              </button>
+              <button
+                type="button"
+                className={`btn ${viewMode === 'dept' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('dept')}
+              >
+                Dept
+              </button>
+            </div>
+          );
+        }
+
+        // Admin role: Self and Dept buttons
+        if (role === 'Admin') {
+          return (
+            <div className="btn-group btn-group-sm me-3" role="group" aria-label="View mode">
+              <button
+                type="button"
+                className={`btn ${viewMode === 'self' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('self')}
+              >
+                Self
+              </button>
+              <button
+                type="button"
+                className={`btn ${viewMode === 'dept' ? 'btn-primary' : 'btn-outline-light'}`}
+                onClick={() => setViewMode('dept')}
+              >
+                Dept
+              </button>
+            </div>
+          );
+        }
+
+        return null;
+      };
+
+      // Show loading state while authorization is being fetched
+      if (authLoading) {
+        return (
+          <div className="app-container">
+            <div className="header">
+              <div className="d-flex justify-content-between align-items-center">
+                <h1>Activity Management Portal</h1>
+              </div>
+            </div>
+            <div className="main-content d-flex justify-content-center align-items-center" style={{ minHeight: '50vh' }}>
+              <div className="text-center">
+                <div className="spinner-border text-primary mb-3" role="status">
+                  <span className="visually-hidden">Loading...</span>
+                </div>
+                <p className="text-muted">Loading authorization...</p>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div className="app-container">
           {/* Header */}
           <div className="header">
             <div className="d-flex justify-content-between align-items-center">
-              <h1>Marketing Manager Portal</h1>
-              <button className="btn btn-light btn-sm" onClick={refreshFromMonday} disabled={loading}>
-                {loading ? 'Syncing from Monday...' : 'Refresh Data'}
-              </button>
+              <h1>Activity Management Portal</h1>
+              <div className="d-flex align-items-center gap-3">
+                {/* View Mode Buttons */}
+                {renderViewModeButtons()}
+                <span className="text-white small">
+                  {authorization.managerName || currentManager}
+                </span>
+                <button className="btn btn-light btn-sm" onClick={refreshFromMonday} disabled={loading}>
+                  {loading ? 'Syncing from Monday...' : 'Refresh Data'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -3016,7 +3286,7 @@
                   className={`nav-link ${activeTab === 'approvals' ? 'active' : ''}`}
                   onClick={() => setActiveTab('approvals')}
                 >
-                  Marketing Approvals ({approvalsData.length})
+                  Marketing Approvals ({filteredApprovalsData.length})
                 </button>
               </li>
               <li className="nav-item">
@@ -3024,7 +3294,7 @@
                   className={`nav-link ${activeTab === 'calendar' ? 'active' : ''}`}
                   onClick={() => setActiveTab('calendar')}
                 >
-                  Marketing Calendar ({calendarData.length})
+                  Marketing Calendar ({filteredCalendarData.length})
                 </button>
               </li>
               <li className="nav-item">
@@ -3032,7 +3302,7 @@
                   className={`nav-link ${activeTab === 'approvals2026' ? 'active' : ''}`}
                   onClick={() => setActiveTab('approvals2026')}
                 >
-                  2026 Approvals ({approvals2026Data.length})
+                  2026 Approvals ({filteredApprovals2026Data.length})
                 </button>
               </li>
               <li className="nav-item">
@@ -3048,7 +3318,7 @@
                   className={`nav-link ${activeTab === 'partnerActivities' ? 'active' : ''}`}
                   onClick={() => setActiveTab('partnerActivities')}
                 >
-                  Partner Activities ({partnerActivitiesData.length})
+                  Partner Activities ({filteredPartnerActivitiesData.length})
                 </button>
               </li>
               <li className="nav-item">
@@ -3056,7 +3326,7 @@
                   className={`nav-link ${activeTab === 'heatmap' ? 'active' : ''}`}
                   onClick={() => setActiveTab('heatmap')}
                 >
-                  Partner Heatmap ({partnerHeatmapData.length})
+                  Partner Heatmap ({filteredPartnerHeatmapData.length})
                 </button>
               </li>
               <li className="nav-item">
@@ -3064,7 +3334,7 @@
                   className={`nav-link ${activeTab === 'internalActivities' ? 'active' : ''}`}
                   onClick={() => setActiveTab('internalActivities')}
                 >
-                  Internal Activities ({internalActivitiesData.length})
+                  Internal Activities ({filteredInternalActivitiesData.length})
                 </button>
               </li>
             </ul>
@@ -3080,7 +3350,7 @@
               <div className="tab-content-container">
                 {activeTab === 'approvals' && (
                   <MarketingApprovalsTab
-                    data={approvalsData}
+                    data={filteredApprovalsData}
                     filterOptions={filterOptions.approvalFilters || {}}
                     columns={approvalColumns}
                     onRefresh={loadData}
@@ -3090,7 +3360,7 @@
                 )}
                 {activeTab === 'calendar' && (
                   <MarketingCalendarTab
-                    data={calendarData}
+                    data={filteredCalendarData}
                     filterOptions={filterOptions.calendarFilters || {}}
                     columns={calendarColumns}
                     onRefresh={loadData}
@@ -3100,7 +3370,7 @@
                 )}
                 {activeTab === 'approvals2026' && (
                   <Approvals2026Tab
-                    data={approvals2026Data}
+                    data={filteredApprovals2026Data}
                     filterOptions={filterOptions.approvals2026Filters || {}}
                     columns={approvals2026Columns}
                     flowConfig={flowConfig2026}
@@ -3117,19 +3387,19 @@
                 )}
                 {activeTab === 'partnerActivities' && (
                   <PartnerActivitiesTab
-                    data={partnerActivitiesData}
+                    data={filteredPartnerActivitiesData}
                     onRefresh={loadData}
                   />
                 )}
                 {activeTab === 'heatmap' && (
                   <PartnerHeatmapTab
-                    data={partnerHeatmapData}
+                    data={filteredPartnerHeatmapData}
                     onRefresh={loadData}
                   />
                 )}
                 {activeTab === 'internalActivities' && (
                   <InternalActivitiesTab
-                    data={internalActivitiesData}
+                    data={filteredInternalActivitiesData}
                     boardNames={internalBoardNames}
                     onRefresh={loadData}
                   />
