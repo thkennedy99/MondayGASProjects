@@ -1015,18 +1015,33 @@
         setFormData(prev => ({ ...prev, [columnTitle]: value }));
       };
 
-      // Check if all mandatory fields are filled
+      // Check if all mandatory fields are filled (only visible mandatory fields)
       const allMandatoryFieldsFilled = useMemo(() => {
-        if (!flowConfig?.columns || !columns) return false;
+        // If no config yet, allow creation if item name is filled
+        if (!flowConfig?.columns || !columns || columns.length === 0) {
+          return itemName && itemName.trim() !== '';
+        }
 
         // Check item name first
         if (!itemName || itemName.trim() === '') {
           return false;
         }
 
-        // Check each mandatory field in the flow config
+        // Check each mandatory field in the flow config (only if visible)
         for (const flowCol of flowConfig.columns) {
           if (!flowCol.mandatory) continue;
+
+          // Check conditional visibility - skip hidden fields
+          if (flowCol.condition && flowCol.condition.columnId) {
+            const conditionColumn = columns.find(c => c.id === flowCol.condition.columnId);
+            if (conditionColumn) {
+              const currentValue = formData[conditionColumn.title] || '';
+              if (currentValue !== flowCol.condition.value) {
+                // Field is hidden due to condition, skip validation
+                continue;
+              }
+            }
+          }
 
           // Find the column definition to get the title
           const column = columns.find(c => c.id === flowCol.columnId);
@@ -2212,6 +2227,11 @@
     function PartnerActivitiesTab({ data, onRefresh }) {
       const [filterPartner, setFilterPartner] = useState('');
       const [filterStatus, setFilterStatus] = useState('');
+      const [columnsByBoard, setColumnsByBoard] = useState({});
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
+      const [showAddModal, setShowAddModal] = useState(false);
+      const [selectedPartnerForAdd, setSelectedPartnerForAdd] = useState(null);
 
       // Get unique partners and statuses for filters
       const partners = useMemo(() => {
@@ -2232,6 +2252,69 @@
           return true;
         });
       }, [data, filterPartner, filterStatus]);
+
+      // Load column metadata for a board
+      const loadColumnMetadata = async (boardId) => {
+        if (!boardId || columnsByBoard[boardId]) return;
+        try {
+          const cols = await api.call('getBoardColumnsStructure', boardId);
+          setColumnsByBoard(prev => ({ ...prev, [boardId]: cols || [] }));
+        } catch (err) {
+          console.error('Error loading columns for board', boardId, err);
+        }
+      };
+
+      // Handle edit click
+      const handleEdit = async (item) => {
+        const boardId = item['Board ID'];
+        if (boardId && !columnsByBoard[boardId]) {
+          await loadColumnMetadata(boardId);
+        }
+        setEditingItem(item);
+      };
+
+      // Handle delete click
+      const handleDelete = (item) => {
+        setDeletingItem(item);
+      };
+
+      // Handle save edit
+      const handleSaveEdit = (updatedData) => {
+        setEditingItem(null);
+        onRefresh();
+      };
+
+      // Handle confirm delete
+      const handleConfirmDelete = () => {
+        setDeletingItem(null);
+        onRefresh();
+      };
+
+      // Handle add new - need to select partner first
+      const handleAddNew = () => {
+        setShowAddModal(true);
+      };
+
+      // Handle partner selection for add
+      const handlePartnerSelected = async (partnerName) => {
+        try {
+          const boardId = await api.call('getBoardIdForPartner', partnerName);
+          if (boardId && !columnsByBoard[boardId]) {
+            await loadColumnMetadata(boardId);
+          }
+          setSelectedPartnerForAdd({ name: partnerName, boardId });
+        } catch (err) {
+          console.error('Error getting board for partner:', err);
+          alert('Could not find board for partner: ' + partnerName);
+        }
+      };
+
+      // Handle create new item
+      const handleCreate = (newItem) => {
+        setShowAddModal(false);
+        setSelectedPartnerForAdd(null);
+        onRefresh();
+      };
 
       return (
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -2255,6 +2338,11 @@
               <div className="col-md-3">
                 <span className="text-muted">Showing {filteredData.length} of {data.length}</span>
               </div>
+              <div className="col-md-3 text-end">
+                <button className="btn btn-success btn-sm" onClick={handleAddNew}>
+                  <i className="bi bi-plus-circle me-1"></i>New Item
+                </button>
+              </div>
             </div>
           </div>
           {/* Table */}
@@ -2268,6 +2356,7 @@
                     <th>Status</th>
                     <th>Owner</th>
                     <th>Due Date</th>
+                    <th style={{ width: '100px' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2278,12 +2367,79 @@
                       <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
                       <td>{item['Owner'] || ''}</td>
                       <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+                      <td>
+                        <div className="btn-group btn-group-sm">
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
+                            <i className="bi bi-pencil"></i>
+                          </button>
+                          <button className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(item)} title="Delete">
+                            <i className="bi bi-trash"></i>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {/* Edit Modal */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={editingItem['Board ID']}
+              columns={columnsByBoard[editingItem['Board ID']] || []}
+              onClose={() => setEditingItem(null)}
+              onSave={handleSaveEdit}
+              partnerOptions={partners}
+            />
+          )}
+
+          {/* Delete Modal */}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={deletingItem['Board ID']}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleConfirmDelete}
+            />
+          )}
+
+          {/* Add Modal - Partner Selection First */}
+          {showAddModal && !selectedPartnerForAdd && (
+            <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+              <div className="modal-dialog">
+                <div className="modal-content">
+                  <div className="modal-header">
+                    <h5 className="modal-title">Select Partner</h5>
+                    <button type="button" className="btn-close" onClick={() => setShowAddModal(false)}></button>
+                  </div>
+                  <div className="modal-body">
+                    <p>Select a partner to add a new activity:</p>
+                    <select className="form-select" onChange={(e) => e.target.value && handlePartnerSelected(e.target.value)}>
+                      <option value="">Choose partner...</option>
+                      {partners.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="modal-footer">
+                    <button className="btn btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Add Modal - Item Form */}
+          {showAddModal && selectedPartnerForAdd && (
+            <AddItemModal
+              boardId={selectedPartnerForAdd.boardId}
+              columns={columnsByBoard[selectedPartnerForAdd.boardId] || []}
+              onClose={() => { setShowAddModal(false); setSelectedPartnerForAdd(null); }}
+              onCreate={handleCreate}
+              partnerOptions={partners}
+            />
+          )}
         </div>
       );
     }
@@ -2291,6 +2447,9 @@
     // Partner Heatmap Tab Component
     function PartnerHeatmapTab({ data, onRefresh }) {
       const [filterTemperature, setFilterTemperature] = useState('');
+      const [columnsByBoard, setColumnsByBoard] = useState({});
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
 
       // Get unique temperatures for filter
       const temperatures = useMemo(() => {
@@ -2314,6 +2473,43 @@
         if (t.includes('cold') || t.includes('blue')) return 'bg-info';
         if (t.includes('green')) return 'bg-success';
         return 'bg-secondary';
+      };
+
+      // Load column metadata for a board
+      const loadColumnMetadata = async (boardId) => {
+        if (!boardId || columnsByBoard[boardId]) return;
+        try {
+          const cols = await api.call('getBoardColumnsStructure', boardId);
+          setColumnsByBoard(prev => ({ ...prev, [boardId]: cols || [] }));
+        } catch (err) {
+          console.error('Error loading columns for board', boardId, err);
+        }
+      };
+
+      // Handle edit click
+      const handleEdit = async (item) => {
+        const boardId = item['Board ID'];
+        if (boardId && !columnsByBoard[boardId]) {
+          await loadColumnMetadata(boardId);
+        }
+        setEditingItem(item);
+      };
+
+      // Handle delete click
+      const handleDelete = (item) => {
+        setDeletingItem(item);
+      };
+
+      // Handle save edit
+      const handleSaveEdit = (updatedData) => {
+        setEditingItem(null);
+        onRefresh();
+      };
+
+      // Handle confirm delete
+      const handleConfirmDelete = () => {
+        setDeletingItem(null);
+        onRefresh();
       };
 
       return (
@@ -2344,6 +2540,7 @@
                     <th>Engagement</th>
                     <th>Alliance Manager</th>
                     <th>Summary</th>
+                    <th style={{ width: '100px' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2356,12 +2553,43 @@
                       <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item['Summary of Partner Activities'] || ''}>
                         {item['Summary of Partner Activities'] || ''}
                       </td>
+                      <td>
+                        <div className="btn-group btn-group-sm">
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
+                            <i className="bi bi-pencil"></i>
+                          </button>
+                          <button className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(item)} title="Delete">
+                            <i className="bi bi-trash"></i>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </div>
+
+          {/* Edit Modal */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={editingItem['Board ID']}
+              columns={columnsByBoard[editingItem['Board ID']] || []}
+              onClose={() => setEditingItem(null)}
+              onSave={handleSaveEdit}
+            />
+          )}
+
+          {/* Delete Modal */}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={deletingItem['Board ID']}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleConfirmDelete}
+            />
+          )}
         </div>
       );
     }
@@ -2371,6 +2599,11 @@
       // Default to first board if available
       const [selectedBoard, setSelectedBoard] = useState(boardNames[0] || '');
       const [filterStatus, setFilterStatus] = useState('');
+      const [columnsByBoard, setColumnsByBoard] = useState({});
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
+      const [showAddModal, setShowAddModal] = useState(false);
+      const [selectedBoardIdForAdd, setSelectedBoardIdForAdd] = useState(null);
 
       // Update selected board when boardNames loads
       useEffect(() => {
@@ -2399,6 +2632,70 @@
       // Get count per board
       const getBoardCount = (boardName) => {
         return data.filter(d => (d['Board Name'] || '') === boardName).length;
+      };
+
+      // Get board ID for selected board name
+      const getBoardIdForSelectedBoard = () => {
+        const item = data.find(d => d['Board Name'] === selectedBoard);
+        return item ? item['Board ID'] : null;
+      };
+
+      // Load column metadata for a board
+      const loadColumnMetadata = async (boardId) => {
+        if (!boardId || columnsByBoard[boardId]) return;
+        try {
+          const cols = await api.call('getBoardColumnsStructure', boardId);
+          setColumnsByBoard(prev => ({ ...prev, [boardId]: cols || [] }));
+        } catch (err) {
+          console.error('Error loading columns for board', boardId, err);
+        }
+      };
+
+      // Handle edit click
+      const handleEdit = async (item) => {
+        const boardId = item['Board ID'];
+        if (boardId && !columnsByBoard[boardId]) {
+          await loadColumnMetadata(boardId);
+        }
+        setEditingItem(item);
+      };
+
+      // Handle delete click
+      const handleDelete = (item) => {
+        setDeletingItem(item);
+      };
+
+      // Handle save edit
+      const handleSaveEdit = (updatedData) => {
+        setEditingItem(null);
+        onRefresh();
+      };
+
+      // Handle confirm delete
+      const handleConfirmDelete = () => {
+        setDeletingItem(null);
+        onRefresh();
+      };
+
+      // Handle add new
+      const handleAddNew = async () => {
+        const boardId = getBoardIdForSelectedBoard();
+        if (boardId) {
+          if (!columnsByBoard[boardId]) {
+            await loadColumnMetadata(boardId);
+          }
+          setSelectedBoardIdForAdd(boardId);
+          setShowAddModal(true);
+        } else {
+          alert('Could not find board ID for selected board');
+        }
+      };
+
+      // Handle create new item
+      const handleCreate = (newItem) => {
+        setShowAddModal(false);
+        setSelectedBoardIdForAdd(null);
+        onRefresh();
       };
 
       return (
@@ -2430,7 +2727,7 @@
 
           {/* Main Content Area */}
           <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-            {/* Status Filter */}
+            {/* Status Filter and Add Button */}
             <div className="filter-section" style={{ marginBottom: '0.5rem' }}>
               <div className="row g-2 align-items-end">
                 <div className="col-md-3">
@@ -2442,6 +2739,11 @@
                 </div>
                 <div className="col-md-3">
                   <span className="text-muted">Showing {filteredData.length} items</span>
+                </div>
+                <div className="col-md-6 text-end">
+                  <button className="btn btn-success btn-sm" onClick={handleAddNew}>
+                    <i className="bi bi-plus-circle me-1"></i>New Item
+                  </button>
                 </div>
               </div>
             </div>
@@ -2456,6 +2758,7 @@
                       <th>Owner</th>
                       <th>Priority</th>
                       <th>Due Date</th>
+                      <th style={{ width: '100px' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2466,6 +2769,16 @@
                         <td>{item['Owner'] || ''}</td>
                         <td>{item['Importance'] || item['Priority'] || ''}</td>
                         <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+                        <td>
+                          <div className="btn-group btn-group-sm">
+                            <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
+                              <i className="bi bi-pencil"></i>
+                            </button>
+                            <button className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(item)} title="Delete">
+                              <i className="bi bi-trash"></i>
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2473,6 +2786,37 @@
               </div>
             </div>
           </div>
+
+          {/* Edit Modal */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={editingItem['Board ID']}
+              columns={columnsByBoard[editingItem['Board ID']] || []}
+              onClose={() => setEditingItem(null)}
+              onSave={handleSaveEdit}
+            />
+          )}
+
+          {/* Delete Modal */}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={deletingItem['Board ID']}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleConfirmDelete}
+            />
+          )}
+
+          {/* Add Modal */}
+          {showAddModal && selectedBoardIdForAdd && (
+            <AddItemModal
+              boardId={selectedBoardIdForAdd}
+              columns={columnsByBoard[selectedBoardIdForAdd] || []}
+              onClose={() => { setShowAddModal(false); setSelectedBoardIdForAdd(null); }}
+              onCreate={handleCreate}
+            />
+          )}
         </div>
       );
     }
