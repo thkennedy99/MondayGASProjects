@@ -3169,9 +3169,12 @@
       const isBoardAuthorized = (boardName) => {
         // If no boards specified, show all (backward compatibility)
         if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          console.log(`isBoardAuthorized(${boardName}): No boards specified, showing all`);
           return true;
         }
-        return authorization.mondayBoards.includes(boardName);
+        const isAuthorized = authorization.mondayBoards.includes(boardName);
+        console.log(`isBoardAuthorized(${boardName}): ${isAuthorized}, mondayBoards:`, authorization.mondayBoards);
+        return isAuthorized;
       };
 
       // Render view mode filter buttons based on role
