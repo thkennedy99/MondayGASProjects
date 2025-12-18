@@ -318,7 +318,8 @@ class MondayAPI {
         console.log(`Debug: Labels in settings: ${settings && settings.labels ? JSON.stringify(settings.labels) : 'none'}`);
 
         if (settings && settings.labels) {
-          const deactivatedLabels = settings.deactivated_labels || [];
+          // Convert deactivated_labels to integers for consistent comparison
+          const deactivatedLabels = (settings.deactivated_labels || []).map(id => parseInt(id));
           console.log(`Debug: Deactivated labels: ${JSON.stringify(deactivatedLabels)}`);
 
           // Find all label IDs that match this label name
@@ -327,33 +328,22 @@ class MondayAPI {
           );
           console.log(`Debug: Matching label IDs for "${value}": ${JSON.stringify(matchingLabelIds)}`);
 
-          // If there are multiple matches, filter out deactivated ones
-          if (matchingLabelIds.length > 1) {
-            const activeLabelId = matchingLabelIds.find(id => !deactivatedLabels.includes(id));
+          // Filter out deactivated labels from matches (compare as integers)
+          const activeLabelIds = matchingLabelIds.filter(id => !deactivatedLabels.includes(parseInt(id)));
+          console.log(`Debug: Active (non-deactivated) label IDs: ${JSON.stringify(activeLabelIds)}`);
 
-            if (activeLabelId) {
-              console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
-              // MUST use index format when there are duplicate labels (one deactivated, one active)
-              // Using label format would match the deactivated one first
-              const result = { index: parseInt(activeLabelId) };
-              console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
-              return result;
-            } else {
-              console.warn(`All matching labels for "${value}" are deactivated`);
-              return null;
-            }
-          } else if (matchingLabelIds.length === 1) {
-            const labelId = matchingLabelIds[0];
-            // Check if this label is deactivated
-            if (deactivatedLabels.includes(labelId)) {
-              console.warn(`Label "${value}" (ID: ${labelId}) is deactivated`);
-              return null;
-            }
-            // Single match and not deactivated - safe to use label format
-            console.log(`Debug: Using label "${value}" (ID: ${labelId}) for status column`);
-            const result = { label: value };
+          if (activeLabelIds.length > 0) {
+            // Use the first active label
+            const activeLabelId = activeLabelIds[0];
+            console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${activeLabelIds.length} active)`);
+            // Use index format to ensure we select the exact label ID
+            const result = { index: parseInt(activeLabelId) };
             console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
             return result;
+          } else if (matchingLabelIds.length > 0) {
+            // All matching labels are deactivated
+            console.warn(`All matching labels for "${value}" are deactivated: ${JSON.stringify(matchingLabelIds)}`);
+            return null;
           } else {
             console.warn(`Label "${value}" not found in column settings. Available labels: ${JSON.stringify(Object.values(settings.labels))}`);
             return null;
