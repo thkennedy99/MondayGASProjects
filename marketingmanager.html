@@ -3105,6 +3105,7 @@
           setPartnerActivitiesData(partnerActs?.data || []);
           setPartnerHeatmapData(heatmap || []);
           setInternalActivitiesData(internalActs?.data || []);
+          console.log('=== Internal Board Names from API ===', boardNames);
           setInternalBoardNames(boardNames || []);
 
         } catch (err) {
@@ -3185,34 +3186,55 @@
         return isAuthorized;
       };
 
-      // Mapping from MondayBoards authorization values to Internal Activities board names
-      const internalBoardAuthMapping = {
-        'PartnerManagement': 'Partner Management Tracker',
-        'SolutionOps': 'Solution Ops Tracker',
-        'MarketingProjects': 'Marketing Projects',
-        'Compliance': 'Compliance'
-      };
-
       // Check if any internal board is authorized (for showing the Internal Activities tab)
+      // Now uses permission field from InternalBoards sheet config
       const isAnyInternalBoardAuthorized = () => {
+        console.log('=== isAnyInternalBoardAuthorized ===');
+        console.log('internalBoardNames:', internalBoardNames);
+        console.log('authorization.mondayBoards:', authorization.mondayBoards);
+
         if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
-          return true; // backward compatibility
+          const result = internalBoardNames.length > 0;
+          console.log('No mondayBoards permissions, returning:', result);
+          return result; // show if any boards configured
         }
-        const internalAuthKeys = Object.keys(internalBoardAuthMapping);
-        return internalAuthKeys.some(key => authorization.mondayBoards.includes(key));
+        // Check if user has permission for any configured internal board
+        const hasAny = internalBoardNames.some(board => {
+          if (!board.permission) return true; // no permission required
+          return authorization.mondayBoards.includes(board.permission);
+        });
+        console.log('isAnyInternalBoardAuthorized result:', hasAny);
+        return hasAny;
       };
 
-      // Filter internal board names to only show authorized ones
+      // Filter internal board configs to only show authorized ones
+      // Now uses permission field from InternalBoards sheet
       const getAuthorizedInternalBoardNames = () => {
-        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
-          return internalBoardNames; // show all for backward compatibility
+        console.log('=== getAuthorizedInternalBoardNames ===');
+        console.log('internalBoardNames:', internalBoardNames);
+
+        if (!internalBoardNames || internalBoardNames.length === 0) {
+          console.log('No internal board names, returning []');
+          return [];
         }
-        // Get the authorized board display names
-        const authorizedDisplayNames = Object.entries(internalBoardAuthMapping)
-          .filter(([authKey, displayName]) => authorization.mondayBoards.includes(authKey))
-          .map(([authKey, displayName]) => displayName);
-        // Filter internalBoardNames to only include authorized ones
-        return internalBoardNames.filter(name => authorizedDisplayNames.includes(name));
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          // Backward compatibility: show all boards if no permissions defined
+          const allNames = internalBoardNames.map(b => typeof b === 'string' ? b : b.boardName);
+          console.log('No mondayBoards permissions, returning all:', allNames);
+          return allNames;
+        }
+        // Filter boards where user has the required permission
+        const authorizedBoards = internalBoardNames.filter(board => {
+          if (typeof board === 'string') return true; // old format, allow
+          if (!board.permission) return true; // no permission required
+          const hasPermission = authorization.mondayBoards.includes(board.permission);
+          console.log(`Board "${board.boardName}" permission "${board.permission}": ${hasPermission}`);
+          return hasPermission;
+        });
+        // Return just the board names for the UI
+        const result = authorizedBoards.map(b => typeof b === 'string' ? b : b.boardName);
+        console.log('Authorized board names:', result);
+        return result;
       };
 
       // Render view mode filter buttons based on role
