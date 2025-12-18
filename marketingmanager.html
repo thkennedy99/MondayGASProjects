@@ -2640,13 +2640,21 @@
 
       // Get board ID for selected board name from boardConfigs
       const getBoardIdForSelectedBoard = () => {
+        console.log('=== getBoardIdForSelectedBoard ===');
+        console.log('Looking for selectedBoard:', selectedBoard);
+        console.log('boardConfigs:', boardConfigs);
+
         // First try to find in boardConfigs (from InternalBoards sheet)
         const config = boardConfigs.find(b => getBoardName(b) === selectedBoard);
+        console.log('Found config:', config);
+
         if (config && config.boardId) {
+          console.log('Returning boardId from config:', config.boardId);
           return config.boardId;
         }
         // Fallback: try to find from data (for backward compatibility)
         const item = data.find(d => d['Board Name'] === selectedBoard);
+        console.log('Fallback - found item:', item);
         return item ? item['Board ID'] : null;
       };
 
@@ -2690,10 +2698,17 @@
       // Handle add new
       const handleAddNew = async () => {
         const boardId = getBoardIdForSelectedBoard();
+        console.log('=== handleAddNew ===');
+        console.log('selectedBoard:', selectedBoard);
+        console.log('boardId:', boardId);
+        console.log('columnsByBoard keys:', Object.keys(columnsByBoard));
+
         if (boardId) {
           if (!columnsByBoard[boardId]) {
+            console.log('Loading column metadata for boardId:', boardId);
             await loadColumnMetadata(boardId);
           }
+          console.log('Columns for boardId', boardId, ':', columnsByBoard[boardId]);
           setSelectedBoardIdForAdd(boardId);
           setShowAddModal(true);
         } else {
