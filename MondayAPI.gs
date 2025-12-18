@@ -988,19 +988,21 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
 
 /**
  * Update item name (exposed to client)
+ * Per Monday API docs, item name must be updated via change_multiple_column_values
+ * with a JSON string: {"name": "New Name"}
  */
 function updateMondayItemName(boardId, itemId, newName) {
   try {
     const monday = new MondayAPI();
 
-    // Use change_simple_column_value for the name column
+    // Use change_multiple_column_values with JSON format for the name column
+    // This is the documented way to update item names in Monday.com API
     const graphqlQuery = `
-      mutation UpdateItemName($boardId: ID!, $itemId: ID!, $newName: String!) {
-        change_simple_column_value(
+      mutation UpdateItemName($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+        change_multiple_column_values(
           board_id: $boardId,
           item_id: $itemId,
-          column_id: "name",
-          value: $newName
+          column_values: $columnValues
         ) {
           id
           name
@@ -1008,10 +1010,14 @@ function updateMondayItemName(boardId, itemId, newName) {
       }
     `;
 
+    // Name must be passed as JSON object with "name" key
+    const columnValues = { name: String(newName) };
+    console.log(`Updating item ${itemId} name to: "${newName}" via change_multiple_column_values`);
+
     const result = monday.query(graphqlQuery, {
       boardId: String(boardId),
       itemId: String(itemId),
-      newName: String(newName)
+      columnValues: JSON.stringify(columnValues)
     });
 
     return { success: true, result: DataService.ensureSerializable(result) };
