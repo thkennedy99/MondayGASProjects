@@ -307,9 +307,7 @@
     <script type="text/babel">
         const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
         const { createRoot } = ReactDOM;
-
-        console.log('=== INDEX.HTML SCRIPT LOADED - VERSION 2025-12-18-A ===');
-
+        
         // Google Script API wrapper
         const api = {
             call: (functionName, ...args) => {
@@ -2561,12 +2559,8 @@
             );
           }
               function InternalActivities({ manager, viewMode, authorization }) {
-                console.log('=== InternalActivities MOUNTING ===');
-                console.log('Props - manager:', manager, 'viewMode:', viewMode);
-                console.log('Props - authorization:', authorization);
-
                 const [activities, setActivities] = React.useState([]);
-                const [loading, setLoading] = React.useState(true);
+                const [loading, setLoading] = React.useState(false);
                 const [error, setError] = React.useState(null);
 
                 // Edit/Delete states
@@ -2575,17 +2569,14 @@
                 const [columns, setColumns] = React.useState([]);
                 const [users, setUsers] = React.useState([]);
 
-                // Board configs from InternalBoards sheet (includes permission info)
-                const [boardConfigs, setBoardConfigs] = React.useState([]);
-                // Selected board for vertical subtab navigation
-                const [selectedBoard, setSelectedBoard] = React.useState(null);
-
-                // Filter states (now only for status and priority, board is via subtabs)
+                // Filter states
                 const [filters, setFilters] = React.useState({
+                  boards: [],
                   statuses: [],
                   priorities: []
                 });
                 const [filterOptions, setFilterOptions] = React.useState({
+                  boards: [],
                   statuses: [],
                   priorities: []
                 });
@@ -2596,47 +2587,6 @@
                 const [columnsByBoard, setColumnsByBoard] = React.useState({});
                 const [usersByBoard, setUsersByBoard] = React.useState({});
                 const [availableBoards, setAvailableBoards] = React.useState([]);
-
-                // Filter board configs by user permission
-                const authorizedBoards = React.useMemo(() => {
-                  if (!boardConfigs || boardConfigs.length === 0) return [];
-                  const userMondayBoards = authorization?.mondayBoards || [];
-
-                  console.log('=== Internal Activities Permission Debug ===');
-                  console.log('User MondayBoards permissions:', userMondayBoards);
-                  console.log('Board configs:', boardConfigs.map(b => `${b.boardName} (permission: "${b.permission}")`));
-
-                  // Filter boards where user has the required permission
-                  const filtered = boardConfigs.filter(board => {
-                    // If board has no permission requirement, show it
-                    if (!board.permission) {
-                      console.log(`Board "${board.boardName}" - no permission required, showing`);
-                      return true;
-                    }
-                    // Check if user has this permission in their MondayBoards list
-                    const hasPermission = userMondayBoards.includes(board.permission);
-                    console.log(`Board "${board.boardName}" - permission "${board.permission}" - user has: ${hasPermission}`);
-                    return hasPermission;
-                  });
-
-                  console.log('Filtered authorized boards:', filtered.map(b => b.boardName));
-
-                  // FALLBACK: If no boards pass permission filter, show all boards
-                  // This prevents empty UI when permissions aren't set up correctly
-                  if (filtered.length === 0 && boardConfigs.length > 0) {
-                    console.log('No boards passed permission filter - showing all boards as fallback');
-                    return boardConfigs;
-                  }
-
-                  return filtered;
-                }, [boardConfigs, authorization?.mondayBoards]);
-
-                // Auto-select first authorized board when boards load
-                React.useEffect(() => {
-                  if (authorizedBoards.length > 0 && !selectedBoard) {
-                    setSelectedBoard(authorizedBoards[0].boardName);
-                  }
-                }, [authorizedBoards]);
 
                 React.useEffect(() => {
                   loadActivities();
@@ -2666,65 +2616,56 @@
                       });
                     }
 
-                    // First get all configured boards (now returns full configs with permissions)
                     google.script.run
-                      .withSuccessHandler(configuredBoards => {
-                        console.log('Configured internal boards:', configuredBoards);
+                      .withSuccessHandler(data => {
+                        console.log('Internal activities response:', data);
+                        const acts = data?.data || [];
+                        setActivities(acts);
 
-                        // configuredBoards is now an array of objects: {boardName, boardId, tab, permission}
-                        setBoardConfigs(configuredBoards || []);
+                        // Extract filter options and available boards from the data
+                        const boardsSet = new Set();
+                        const statusesSet = new Set();
+                        const prioritiesSet = new Set();
+                        const boardsMap = new Map(); // Map of boardName -> boardId
 
-                        // Then get the activities data
-                        google.script.run
-                          .withSuccessHandler(data => {
-                            console.log('Internal activities response:', data);
-                            const acts = data?.data || [];
-                            setActivities(acts);
-
-                            // Extract filter options from the data (status and priority only)
-                            const statusesSet = new Set();
-                            const prioritiesSet = new Set();
-
-                            acts.forEach(act => {
-                              if (act['Activity Status']) statusesSet.add(act['Activity Status']);
-                              if (act['Importance']) prioritiesSet.add(act['Importance']);
-                            });
-
-                            // Set filter options (boards now handled via subtabs)
-                            setFilterOptions({
-                              statuses: Array.from(statusesSet).sort(),
-                              priorities: Array.from(prioritiesSet).sort()
-                            });
-
-                            // Build available boards list for Add Activity from the configured boards
-                            // Use board configs which have all the info we need
-                            const boards = (configuredBoards || []).map(b => ({
-                              boardName: b.boardName,
-                              boardId: b.boardId
-                            }));
-                            setAvailableBoards(boards);
-                            console.log('Available boards for Internal Activities:', boards);
-
-                            setLoading(false);
-
-                            // Load column metadata for the first board ID we find
-                            if (acts.length > 0 && acts[0]['Board ID']) {
-                              loadColumnMetadata(acts[0]['Board ID']);
+                        acts.forEach(act => {
+                          if (act['Board Name']) {
+                            boardsSet.add(act['Board Name']);
+                            // Store board name -> board ID mapping
+                            if (act['Board ID']) {
+                              boardsMap.set(act['Board Name'], act['Board ID']);
                             }
-                          })
-                          .withFailureHandler(error => {
-                            console.error('Error loading internal activities:', error);
-                            setError(error.message);
-                            setLoading(false);
-                          })
-                          .getInternalActivities(manager, {}, {}, { page: 1, pageSize: 200 });
+                          }
+                          if (act['Activity Status']) statusesSet.add(act['Activity Status']);
+                          if (act['Importance']) prioritiesSet.add(act['Importance']);
+                        });
+
+                        setFilterOptions({
+                          boards: Array.from(boardsSet).sort(),
+                          statuses: Array.from(statusesSet).sort(),
+                          priorities: Array.from(prioritiesSet).sort()
+                        });
+
+                        // Build available boards list for Add Activity
+                        const boards = Array.from(boardsMap.entries())
+                          .map(([boardName, boardId]) => ({ boardName, boardId }))
+                          .sort((a, b) => a.boardName.localeCompare(b.boardName));
+                        setAvailableBoards(boards);
+                        console.log('Available boards for Internal Activities:', boards);
+
+                        setLoading(false);
+
+                        // Load column metadata for the first board ID we find
+                        if (acts.length > 0 && acts[0]['Board ID']) {
+                          loadColumnMetadata(acts[0]['Board ID']);
+                        }
                       })
                       .withFailureHandler(error => {
-                        console.error('Error loading board names:', error);
-                        // Continue without configured boards, fall back to extracting from data
+                        console.error('Error loading internal activities:', error);
+                        setError(error.message);
                         setLoading(false);
                       })
-                      .getInternalActivityBoardNames();
+                      .getInternalActivities(manager, {}, {}, { page: 1, pageSize: 200 });
                   } catch (error) {
                     console.error('Error in loadActivities:', error);
                     setError('Failed to load activities: ' + error.message);
@@ -2909,20 +2850,16 @@
 
                 const clearFilters = () => {
                   setFilters({
+                    boards: [],
                     statuses: [],
                     priorities: []
                   });
                 };
 
-                // Get count of activities per board (for display in subtabs)
-                const getBoardCount = (boardName) => {
-                  return activities.filter(a => (a['Board Name'] || '') === boardName).length;
-                };
-
-                // Apply filters to activities (board is now via selectedBoard, not filters)
+                // Apply filters to activities
                 const filteredActivities = activities.filter(activity => {
-                  // Board filter via selected subtab
-                  if (selectedBoard && activity['Board Name'] !== selectedBoard) {
+                  // Board filter
+                  if (filters.boards.length > 0 && !filters.boards.includes(activity['Board Name'])) {
                     return false;
                   }
                   // Status filter
@@ -2936,7 +2873,8 @@
                   return true;
                 });
 
-                const hasActiveFilters = filters.statuses.length > 0 ||
+                const hasActiveFilters = filters.boards.length > 0 ||
+                                        filters.statuses.length > 0 ||
                                         filters.priorities.length > 0;
 
                 const getStatusBadge = (status) => {
@@ -2990,6 +2928,7 @@
 
                 const tableColumns = [
                   { key: 'Name', label: 'Activity Name' },
+                  { key: 'Board Name', label: 'Board' },
                   { key: 'Activity Status', label: 'Status' },
                   { key: 'Owner', label: 'Owner' },
                   { key: 'Assigned By', label: 'Assigned To' },
@@ -3019,6 +2958,11 @@
                         activity['Comments/Notes'] && React.createElement('small', {
                           className: 'text-muted d-block text-truncate'
                         }, activity['Comments/Notes'])
+                      )
+                    ),
+                    React.createElement('td', null,
+                      React.createElement('span', { className: 'badge bg-secondary' },
+                        activity['Board Name'] || 'GW Board'
                       )
                     ),
                     React.createElement('td', null, getStatusBadge(activity['Activity Status'])),
@@ -3059,15 +3003,11 @@
                   );
                 };
 
-                console.log('=== InternalActivities RENDER ===');
-                console.log('loading:', loading, 'error:', error, 'authorizedBoards.length:', authorizedBoards.length);
-
                 if (loading) {
-                  console.log('RETURNING: Loading spinner');
                   return React.createElement('div', { className: 'text-center py-4' },
-                    React.createElement('div', {
-                      className: 'spinner-border text-primary',
-                      role: 'status'
+                    React.createElement('div', { 
+                      className: 'spinner-border text-primary', 
+                      role: 'status' 
                     },
                       React.createElement('span', { className: 'visually-hidden' }, 'Loading...')
                     )
@@ -3075,206 +3015,189 @@
                 }
 
                 if (error) {
-                  console.log('RETURNING: Error alert');
                   return React.createElement('div', { className: 'alert alert-danger' },
                     'Error loading activities: ', error
                   );
                 }
 
-                // Show message if no boards are configured
-                if (authorizedBoards.length === 0) {
-                  console.log('RETURNING: No boards configured');
-                  return React.createElement('div', { className: 'alert alert-info' },
-                    React.createElement('i', { className: 'bi bi-info-circle me-2' }),
-                    'No internal boards configured. Please check the InternalBoards sheet.',
-                    React.createElement('div', { className: 'mt-2' },
-                      React.createElement('button', {
-                        className: 'btn btn-sm btn-outline-primary',
-                        onClick: () => loadActivities(true),
-                        disabled: loading
-                      },
-                        React.createElement('i', { className: 'bi bi-arrow-clockwise me-1' }),
-                        'Refresh'
-                      )
-                    )
-                  );
-                }
-
-                // Main flex container with vertical board subtabs on the left
-                console.log('=== RENDERING MAIN SUBTABS AREA ===');
-                console.log('authorizedBoards:', authorizedBoards);
-                console.log('selectedBoard:', selectedBoard);
-                return React.createElement('div', { style: { display: 'flex', flex: 1, minHeight: 0 } },
-                  // Vertical Board Subtabs on Left
-                  React.createElement('div', {
-                    className: 'nav flex-column',
-                    style: { minWidth: '180px', borderRight: '1px solid #dee2e6', paddingRight: '0.5rem', marginRight: '1rem' }
-                  },
-                    authorizedBoards.map(board =>
-                      React.createElement('button', {
-                        key: board.boardName,
-                        onClick: () => { setSelectedBoard(board.boardName); clearFilters(); },
-                        type: 'button',
-                        className: 'text-start mb-1',
-                        style: {
-                          backgroundColor: selectedBoard === board.boardName ? '#00739d' : 'transparent',
-                          color: selectedBoard === board.boardName ? 'white' : '#00739d',
-                          fontWeight: selectedBoard === board.boardName ? '600' : '400',
-                          border: selectedBoard === board.boardName ? '1px solid #00739d' : '1px solid #dee2e6',
-                          borderRadius: '4px',
-                          padding: '8px 12px',
-                          cursor: 'pointer',
-                          fontSize: '0.85rem',
-                          transition: 'all 0.15s ease-in-out'
-                        }
-                      }, `${board.boardName} (${getBoardCount(board.boardName)})`)
-                    )
-                  ),
-
-                  // Main Content Area
-                  React.createElement('div', { style: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 } },
-                    // Toolbar with filters and action buttons
-                    React.createElement('div', { className: 'mb-3' },
-                      React.createElement('div', { className: 'd-flex justify-content-between align-items-center mb-2' },
-                        React.createElement('div', { className: 'd-flex gap-2 flex-wrap align-items-center' },
-                          // Status Filter
-                          React.createElement('div', { className: 'd-flex align-items-center' },
-                            React.createElement('label', {
-                              className: 'me-2 text-nowrap fw-semibold',
-                              style: { minWidth: '50px' }
-                            }, 'Status:'),
-                            React.createElement('select', {
-                              className: 'form-select form-select-sm',
-                              onChange: (e) => {
-                                if (e.target.value) {
-                                  handleFilterChange('statuses', e.target.value);
-                                  e.target.value = '';
-                                }
-                              },
-                              style: { width: '180px' },
-                              value: ''
+                return React.createElement('div', null,
+                  // Toolbar with filters and refresh button
+                  React.createElement('div', { className: 'mb-3' },
+                    React.createElement('div', { className: 'd-flex justify-content-between align-items-center mb-2' },
+                      React.createElement('div', { className: 'd-flex gap-2 flex-wrap align-items-center' },
+                        // Board Name Filter
+                        React.createElement('div', { className: 'd-flex align-items-center' },
+                          React.createElement('label', {
+                            className: 'me-2 text-nowrap fw-semibold',
+                            style: { minWidth: '50px' }
+                          }, 'Board:'),
+                          React.createElement('select', {
+                            className: 'form-select form-select-sm',
+                            onChange: (e) => {
+                              if (e.target.value) {
+                                handleFilterChange('boards', e.target.value);
+                                e.target.value = '';
+                              }
                             },
-                              React.createElement('option', { value: '' }, 'Select Status...'),
-                              filterOptions.statuses
-                                .filter(status => !filters.statuses.includes(status))
-                                .map(status =>
-                                  React.createElement('option', {
-                                    key: status,
-                                    value: status
-                                  }, status)
-                                )
-                            )
-                          ),
-
-                          // Priority Filter
-                          React.createElement('div', { className: 'd-flex align-items-center' },
-                            React.createElement('label', {
-                              className: 'me-2 text-nowrap fw-semibold',
-                              style: { minWidth: '60px' }
-                            }, 'Priority:'),
-                            React.createElement('select', {
-                              className: 'form-select form-select-sm',
-                              onChange: (e) => {
-                                if (e.target.value) {
-                                  handleFilterChange('priorities', e.target.value);
-                                  e.target.value = '';
-                                }
-                              },
-                              style: { width: '180px' },
-                              value: ''
-                            },
-                              React.createElement('option', { value: '' }, 'Select Priority...'),
-                              filterOptions.priorities
-                                .filter(priority => !filters.priorities.includes(priority))
-                                .map(priority =>
-                                  React.createElement('option', {
-                                    key: priority,
-                                    value: priority
-                                  }, priority)
-                                )
-                            )
-                          ),
-
-                          // Items count display
-                          React.createElement('span', { className: 'text-muted ms-2' },
-                            `Showing ${filteredActivities.length} items`
+                            style: { width: '200px' },
+                            value: ''
+                          },
+                            React.createElement('option', { value: '' }, 'Select Board...'),
+                            filterOptions.boards
+                              .filter(board => !filters.boards.includes(board))
+                              .map(board =>
+                                React.createElement('option', {
+                                  key: board,
+                                  value: board
+                                }, board)
+                              )
                           )
                         ),
-                        React.createElement('div', { className: 'd-flex gap-2' },
-                          React.createElement('button', {
-                            className: 'btn btn-sm btn-success',
-                            onClick: handleAddActivity,
-                            disabled: !manager || !selectedBoard,
-                            title: !manager ? 'Please select a manager first' : (!selectedBoard ? 'Please select a board first' : 'Add new internal activity')
+
+                        // Status Filter
+                        React.createElement('div', { className: 'd-flex align-items-center' },
+                          React.createElement('label', {
+                            className: 'me-2 text-nowrap fw-semibold',
+                            style: { minWidth: '50px' }
+                          }, 'Status:'),
+                          React.createElement('select', {
+                            className: 'form-select form-select-sm',
+                            onChange: (e) => {
+                              if (e.target.value) {
+                                handleFilterChange('statuses', e.target.value);
+                                e.target.value = '';
+                              }
+                            },
+                            style: { width: '200px' },
+                            value: ''
                           },
-                            React.createElement('i', { className: 'bi bi-plus-circle me-1' }),
-                            'New Item'
-                          ),
-                          React.createElement('button', {
-                            className: 'btn btn-sm btn-outline-primary',
-                            onClick: () => loadActivities(true),
-                            disabled: loading,
-                            title: 'Sync from Monday and Refresh'
+                            React.createElement('option', { value: '' }, 'Select Status...'),
+                            filterOptions.statuses
+                              .filter(status => !filters.statuses.includes(status))
+                              .map(status =>
+                                React.createElement('option', {
+                                  key: status,
+                                  value: status
+                                }, status)
+                              )
+                          )
+                        ),
+
+                        // Priority Filter
+                        React.createElement('div', { className: 'd-flex align-items-center' },
+                          React.createElement('label', {
+                            className: 'me-2 text-nowrap fw-semibold',
+                            style: { minWidth: '60px' }
+                          }, 'Priority:'),
+                          React.createElement('select', {
+                            className: 'form-select form-select-sm',
+                            onChange: (e) => {
+                              if (e.target.value) {
+                                handleFilterChange('priorities', e.target.value);
+                                e.target.value = '';
+                              }
+                            },
+                            style: { width: '200px' },
+                            value: ''
                           },
-                            React.createElement('i', {
-                              className: `bi bi-arrow-clockwise me-1 ${loading ? 'spin' : ''}`
-                            }),
-                            'Refresh'
+                            React.createElement('option', { value: '' }, 'Select Priority...'),
+                            filterOptions.priorities
+                              .filter(priority => !filters.priorities.includes(priority))
+                              .map(priority =>
+                                React.createElement('option', {
+                                  key: priority,
+                                  value: priority
+                                }, priority)
+                              )
                           )
                         )
                       ),
-
-                      // Active filters badges
-                      hasActiveFilters && React.createElement('div', {
-                        className: 'd-flex gap-2 flex-wrap align-items-center'
-                      },
-                        React.createElement('small', { className: 'text-muted' }, 'Active Filters:'),
-                        filters.statuses.map(status =>
-                          React.createElement('span', {
-                            key: `status-${status}`,
-                            className: 'badge bg-primary d-flex align-items-center gap-1'
-                          },
-                            'Status: ', status,
-                            React.createElement('i', {
-                              className: 'bi bi-x',
-                              style: { cursor: 'pointer' },
-                              onClick: () => removeFilter('statuses', status)
-                            })
-                          )
-                        ),
-                        filters.priorities.map(priority =>
-                          React.createElement('span', {
-                            key: `priority-${priority}`,
-                            className: 'badge bg-info d-flex align-items-center gap-1'
-                          },
-                            'Priority: ', priority,
-                            React.createElement('i', {
-                              className: 'bi bi-x',
-                              style: { cursor: 'pointer' },
-                              onClick: () => removeFilter('priorities', priority)
-                            })
-                          )
+                      React.createElement('div', { className: 'd-flex gap-2' },
+                        React.createElement('button', {
+                          className: 'btn btn-sm btn-success',
+                          onClick: handleAddActivity,
+                          disabled: !manager,
+                          title: !manager ? 'Please select a manager first' : 'Add new internal activity'
+                        },
+                          React.createElement('i', { className: 'bi bi-plus-circle me-1' }),
+                          'New Item'
                         ),
                         React.createElement('button', {
-                          className: 'btn btn-sm btn-link text-danger',
-                          onClick: clearFilters
-                        }, 'Clear All')
+                          className: 'btn btn-sm btn-outline-primary',
+                          onClick: () => loadActivities(true),
+                          disabled: loading,
+                          title: 'Sync from Monday and Refresh'
+                        },
+                          React.createElement('i', {
+                            className: `bi bi-arrow-clockwise me-1 ${loading ? 'spin' : ''}`
+                          }),
+                          'Refresh'
+                        )
                       )
                     ),
 
-                    // Data Table
-                    React.createElement(ScrollableDataTable, {
-                      data: filteredActivities,
-                      columns: tableColumns,
-                      renderRow: renderRow,
-                      title: '',
-                      emptyMessage: selectedBoard ?
-                        (hasActiveFilters ? 'No activities found matching the selected filters' : `No activities found for ${selectedBoard}`) :
-                        'Please select a board from the left panel',
-                      maxHeight: '600px',
-                      searchable: true,
-                      searchFields: ['Name', 'Item Name', 'Owner', 'Activity Status']
-                    }),
+                    // Active filters badges
+                    hasActiveFilters && React.createElement('div', {
+                      className: 'd-flex gap-2 flex-wrap align-items-center'
+                    },
+                      React.createElement('small', { className: 'text-muted' }, 'Active Filters:'),
+                      filters.boards.map(board =>
+                        React.createElement('span', {
+                          key: `board-${board}`,
+                          className: 'badge bg-secondary d-flex align-items-center gap-1'
+                        },
+                          'Board: ', board,
+                          React.createElement('i', {
+                            className: 'bi bi-x',
+                            style: { cursor: 'pointer' },
+                            onClick: () => removeFilter('boards', board)
+                          })
+                        )
+                      ),
+                      filters.statuses.map(status =>
+                        React.createElement('span', {
+                          key: `status-${status}`,
+                          className: 'badge bg-primary d-flex align-items-center gap-1'
+                        },
+                          'Status: ', status,
+                          React.createElement('i', {
+                            className: 'bi bi-x',
+                            style: { cursor: 'pointer' },
+                            onClick: () => removeFilter('statuses', status)
+                          })
+                        )
+                      ),
+                      filters.priorities.map(priority =>
+                        React.createElement('span', {
+                          key: `priority-${priority}`,
+                          className: 'badge bg-info d-flex align-items-center gap-1'
+                        },
+                          'Priority: ', priority,
+                          React.createElement('i', {
+                            className: 'bi bi-x',
+                            style: { cursor: 'pointer' },
+                            onClick: () => removeFilter('priorities', priority)
+                          })
+                        )
+                      ),
+                      React.createElement('button', {
+                        className: 'btn btn-sm btn-link text-danger',
+                        onClick: clearFilters
+                      }, 'Clear All')
+                    )
+                  ),
+                  React.createElement(ScrollableDataTable, {
+                    data: filteredActivities,
+                    columns: tableColumns,
+                    renderRow: renderRow,
+                    title: '',
+                    emptyMessage: hasActiveFilters ?
+                      'No internal activities found matching the selected filters' :
+                      'No internal activities found',
+                    maxHeight: '600px',
+                    searchable: true,
+                    searchFields: ['Name', 'Item Name', 'Board Name', 'Owner', 'Activity Status']
+                  }),
 
                   // Edit Modal - use board-specific columns and users
                   editingItem && React.createElement(EditItemModal, {
@@ -3311,8 +3234,7 @@
                     availablePartners: availableBoards.map(b => b.boardName),
                     onPartnerSelected: handleBoardSelected
                   })
-                  )  // Close main content area div
-                );  // Close outer flex container
+                );
               }
 
 
@@ -3376,12 +3298,11 @@
             }
 
             function InternalActivitiesCard({ manager, viewMode, authorization }) {
-              console.log('=== InternalActivitiesCard RENDERING ===');
               return React.createElement('div', { className: 'card h-100' },
                 React.createElement('div', { className: 'card-header' },
                   React.createElement('h5', { className: 'mb-0' }, '🏢 Internal Activities')
                 ),
-                React.createElement('div', { className: 'card-body', style: { display: 'flex', flexDirection: 'column', minHeight: '400px' } },
+                React.createElement('div', { className: 'card-body' },
                   React.createElement(InternalActivities, { manager: manager, viewMode: viewMode, authorization: authorization })
                 )
               );
