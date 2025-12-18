@@ -1962,15 +1962,18 @@ function syncInternalActivitiesData() {
 /**
  * Sync a single GW board to its individual sheet tab
  * @param {string} boardId - The GW board ID to sync
+ * @param {string} [overrideBoardName] - Optional board name to use instead of hardcoded map
+ * @param {string} [overrideSheetName] - Optional sheet name to use instead of hardcoded map
  * @returns {Object} Result with success status
  */
-function syncSingleGWBoard(boardId) {
+function syncSingleGWBoard(boardId, overrideBoardName, overrideSheetName) {
   try {
-    const sheetName = GW_BOARD_SHEET_MAP[boardId];
-    const boardName = GW_BOARD_NAME_MAP[boardId];
+    // Use override values if provided, otherwise fall back to hardcoded maps
+    const sheetName = overrideSheetName || GW_BOARD_SHEET_MAP[boardId];
+    const boardName = overrideBoardName || GW_BOARD_NAME_MAP[boardId];
 
     if (!sheetName) {
-      throw new Error(`Unknown GW board ID: ${boardId}`);
+      throw new Error(`Unknown GW board ID: ${boardId}. Please provide sheetName or add to InternalBoards sheet.`);
     }
 
     console.log(`Syncing GW board ${boardId} (${boardName}) to sheet ${sheetName}...`);

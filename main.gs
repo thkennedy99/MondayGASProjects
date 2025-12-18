@@ -988,8 +988,8 @@ function syncGuidewireBoards() {
       console.log(`\n=== Syncing GW Board ${i + 1}/${boardSheets.length}: ${boardName} -> ${sheetName} (${boardId}) ===`);
 
       try {
-        // Sync this board to its individual sheet
-        const result = syncSingleGWBoard(boardId);
+        // Sync this board to its individual sheet, passing board name and sheet name
+        const result = syncSingleGWBoard(boardId, boardName, sheetName);
         const itemCount = result.itemCount || 0;
         totalItems += itemCount;
 
