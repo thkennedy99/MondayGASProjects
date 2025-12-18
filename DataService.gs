@@ -1817,11 +1817,40 @@ function getAllInternalActivitiesUnfiltered(boardFilter, filters, sort, paginati
 }
 
 /**
- * Get distinct board names from GWMondayData for internal activities
+ * Get board names for internal activities from InternalBoards configuration
+ * Always returns all configured boards, even if they have no data
  */
 function getInternalActivityBoardNames() {
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Read from InternalBoards configuration sheet
+    const internalBoardsSheet = spreadsheet.getSheetByName('InternalBoards');
+
+    if (internalBoardsSheet) {
+      const data = internalBoardsSheet.getDataRange().getValues();
+
+      if (data.length >= 2) {
+        const headers = data[0];
+        const boardNameIndex = headers.indexOf('BoardName');
+
+        if (boardNameIndex !== -1) {
+          const boardNames = [];
+          for (let i = 1; i < data.length; i++) {
+            const boardName = data[i][boardNameIndex];
+            if (boardName && String(boardName).trim()) {
+              boardNames.push(String(boardName).trim());
+            }
+          }
+
+          console.log('Internal activity board names from InternalBoards:', boardNames);
+          return boardNames;  // Return in order from sheet, not sorted
+        }
+      }
+    }
+
+    // Fallback: get from GWMondayData if InternalBoards not available
+    console.log('InternalBoards sheet not found, falling back to GWMondayData');
     const sheet = spreadsheet.getSheetByName('GWMondayData');
     if (!sheet) return [];
 
@@ -1829,7 +1858,7 @@ function getInternalActivityBoardNames() {
     const data = service.getSheetData(sheet);
 
     const boardNames = [...new Set(data.map(row => row['Board Name']).filter(Boolean))];
-    console.log('Internal activity board names:', boardNames);
+    console.log('Internal activity board names from data:', boardNames);
     return boardNames.sort();
 
   } catch (error) {
@@ -3021,6 +3050,151 @@ function validatePartnerNames() {
   } catch (error) {
     console.error('Error validating partner names:', error);
     return { error: error.message, stack: error.stack };
+  }
+}
+
+/**
+ * Check for Partner Names in MondayData that are NOT in PartnerTranslate column A (From column)
+ * Sends an email with the list of unmapped partner names
+ */
+function checkUnmappedPartnerTranslations() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Get MondayData sheet
+    const mondayDataSheet = ss.getSheetByName('MondayData');
+    if (!mondayDataSheet) {
+      console.log('MondayData sheet not found.');
+      return { success: false, error: 'MondayData sheet not found' };
+    }
+
+    // Get PartnerTranslate sheet
+    const translateSheet = ss.getSheetByName('PartnerTranslate');
+    if (!translateSheet) {
+      console.log('PartnerTranslate sheet not found.');
+      return { success: false, error: 'PartnerTranslate sheet not found' };
+    }
+
+    // Get all Partner Names from MondayData
+    const mondayData = mondayDataSheet.getDataRange().getValues();
+    if (mondayData.length < 2) {
+      console.log('No data in MondayData sheet.');
+      return { success: false, error: 'No data in MondayData sheet' };
+    }
+
+    const headers = mondayData[0];
+    const partnerNameIndex = headers.indexOf('Partner Name');
+
+    if (partnerNameIndex === -1) {
+      console.log('Partner Name column not found in MondayData.');
+      return { success: false, error: 'Partner Name column not found in MondayData' };
+    }
+
+    // Get unique Partner Names from MondayData
+    const mondayPartnerNames = [];
+    for (let i = 1; i < mondayData.length; i++) {
+      const partnerName = mondayData[i][partnerNameIndex];
+      if (partnerName && String(partnerName).trim()) {
+        mondayPartnerNames.push(String(partnerName).trim());
+      }
+    }
+    const uniqueMondayPartnerNames = [...new Set(mondayPartnerNames)];
+
+    console.log(`Found ${uniqueMondayPartnerNames.length} unique Partner Names in MondayData`);
+
+    // Get all mapped values from PartnerTranslate column A (From column)
+    const translateLastRow = translateSheet.getLastRow();
+    let mappedNames = [];
+
+    if (translateLastRow >= 2) {
+      // Get headers to find "From" column
+      const translateHeaders = translateSheet.getRange(1, 1, 1, translateSheet.getLastColumn()).getValues()[0];
+      let fromColIndex = translateHeaders.indexOf('From');
+
+      // If no "From" header, assume column A
+      if (fromColIndex === -1) {
+        fromColIndex = 0;
+        console.log('No "From" header found, using column A');
+      }
+
+      // Get all values from the From column
+      const translateData = translateSheet.getRange(2, fromColIndex + 1, translateLastRow - 1, 1).getValues().flat();
+      mappedNames = translateData
+        .filter(value => value) // Remove empty values
+        .map(value => value.toString().trim().toLowerCase()); // Normalize for comparison
+    }
+
+    console.log(`Found ${mappedNames.length} mapped names in PartnerTranslate`);
+
+    // Find unique unmapped values
+    const unmappedValues = [];
+
+    for (const value of uniqueMondayPartnerNames) {
+      if (value && value.toString().trim()) {
+        const normalizedValue = value.toString().trim().toLowerCase();
+        if (!mappedNames.includes(normalizedValue)) {
+          unmappedValues.push(value.toString().trim());
+        }
+      }
+    }
+
+    // Sort unmapped values alphabetically
+    unmappedValues.sort();
+
+    console.log(`Found ${unmappedValues.length} unmapped Partner Names`);
+
+    // Only send email if there are unmapped partners
+    if (unmappedValues.length === 0) {
+      console.log('All Partner Names in MondayData are properly mapped in PartnerTranslate. No email sent.');
+      return {
+        success: true,
+        unmappedCount: 0,
+        unmappedValues: [],
+        emailSent: false,
+        message: 'All partners are mapped'
+      };
+    }
+
+    // Prepare email content
+    const emailSubject = 'Unmapped Partner Names in MondayData - PartnerTranslate Check';
+    let emailBody = 'The following Partner Names in MondayData are not found in the PartnerTranslate sheet (From column):\n\n';
+    emailBody += unmappedValues.join('\n');
+    emailBody += '\n\n' + 'Total unmapped values: ' + unmappedValues.length;
+    emailBody += '\n\nThese values should be added to the PartnerTranslate sheet (column A - "From") for proper translation.';
+
+    // Send email
+    try {
+      MailApp.sendEmail({
+        to: 'tkennedy@guidewire.com',
+        subject: emailSubject,
+        body: emailBody
+      });
+
+      console.log('Unmapped Partner Names email sent successfully to tkennedy@guidewire.com');
+      console.log('Unmapped values: ' + unmappedValues.slice(0, 5).join(', ') + (unmappedValues.length > 5 ? '... and ' + (unmappedValues.length - 5) + ' more' : ''));
+
+      return {
+        success: true,
+        unmappedCount: unmappedValues.length,
+        unmappedValues: unmappedValues,
+        emailSent: true
+      };
+
+    } catch (emailError) {
+      console.error('Error sending email: ' + emailError.toString());
+
+      return {
+        success: true,
+        unmappedCount: unmappedValues.length,
+        unmappedValues: unmappedValues,
+        emailSent: false,
+        emailError: emailError.toString()
+      };
+    }
+
+  } catch (error) {
+    console.error('Error in checkUnmappedPartnerTranslations: ' + error.toString());
+    return { success: false, error: error.toString() };
   }
 }
 

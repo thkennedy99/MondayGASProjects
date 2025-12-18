@@ -880,24 +880,28 @@ function getGuidewireBoardConfigurations() {
           boardName: GW_BOARD_1_NAME,
           partnerName: 'Guidewire',
           boardId: GW_BOARD_1_ID,
+          sheetName: GW_BOARD_1_SHEET,
           targetSheetName: GW_MONDAY_SHEET_NAME
         },
         {
           boardName: GW_BOARD_2_NAME,
           partnerName: 'Guidewire',
           boardId: GW_BOARD_2_ID,
+          sheetName: GW_BOARD_2_SHEET,
           targetSheetName: GW_MONDAY_SHEET_NAME
         },
         {
           boardName: GW_BOARD_3_NAME,
           partnerName: 'Guidewire',
           boardId: GW_BOARD_3_ID,
+          sheetName: GW_BOARD_3_SHEET,
           targetSheetName: GW_MONDAY_SHEET_NAME
         },
         {
           boardName: GW_BOARD_4_NAME,
           partnerName: 'Guidewire',
           boardId: GW_BOARD_4_ID,
+          sheetName: GW_BOARD_4_SHEET,
           targetSheetName: GW_MONDAY_SHEET_NAME
         }
       ];
@@ -913,6 +917,7 @@ function getGuidewireBoardConfigurations() {
     const headers = data[0];
     const boardNameIndex = headers.indexOf('BoardName');
     const idIndex = headers.indexOf('ID');
+    const sheetNameIndex = headers.indexOf('SheetName');
 
     if (boardNameIndex === -1 || idIndex === -1) {
       console.error('InternalBoards sheet missing required columns (BoardName, ID)');
@@ -923,12 +928,14 @@ function getGuidewireBoardConfigurations() {
     for (let i = 1; i < data.length; i++) {
       const boardName = data[i][boardNameIndex];
       const boardId = data[i][idIndex];
+      const sheetName = sheetNameIndex !== -1 ? data[i][sheetNameIndex] : null;
 
       if (boardName && boardId) {
         boards.push({
           boardName: String(boardName).trim(),
           partnerName: 'Guidewire',
           boardId: String(boardId).trim(),
+          sheetName: sheetName ? String(sheetName).trim() : null,
           targetSheetName: GW_MONDAY_SHEET_NAME
         });
       }
@@ -948,30 +955,41 @@ function getGuidewireBoardConfigurations() {
  */
 /**
  * Sync Guidewire Monday boards to GWMondayData sheet
+ * Now reads from InternalBoards sheet dynamically
  */
 function syncGuidewireBoards() {
   try {
-    console.log('Starting Guidewire boards sync (individual board architecture)...');
+    console.log('Starting Guidewire boards sync (dynamic board architecture)...');
 
     // Get partner translation lookup map for post-processing
     const partnerTranslateMap = getPartnerTranslateLookup();
     let totalItems = 0;
 
-    // Sync each GW board to its individual sheet
-    const boardSheets = [
-      { boardId: GW_BOARD_1_ID, sheetName: GW_BOARD_1_SHEET },
-      { boardId: GW_BOARD_2_ID, sheetName: GW_BOARD_2_SHEET },
-      { boardId: GW_BOARD_3_ID, sheetName: GW_BOARD_3_SHEET },
-      { boardId: GW_BOARD_4_ID, sheetName: GW_BOARD_4_SHEET }
-    ];
+    // Get board configurations from InternalBoards sheet (dynamic)
+    const boardConfigs = getGuidewireBoardConfigurations();
+
+    if (boardConfigs.length === 0) {
+      console.error('No internal boards configured in InternalBoards sheet');
+      return;
+    }
+
+    // Build boardSheets array dynamically from InternalBoards sheet
+    // Use SheetName from config if provided, otherwise generate from board name
+    const boardSheets = boardConfigs.map(config => ({
+      boardId: config.boardId,
+      boardName: config.boardName,
+      sheetName: config.sheetName || generateGWSheetName(config.boardName)
+    }));
+
+    console.log(`Found ${boardSheets.length} internal boards to sync from InternalBoards sheet`);
 
     for (let i = 0; i < boardSheets.length; i++) {
-      const { boardId, sheetName } = boardSheets[i];
-      console.log(`\n=== Syncing GW Board ${i + 1}/${boardSheets.length}: ${sheetName} (${boardId}) ===`);
+      const { boardId, boardName, sheetName } = boardSheets[i];
+      console.log(`\n=== Syncing GW Board ${i + 1}/${boardSheets.length}: ${boardName} -> ${sheetName} (${boardId}) ===`);
 
       try {
-        // Sync this board to its individual sheet
-        const result = syncSingleGWBoard(boardId);
+        // Sync this board to its individual sheet, passing board name and sheet name
+        const result = syncSingleGWBoard(boardId, boardName, sheetName);
         const itemCount = result.itemCount || 0;
         totalItems += itemCount;
 
@@ -1022,7 +1040,7 @@ function syncGuidewireBoards() {
     console.log('\nSetting up GWMondayData formula to aggregate individual sheets...');
     setupGWMondayDataFormula();
 
-    console.log(`\nGuidewire boards sync complete - ${totalItems} total items across 4 boards`);
+    console.log(`\nGuidewire boards sync complete - ${totalItems} total items across ${boardSheets.length} boards`);
     console.log('GWMondayData will auto-update via formula when individual sheets change');
 
     // Clear internal activity caches after GW boards sync
@@ -1033,6 +1051,23 @@ function syncGuidewireBoards() {
     console.error('Error syncing Guidewire boards:', error);
     throw error;
   }
+}
+
+/**
+ * Generate a sheet name from a board name
+ * E.g., "Tech Ops Activities" -> "GW_TechOpsActivities"
+ */
+function generateGWSheetName(boardName) {
+  if (!boardName) return 'GW_Unknown';
+
+  // Remove special characters and spaces, convert to PascalCase
+  const cleanName = boardName
+    .replace(/[^a-zA-Z0-9\s]/g, '')  // Remove special chars
+    .split(/\s+/)                     // Split on whitespace
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join('');
+
+  return 'GW_' + cleanName;
 }
 
 /**
