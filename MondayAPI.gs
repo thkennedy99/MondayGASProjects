@@ -2013,32 +2013,49 @@ function syncSingleGWBoard(boardId) {
 }
 
 /**
- * Set up GWMondayData sheet with a formula that pulls from all 4 individual GW board sheets
- * Run this once after creating the individual sheets
+ * Set up GWMondayData sheet with a formula that pulls from all individual GW board sheets
+ * Now reads dynamically from InternalBoards sheet
  */
 function setupGWMondayDataFormula() {
   try {
-    console.log('Setting up GWMondayData formula...');
+    console.log('Setting up GWMondayData formula dynamically...');
 
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const mainSheet = getOrCreateSheet(GW_MONDAY_SHEET_NAME);
 
+    // Get board configurations from InternalBoards sheet
+    const boardConfigs = getGuidewireBoardConfigurations();
+
+    if (boardConfigs.length === 0) {
+      console.error('No internal boards configured in InternalBoards sheet');
+      return { success: false, error: 'No internal boards configured' };
+    }
+
+    // Get sheet names from config or generate from board names
+    const sheetNames = boardConfigs.map(config => config.sheetName || generateGWSheetName(config.boardName));
+
+    console.log(`Building formula for ${sheetNames.length} sheets: ${sheetNames.join(', ')}`);
+
     // Clear the sheet first
     mainSheet.clear();
 
-    // Set the formula in A1 that pulls from all 4 sheets
-    // Uses QUERY to stack data and filter out empty rows
-    const formula = `=QUERY({
-      '${GW_BOARD_1_SHEET}'!A:Z;
-      '${GW_BOARD_2_SHEET}'!A2:Z;
-      '${GW_BOARD_3_SHEET}'!A2:Z;
-      '${GW_BOARD_4_SHEET}'!A2:Z
-    }, "SELECT * WHERE Col1 IS NOT NULL", 1)`;
+    // Build the formula dynamically
+    // First sheet includes headers (A:Z), subsequent sheets skip headers (A2:Z)
+    let formulaParts = [];
+    sheetNames.forEach((sheetName, index) => {
+      if (index === 0) {
+        formulaParts.push(`'${sheetName}'!A:Z`);
+      } else {
+        formulaParts.push(`'${sheetName}'!A2:Z`);
+      }
+    });
 
-    mainSheet.getRange('A1').setFormula(formula.replace(/\n\s*/g, ''));
+    const formula = `=QUERY({${formulaParts.join(';')}}, "SELECT * WHERE Col1 IS NOT NULL", 1)`;
 
-    console.log('GWMondayData formula set - sheet will auto-update when individual sheets change');
-    return { success: true };
+    mainSheet.getRange('A1').setFormula(formula);
+
+    console.log(`GWMondayData formula set with ${sheetNames.length} sheets - will auto-update when individual sheets change`);
+    return { success: true, sheetCount: sheetNames.length };
 
   } catch (error) {
     console.error('Error setting up GWMondayData formula:', error);
