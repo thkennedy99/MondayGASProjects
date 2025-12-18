@@ -1817,11 +1817,40 @@ function getAllInternalActivitiesUnfiltered(boardFilter, filters, sort, paginati
 }
 
 /**
- * Get distinct board names from GWMondayData for internal activities
+ * Get board names for internal activities from InternalBoards configuration
+ * Always returns all configured boards, even if they have no data
  */
 function getInternalActivityBoardNames() {
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Read from InternalBoards configuration sheet
+    const internalBoardsSheet = spreadsheet.getSheetByName('InternalBoards');
+
+    if (internalBoardsSheet) {
+      const data = internalBoardsSheet.getDataRange().getValues();
+
+      if (data.length >= 2) {
+        const headers = data[0];
+        const boardNameIndex = headers.indexOf('BoardName');
+
+        if (boardNameIndex !== -1) {
+          const boardNames = [];
+          for (let i = 1; i < data.length; i++) {
+            const boardName = data[i][boardNameIndex];
+            if (boardName && String(boardName).trim()) {
+              boardNames.push(String(boardName).trim());
+            }
+          }
+
+          console.log('Internal activity board names from InternalBoards:', boardNames);
+          return boardNames;  // Return in order from sheet, not sorted
+        }
+      }
+    }
+
+    // Fallback: get from GWMondayData if InternalBoards not available
+    console.log('InternalBoards sheet not found, falling back to GWMondayData');
     const sheet = spreadsheet.getSheetByName('GWMondayData');
     if (!sheet) return [];
 
@@ -1829,7 +1858,7 @@ function getInternalActivityBoardNames() {
     const data = service.getSheetData(sheet);
 
     const boardNames = [...new Set(data.map(row => row['Board Name']).filter(Boolean))];
-    console.log('Internal activity board names:', boardNames);
+    console.log('Internal activity board names from data:', boardNames);
     return boardNames.sort();
 
   } catch (error) {
