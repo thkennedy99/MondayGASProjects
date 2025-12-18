@@ -2660,12 +2660,28 @@
 
       // Load column metadata for a board
       const loadColumnMetadata = async (boardId) => {
-        if (!boardId || columnsByBoard[boardId]) return;
+        // Ensure boardId is a string for consistent key handling
+        const boardIdStr = String(boardId);
+        console.log('=== loadColumnMetadata ===');
+        console.log('boardId:', boardId, 'type:', typeof boardId);
+        console.log('boardIdStr:', boardIdStr);
+        console.log('Already cached?', !!columnsByBoard[boardIdStr]);
+
+        if (!boardIdStr || columnsByBoard[boardIdStr]) return;
         try {
-          const cols = await api.call('getBoardColumnsStructure', boardId);
-          setColumnsByBoard(prev => ({ ...prev, [boardId]: cols || [] }));
+          console.log('Calling getBoardColumnsStructure for boardId:', boardIdStr);
+          const cols = await api.call('getBoardColumnsStructure', boardIdStr);
+          console.log('Received columns for board', boardIdStr, '- count:', cols?.length);
+
+          // Log Activity Status column specifically
+          const activityStatusCol = cols?.find(c => c.title === 'Activity Status');
+          if (activityStatusCol) {
+            console.log('Activity Status column labels:', activityStatusCol.settings?.labels);
+          }
+
+          setColumnsByBoard(prev => ({ ...prev, [boardIdStr]: cols || [] }));
         } catch (err) {
-          console.error('Error loading columns for board', boardId, err);
+          console.error('Error loading columns for board', boardIdStr, err);
         }
       };
 
@@ -2698,18 +2714,19 @@
       // Handle add new
       const handleAddNew = async () => {
         const boardId = getBoardIdForSelectedBoard();
+        const boardIdStr = boardId ? String(boardId) : null;
         console.log('=== handleAddNew ===');
         console.log('selectedBoard:', selectedBoard);
-        console.log('boardId:', boardId);
+        console.log('boardId:', boardId, 'boardIdStr:', boardIdStr);
         console.log('columnsByBoard keys:', Object.keys(columnsByBoard));
 
-        if (boardId) {
-          if (!columnsByBoard[boardId]) {
-            console.log('Loading column metadata for boardId:', boardId);
-            await loadColumnMetadata(boardId);
+        if (boardIdStr) {
+          if (!columnsByBoard[boardIdStr]) {
+            console.log('Loading column metadata for boardId:', boardIdStr);
+            await loadColumnMetadata(boardIdStr);
           }
-          console.log('Columns for boardId', boardId, ':', columnsByBoard[boardId]);
-          setSelectedBoardIdForAdd(boardId);
+          console.log('Columns for boardId', boardIdStr, ':', columnsByBoard[boardIdStr]);
+          setSelectedBoardIdForAdd(boardIdStr);
           setShowAddModal(true);
         } else {
           alert('Could not find board ID for selected board');
