@@ -773,6 +773,8 @@ function clearSheetData(sheet) {
      }
   if (lastRow > 1) {
     sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clear();
+    // Force changes to apply so formulas referencing this sheet update
+    SpreadsheetApp.flush();
   }
 }
 

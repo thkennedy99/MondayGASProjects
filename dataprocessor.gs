@@ -364,6 +364,9 @@ function writeDataToSheet(sheet, boardStructure, items, isFirstBoard = true, boa
     console.log(`writeDataToSheet: Writing ${sanitizedDataRows.length} rows starting at row ${startRow}`);
     sheet.getRange(startRow, 1, sanitizedDataRows.length, headers.length).setValues(sanitizedDataRows);
     console.log(`writeDataToSheet: Successfully wrote ${sanitizedDataRows.length} rows`);
+
+    // Force Google Sheets to apply changes and recalculate formulas (like GWMondayData)
+    SpreadsheetApp.flush();
   }
 
   // Note: Post-processing is now handled in the calling function after all boards are processed
