@@ -492,16 +492,23 @@
           );
         }
 
-        // Status/color columns
+        // Status/color columns - filter out deactivated labels
         if (type === 'status' || type === 'color') {
           const labels = settings?.labels || {};
-          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          const deactivatedLabels = settings?.deactivated_labels || [];
+          // Filter out deactivated labels - only show active status options
+          const options = Object.entries(labels)
+            .filter(([key, val]) => !deactivatedLabels.includes(parseInt(key)))
+            .map(([key, val]) => typeof val === 'string' ? val : val?.name)
+            .filter(Boolean);
+          // Remove duplicates
+          const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={title}>
               <label className="form-label">{title}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
-                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+                {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
               </select>
             </div>
           );
@@ -664,16 +671,23 @@
           );
         }
 
-        // Status/color columns
+        // Status/color columns - filter out deactivated labels
         if (type === 'status' || type === 'color') {
           const labels = settings?.labels || {};
-          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          const deactivatedLabels = settings?.deactivated_labels || [];
+          // Filter out deactivated labels - only show active status options
+          const options = Object.entries(labels)
+            .filter(([key, val]) => !deactivatedLabels.includes(parseInt(key)))
+            .map(([key, val]) => typeof val === 'string' ? val : val?.name)
+            .filter(Boolean);
+          // Remove duplicates
+          const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={title}>
               <label className="form-label">{title}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
-                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+                {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
               </select>
             </div>
           );
@@ -870,16 +884,23 @@
           );
         }
 
-        // Status/color columns
+        // Status/color columns - filter out deactivated labels
         if (type === 'status' || type === 'color') {
           const labels = settings?.labels || {};
-          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          const deactivatedLabels = settings?.deactivated_labels || [];
+          // Filter out deactivated labels - only show active status options
+          const options = Object.entries(labels)
+            .filter(([key, val]) => !deactivatedLabels.includes(parseInt(key)))
+            .map(([key, val]) => typeof val === 'string' ? val : val?.name)
+            .filter(Boolean);
+          // Remove duplicates
+          const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={column.id}>
               <label className="form-label">{title}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
-                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+                {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
               </select>
             </div>
           );
@@ -1125,16 +1146,23 @@
           );
         }
 
-        // Status/color columns
+        // Status/color columns - filter out deactivated labels
         if (type === 'status' || type === 'color') {
           const labels = settings?.labels || {};
-          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          const deactivatedLabels = settings?.deactivated_labels || [];
+          // Filter out deactivated labels - only show active status options
+          const options = Object.entries(labels)
+            .filter(([key, val]) => !deactivatedLabels.includes(parseInt(key)))
+            .map(([key, val]) => typeof val === 'string' ? val : val?.name)
+            .filter(Boolean);
+          // Remove duplicates
+          const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={column.id}>
               <label className="form-label">{title}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
-                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+                {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
               </select>
             </div>
           );
