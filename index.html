@@ -2564,7 +2564,7 @@
                 console.log('Props - authorization:', authorization);
 
                 const [activities, setActivities] = React.useState([]);
-                const [loading, setLoading] = React.useState(false);
+                const [loading, setLoading] = React.useState(true);
                 const [error, setError] = React.useState(null);
 
                 // Edit/Delete states
@@ -3057,11 +3057,15 @@
                   );
                 };
 
+                console.log('=== InternalActivities RENDER ===');
+                console.log('loading:', loading, 'error:', error, 'authorizedBoards.length:', authorizedBoards.length);
+
                 if (loading) {
+                  console.log('RETURNING: Loading spinner');
                   return React.createElement('div', { className: 'text-center py-4' },
-                    React.createElement('div', { 
-                      className: 'spinner-border text-primary', 
-                      role: 'status' 
+                    React.createElement('div', {
+                      className: 'spinner-border text-primary',
+                      role: 'status'
                     },
                       React.createElement('span', { className: 'visually-hidden' }, 'Loading...')
                     )
@@ -3069,6 +3073,7 @@
                 }
 
                 if (error) {
+                  console.log('RETURNING: Error alert');
                   return React.createElement('div', { className: 'alert alert-danger' },
                     'Error loading activities: ', error
                   );
@@ -3076,6 +3081,7 @@
 
                 // Show message if no boards are configured
                 if (authorizedBoards.length === 0) {
+                  console.log('RETURNING: No boards configured');
                   return React.createElement('div', { className: 'alert alert-info' },
                     React.createElement('i', { className: 'bi bi-info-circle me-2' }),
                     'No internal boards configured. Please check the InternalBoards sheet.',
@@ -3093,6 +3099,9 @@
                 }
 
                 // Main flex container with vertical board subtabs on the left
+                console.log('=== RENDERING MAIN SUBTABS AREA ===');
+                console.log('authorizedBoards:', authorizedBoards);
+                console.log('selectedBoard:', selectedBoard);
                 return React.createElement('div', { style: { display: 'flex', flex: 1, minHeight: 0 } },
                   // Vertical Board Subtabs on Left
                   React.createElement('div', {
@@ -3365,11 +3374,12 @@
             }
 
             function InternalActivitiesCard({ manager, viewMode, authorization }) {
+              console.log('=== InternalActivitiesCard RENDERING ===');
               return React.createElement('div', { className: 'card h-100' },
                 React.createElement('div', { className: 'card-header' },
                   React.createElement('h5', { className: 'mb-0' }, '🏢 Internal Activities')
                 ),
-                React.createElement('div', { className: 'card-body' },
+                React.createElement('div', { className: 'card-body', style: { display: 'flex', flexDirection: 'column', minHeight: '400px' } },
                   React.createElement(InternalActivities, { manager: manager, viewMode: viewMode, authorization: authorization })
                 )
               );
