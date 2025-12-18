@@ -361,7 +361,9 @@ function writeDataToSheet(sheet, boardStructure, items, isFirstBoard = true, boa
   // Write data rows - append to existing data
   if (sanitizedDataRows.length > 0) {
     const startRow = sheet.getLastRow() + 1;
+    console.log(`writeDataToSheet: Writing ${sanitizedDataRows.length} rows starting at row ${startRow}`);
     sheet.getRange(startRow, 1, sanitizedDataRows.length, headers.length).setValues(sanitizedDataRows);
+    console.log(`writeDataToSheet: Successfully wrote ${sanitizedDataRows.length} rows`);
   }
 
   // Note: Post-processing is now handled in the calling function after all boards are processed

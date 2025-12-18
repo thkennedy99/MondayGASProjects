@@ -731,6 +731,8 @@ function deleteMondayItem(itemId, boardId) {
         } else if (GW_BOARD_IDS.includes(boardId)) {
           // Sync only the specific GW board that was affected
           console.log(`Syncing single GW board ${boardId} after item deletion...`);
+          // Add a short delay to allow Monday to process the deletion (eventual consistency)
+          Utilities.sleep(1500);
           syncSingleGWBoard(boardId);
           // GWMondayData auto-updates via formula
           // Clear internal activity caches so UI gets fresh data
@@ -940,6 +942,8 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
       } else if (GW_BOARD_IDS.includes(boardId)) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item update...`);
+        // Add a short delay to allow Monday to process the update (eventual consistency)
+        Utilities.sleep(1500);
         syncSingleGWBoard(boardId);
         // GWMondayData auto-updates via formula
         // Clear internal activity caches so UI gets fresh data
@@ -1396,6 +1400,8 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
       } else if (GW_BOARD_IDS.includes(boardId)) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item creation...`);
+        // Add a short delay to allow Monday to process the creation (eventual consistency)
+        Utilities.sleep(1500);
         syncSingleGWBoard(boardId);
         // GWMondayData auto-updates via formula
         // Clear internal activity caches so UI gets fresh data
@@ -1995,11 +2001,16 @@ function syncSingleGWBoard(boardId, overrideBoardName, overrideSheetName) {
         item.boardId = boardId;
       });
 
+      console.log(`Writing ${items.length} items to sheet ${sheetName}...`);
       writeDataToSheet(targetSheet, boardStructure, items, true, {
         boardName: boardName,
         boardId: boardId,
         targetSheetName: sheetName
       });
+
+      // Verify data was written
+      const rowCount = targetSheet.getLastRow();
+      console.log(`Sheet ${sheetName} now has ${rowCount} rows (including header)`);
     }
 
     console.log(`GW board ${boardId} sync complete - ${items.length} items`);
