@@ -779,8 +779,11 @@ function clearSheetData(sheet) {
 
 /**
  * Make API request to Monday.com
+ * Includes automatic retry for rate limiting (429) errors
  */
-function makeApiRequest(query) {
+function makeApiRequest(query, retryCount = 0) {
+  const MAX_RETRIES = 3;
+
   const options = {
     method: 'post',
     headers: {
@@ -791,20 +794,43 @@ function makeApiRequest(query) {
     payload: JSON.stringify({ query: query }),
     muteHttpExceptions: true
   };
-  
+
  // console.log('Making API request...');
   const response = UrlFetchApp.fetch(MONDAY_API_URL, options);
   const responseCode = response.getResponseCode();
   const responseText = response.getContentText();
-  
+
  // console.log('Response code:', responseCode);
-  
+
+  // Handle rate limiting (429) with automatic retry
+  if (responseCode === 429) {
+    if (retryCount >= MAX_RETRIES) {
+      console.error('Max retries exceeded for rate limiting');
+      throw new Error(`HTTP Error ${responseCode}: ${responseText}`);
+    }
+
+    // Try to parse the retry delay from response
+    let retryDelay = 3000; // Default 3 seconds
+    try {
+      const errorResponse = JSON.parse(responseText);
+      if (errorResponse.error_data && errorResponse.error_data.retry_in_seconds) {
+        retryDelay = (errorResponse.error_data.retry_in_seconds + 1) * 1000; // Add 1 second buffer
+      }
+    } catch (e) {
+      // Use default delay if can't parse
+    }
+
+    console.log(`Rate limited (429). Waiting ${retryDelay/1000} seconds before retry ${retryCount + 1}/${MAX_RETRIES}...`);
+    Utilities.sleep(retryDelay);
+    return makeApiRequest(query, retryCount + 1);
+  }
+
   if (responseCode !== 200) {
     console.error('HTTP Error:', responseCode);
     console.error('Response:', responseText);
     throw new Error(`HTTP Error ${responseCode}: ${responseText}`);
   }
-  
+
   let result;
   try {
     result = JSON.parse(responseText);
@@ -812,12 +838,12 @@ function makeApiRequest(query) {
     console.error('Failed to parse response:', responseText);
     throw new Error('Invalid JSON response from Monday.com API');
   }
-  
+
   if (result.errors) {
     console.error('API Errors:', JSON.stringify(result.errors));
     throw new Error('Monday.com API Error: ' + JSON.stringify(result.errors));
   }
-  
+
   return result;
 }
 
