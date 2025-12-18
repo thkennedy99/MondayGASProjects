@@ -2595,9 +2595,13 @@
     }
 
     // Internal Activities Tab Component
-    function InternalActivitiesTab({ data, boardNames, onRefresh }) {
+    // boardConfigs is array of {boardName, boardId, tab, permission} from InternalBoards sheet
+    function InternalActivitiesTab({ data, boardConfigs, onRefresh }) {
+      // Helper to get board name (handles both string and object formats)
+      const getBoardName = (board) => typeof board === 'string' ? board : board?.boardName || '';
+
       // Default to first board if available
-      const [selectedBoard, setSelectedBoard] = useState(boardNames[0] || '');
+      const [selectedBoard, setSelectedBoard] = useState(getBoardName(boardConfigs[0]) || '');
       const [filterStatus, setFilterStatus] = useState('');
       const [columnsByBoard, setColumnsByBoard] = useState({});
       const [editingItem, setEditingItem] = useState(null);
@@ -2605,12 +2609,12 @@
       const [showAddModal, setShowAddModal] = useState(false);
       const [selectedBoardIdForAdd, setSelectedBoardIdForAdd] = useState(null);
 
-      // Update selected board when boardNames loads
+      // Update selected board when boardConfigs loads
       useEffect(() => {
-        if (boardNames.length > 0 && !selectedBoard) {
-          setSelectedBoard(boardNames[0]);
+        if (boardConfigs.length > 0 && !selectedBoard) {
+          setSelectedBoard(getBoardName(boardConfigs[0]));
         }
-      }, [boardNames]);
+      }, [boardConfigs]);
 
       // Get unique statuses for selected board
       const statuses = useMemo(() => {
@@ -2634,8 +2638,14 @@
         return data.filter(d => (d['Board Name'] || '') === boardName).length;
       };
 
-      // Get board ID for selected board name
+      // Get board ID for selected board name from boardConfigs
       const getBoardIdForSelectedBoard = () => {
+        // First try to find in boardConfigs (from InternalBoards sheet)
+        const config = boardConfigs.find(b => getBoardName(b) === selectedBoard);
+        if (config && config.boardId) {
+          return config.boardId;
+        }
+        // Fallback: try to find from data (for backward compatibility)
         const item = data.find(d => d['Board Name'] === selectedBoard);
         return item ? item['Board ID'] : null;
       };
@@ -2702,27 +2712,30 @@
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           {/* Vertical Board Tabs on Left */}
           <div className="nav flex-column" style={{ minWidth: '180px', borderRight: '1px solid #dee2e6', paddingRight: '0.5rem', marginRight: '1rem' }}>
-            {boardNames.map((board) => (
-              <button
-                key={board}
-                onClick={() => { setSelectedBoard(board); setFilterStatus(''); }}
-                type="button"
-                className="text-start mb-1"
-                style={{
-                  backgroundColor: selectedBoard === board ? '#00739d' : 'transparent',
-                  color: selectedBoard === board ? 'white' : '#00739d',
-                  fontWeight: selectedBoard === board ? '600' : '400',
-                  border: selectedBoard === board ? '1px solid #00739d' : '1px solid #dee2e6',
-                  borderRadius: '4px',
-                  padding: '8px 12px',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  transition: 'all 0.15s ease-in-out'
-                }}
-              >
-                {board} ({getBoardCount(board)})
-              </button>
-            ))}
+            {boardConfigs.map((board) => {
+              const boardName = getBoardName(board);
+              return (
+                <button
+                  key={boardName}
+                  onClick={() => { setSelectedBoard(boardName); setFilterStatus(''); }}
+                  type="button"
+                  className="text-start mb-1"
+                  style={{
+                    backgroundColor: selectedBoard === boardName ? '#00739d' : 'transparent',
+                    color: selectedBoard === boardName ? 'white' : '#00739d',
+                    fontWeight: selectedBoard === boardName ? '600' : '400',
+                    border: selectedBoard === boardName ? '1px solid #00739d' : '1px solid #dee2e6',
+                    borderRadius: '4px',
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    transition: 'all 0.15s ease-in-out'
+                  }}
+                >
+                  {boardName} ({getBoardCount(boardName)})
+                </button>
+              );
+            })}
           </div>
 
           {/* Main Content Area */}
@@ -3209,19 +3222,19 @@
 
       // Filter internal board configs to only show authorized ones
       // Now uses permission field from InternalBoards sheet
-      const getAuthorizedInternalBoardNames = () => {
-        console.log('=== getAuthorizedInternalBoardNames ===');
+      // Returns full config objects (with boardId) for Add New functionality
+      const getAuthorizedInternalBoardConfigs = () => {
+        console.log('=== getAuthorizedInternalBoardConfigs ===');
         console.log('internalBoardNames:', internalBoardNames);
 
         if (!internalBoardNames || internalBoardNames.length === 0) {
-          console.log('No internal board names, returning []');
+          console.log('No internal board configs, returning []');
           return [];
         }
         if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
           // Backward compatibility: show all boards if no permissions defined
-          const allNames = internalBoardNames.map(b => typeof b === 'string' ? b : b.boardName);
-          console.log('No mondayBoards permissions, returning all:', allNames);
-          return allNames;
+          console.log('No mondayBoards permissions, returning all configs');
+          return internalBoardNames;
         }
         // Filter boards where user has the required permission
         const authorizedBoards = internalBoardNames.filter(board => {
@@ -3231,10 +3244,8 @@
           console.log(`Board "${board.boardName}" permission "${board.permission}": ${hasPermission}`);
           return hasPermission;
         });
-        // Return just the board names for the UI
-        const result = authorizedBoards.map(b => typeof b === 'string' ? b : b.boardName);
-        console.log('Authorized board names:', result);
-        return result;
+        console.log('Authorized board configs:', authorizedBoards);
+        return authorizedBoards;
       };
 
       // Render view mode filter buttons based on role
@@ -3507,7 +3518,7 @@
                 {activeTab === 'internalActivities' && isAnyInternalBoardAuthorized() && (
                   <InternalActivitiesTab
                     data={filteredInternalActivitiesData}
-                    boardNames={getAuthorizedInternalBoardNames()}
+                    boardConfigs={getAuthorizedInternalBoardConfigs()}
                     onRefresh={loadData}
                   />
                 )}
