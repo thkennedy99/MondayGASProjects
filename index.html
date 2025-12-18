@@ -2559,6 +2559,10 @@
             );
           }
               function InternalActivities({ manager, viewMode, authorization }) {
+                console.log('=== InternalActivities MOUNTING ===');
+                console.log('Props - manager:', manager, 'viewMode:', viewMode);
+                console.log('Props - authorization:', authorization);
+
                 const [activities, setActivities] = React.useState([]);
                 const [loading, setLoading] = React.useState(false);
                 const [error, setError] = React.useState(null);
