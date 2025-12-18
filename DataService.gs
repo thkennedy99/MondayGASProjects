@@ -1817,7 +1817,8 @@ function getAllInternalActivitiesUnfiltered(boardFilter, filters, sort, paginati
 }
 
 /**
- * Get board names for internal activities from InternalBoards configuration
+ * Get board configurations for internal activities from InternalBoards configuration
+ * Returns full board configs including boardName, boardId, tab, and permission
  * Always returns all configured boards, even if they have no data
  */
 function getInternalActivityBoardNames() {
@@ -1833,18 +1834,26 @@ function getInternalActivityBoardNames() {
       if (data.length >= 2) {
         const headers = data[0];
         const boardNameIndex = headers.indexOf('BoardName');
+        const idIndex = headers.indexOf('ID');
+        const tabIndex = headers.indexOf('Tab');
+        const permissionIndex = headers.indexOf('Permission');
 
         if (boardNameIndex !== -1) {
-          const boardNames = [];
+          const boards = [];
           for (let i = 1; i < data.length; i++) {
             const boardName = data[i][boardNameIndex];
             if (boardName && String(boardName).trim()) {
-              boardNames.push(String(boardName).trim());
+              boards.push({
+                boardName: String(boardName).trim(),
+                boardId: idIndex !== -1 && data[i][idIndex] ? String(data[i][idIndex]).trim() : '',
+                tab: tabIndex !== -1 && data[i][tabIndex] ? String(data[i][tabIndex]).trim() : '',
+                permission: permissionIndex !== -1 && data[i][permissionIndex] ? String(data[i][permissionIndex]).trim() : ''
+              });
             }
           }
 
-          console.log('Internal activity board names from InternalBoards:', boardNames);
-          return boardNames;  // Return in order from sheet, not sorted
+          console.log('Internal activity boards from InternalBoards:', boards.map(b => `${b.boardName} (${b.permission})`).join(', '));
+          return boards;  // Return full board configurations in order from sheet
         }
       }
     }
@@ -1855,11 +1864,26 @@ function getInternalActivityBoardNames() {
     if (!sheet) return [];
 
     const service = new DataService();
-    const data = service.getSheetData(sheet);
+    const gwData = service.getSheetData(sheet);
 
-    const boardNames = [...new Set(data.map(row => row['Board Name']).filter(Boolean))];
-    console.log('Internal activity board names from data:', boardNames);
-    return boardNames.sort();
+    // Extract unique board names and try to get board IDs from data
+    const boardMap = new Map();
+    gwData.forEach(row => {
+      const boardName = row['Board Name'];
+      const boardId = row['Board ID'];
+      if (boardName && !boardMap.has(boardName)) {
+        boardMap.set(boardName, {
+          boardName: String(boardName).trim(),
+          boardId: boardId ? String(boardId).trim() : '',
+          tab: 'GWMondayData',
+          permission: ''  // No permission filtering in fallback mode
+        });
+      }
+    });
+
+    const boards = Array.from(boardMap.values()).sort((a, b) => a.boardName.localeCompare(b.boardName));
+    console.log('Internal activity boards from data:', boards.map(b => b.boardName).join(', '));
+    return boards;
 
   } catch (error) {
     console.error('Error in getInternalActivityBoardNames:', error);
@@ -2798,7 +2822,13 @@ function getBoardStructureForNewActivity(boardId) {
 
 /**
  * Get internal board configurations from InternalBoards sheet
- * Returns array of {boardName, boardId} objects
+ * Returns array of {boardName, boardId, tab, permission} objects
+ *
+ * InternalBoards sheet columns:
+ * - BoardName: The display name for the board in the UI subtabs
+ * - ID: The Monday.com Board ID
+ * - Tab: The sheet tab name where data is stored
+ * - Permission: The permission key that must be in user's MondayBoards column
  */
 function getInternalBoardConfigurations() {
   try {
@@ -2820,6 +2850,8 @@ function getInternalBoardConfigurations() {
     const headers = data[0];
     const boardNameIndex = headers.indexOf('BoardName');
     const idIndex = headers.indexOf('ID');
+    const tabIndex = headers.indexOf('Tab');
+    const permissionIndex = headers.indexOf('Permission');
 
     if (boardNameIndex === -1 || idIndex === -1) {
       console.error('InternalBoards sheet missing required columns (BoardName, ID)');
@@ -2830,16 +2862,21 @@ function getInternalBoardConfigurations() {
     for (let i = 1; i < data.length; i++) {
       const boardName = data[i][boardNameIndex];
       const boardId = data[i][idIndex];
+      const tab = tabIndex !== -1 ? data[i][tabIndex] : '';
+      const permission = permissionIndex !== -1 ? data[i][permissionIndex] : '';
 
       if (boardName && boardId) {
         boards.push({
           boardName: String(boardName).trim(),
-          boardId: String(boardId).trim()
+          boardId: String(boardId).trim(),
+          tab: tab ? String(tab).trim() : '',
+          permission: permission ? String(permission).trim() : ''
         });
       }
     }
 
-    console.log(`Loaded ${boards.length} internal boards from InternalBoards sheet`);
+    console.log(`Loaded ${boards.length} internal boards from InternalBoards sheet:`,
+      boards.map(b => `${b.boardName} (${b.permission})`).join(', '));
     return boards;
 
   } catch (error) {
