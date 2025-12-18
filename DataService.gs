@@ -3114,17 +3114,24 @@ function checkUnmappedPartnerTranslations() {
 
     console.log(`Found ${unmappedValues.length} unmapped Partner Names`);
 
+    // Only send email if there are unmapped partners
+    if (unmappedValues.length === 0) {
+      console.log('All Partner Names in MondayData are properly mapped in PartnerTranslate. No email sent.');
+      return {
+        success: true,
+        unmappedCount: 0,
+        unmappedValues: [],
+        emailSent: false,
+        message: 'All partners are mapped'
+      };
+    }
+
     // Prepare email content
     const emailSubject = 'Unmapped Partner Names in MondayData - PartnerTranslate Check';
     let emailBody = 'The following Partner Names in MondayData are not found in the PartnerTranslate sheet (From column):\n\n';
-
-    if (unmappedValues.length > 0) {
-      emailBody += unmappedValues.join('\n');
-      emailBody += '\n\n' + 'Total unmapped values: ' + unmappedValues.length;
-      emailBody += '\n\nThese values should be added to the PartnerTranslate sheet (column A - "From") for proper translation.';
-    } else {
-      emailBody = 'All Partner Names in MondayData are properly mapped in PartnerTranslate!';
-    }
+    emailBody += unmappedValues.join('\n');
+    emailBody += '\n\n' + 'Total unmapped values: ' + unmappedValues.length;
+    emailBody += '\n\nThese values should be added to the PartnerTranslate sheet (column A - "From") for proper translation.';
 
     // Send email
     try {
