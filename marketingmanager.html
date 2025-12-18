@@ -376,7 +376,7 @@
     }
 
     // Edit Item Modal Component
-    function EditItemModal({ item, boardId, columns, onClose, onSave, partnerOptions, allianceManagerOptions }) {
+    function EditItemModal({ item, boardId, columns, onClose, onSave, partnerOptions, allianceManagerOptions, readOnlyFields }) {
       const [formData, setFormData] = useState({});
       const [itemName, setItemName] = useState('');
       const [saving, setSaving] = useState(false);
@@ -394,6 +394,8 @@
       }, [item]);
 
       const handleChange = (columnTitle, value) => {
+        // Don't allow changes to read-only fields
+        if (readOnlyFields && readOnlyFields.includes(columnTitle)) return;
         setFormData(prev => ({ ...prev, [columnTitle]: value }));
       };
 
@@ -444,6 +446,7 @@
       const renderFormControl = (column) => {
         const { title, type, settings } = column;
         const value = formData[title] || '';
+        const isReadOnly = readOnlyFields && readOnlyFields.includes(title);
 
         const skipColumns = [
           'Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name', 'Name',
@@ -455,6 +458,16 @@
 
         if (skipColumns.includes(title)) return null;
         if (type === 'formula' || type === 'mirror' || type === 'board-relation') return null;
+
+        // For read-only fields, show as disabled text input
+        if (isReadOnly) {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <input type="text" className="form-control" value={value} disabled style={{ backgroundColor: '#e9ecef' }} />
+            </div>
+          );
+        }
 
         // Create Date is display-only
         if (title === 'Create Date') {
@@ -587,22 +600,24 @@
     }
 
     // Add Item Modal Component
-    function AddItemModal({ boardId, columns, onClose, onCreate, partnerOptions, allianceManagerOptions }) {
+    function AddItemModal({ boardId, columns, onClose, onCreate, partnerOptions, allianceManagerOptions, initialValues, readOnlyFields }) {
       const [formData, setFormData] = useState({});
       const [itemName, setItemName] = useState('');
       const [creating, setCreating] = useState(false);
       const [error, setError] = useState(null);
 
       useEffect(() => {
-        // Set default values
-        const defaults = {};
+        // Set default values, including any initialValues passed in
+        const defaults = { ...(initialValues || {}) };
         if (boardId === MARKETING_APPROVAL_BOARD_ID) {
           defaults['Overall Status'] = 'Submitted';
         }
         setFormData(defaults);
-      }, [boardId]);
+      }, [boardId, initialValues]);
 
       const handleChange = (columnTitle, value) => {
+        // Don't allow changes to read-only fields
+        if (readOnlyFields && readOnlyFields.includes(columnTitle)) return;
         setFormData(prev => ({ ...prev, [columnTitle]: value }));
       };
 
@@ -633,6 +648,7 @@
       const renderFormControl = (column) => {
         const { title, type, settings } = column;
         const value = formData[title] || '';
+        const isReadOnly = readOnlyFields && readOnlyFields.includes(title);
 
         const skipColumns = [
           'Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name', 'Name',
@@ -644,6 +660,16 @@
 
         if (skipColumns.includes(title)) return null;
         if (type === 'formula' || type === 'mirror' || type === 'board-relation') return null;
+
+        // For read-only fields, show as disabled text input
+        if (isReadOnly) {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <input type="text" className="form-control" value={value} disabled style={{ backgroundColor: '#e9ecef' }} />
+            </div>
+          );
+        }
 
         // Partner dropdown
         if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
@@ -2860,7 +2886,7 @@
             </div>
           </div>
 
-          {/* Edit Modal */}
+          {/* Edit Modal - Tech Board Type is read-only for Internal Activities */}
           {editingItem && (
             <EditItemModal
               item={editingItem}
@@ -2868,6 +2894,7 @@
               columns={columnsByBoard[editingItem['Board ID']] || []}
               onClose={() => setEditingItem(null)}
               onSave={handleSaveEdit}
+              readOnlyFields={['Tech Board Type']}
             />
           )}
 
@@ -2881,13 +2908,15 @@
             />
           )}
 
-          {/* Add Modal */}
+          {/* Add Modal - Pre-set Tech Board Type based on selected subtab */}
           {showAddModal && selectedBoardIdForAdd && (
             <AddItemModal
               boardId={selectedBoardIdForAdd}
               columns={columnsByBoard[selectedBoardIdForAdd] || []}
               onClose={() => { setShowAddModal(false); setSelectedBoardIdForAdd(null); }}
               onCreate={handleCreate}
+              initialValues={{ 'Tech Board Type': selectedBoard }}
+              readOnlyFields={['Tech Board Type']}
             />
           )}
         </div>
