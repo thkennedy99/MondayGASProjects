@@ -2596,13 +2596,33 @@
                   if (!boardConfigs || boardConfigs.length === 0) return [];
                   const userMondayBoards = authorization?.mondayBoards || [];
 
+                  console.log('=== Internal Activities Permission Debug ===');
+                  console.log('User MondayBoards permissions:', userMondayBoards);
+                  console.log('Board configs:', boardConfigs.map(b => `${b.boardName} (permission: "${b.permission}")`));
+
                   // Filter boards where user has the required permission
-                  return boardConfigs.filter(board => {
+                  const filtered = boardConfigs.filter(board => {
                     // If board has no permission requirement, show it
-                    if (!board.permission) return true;
+                    if (!board.permission) {
+                      console.log(`Board "${board.boardName}" - no permission required, showing`);
+                      return true;
+                    }
                     // Check if user has this permission in their MondayBoards list
-                    return userMondayBoards.includes(board.permission);
+                    const hasPermission = userMondayBoards.includes(board.permission);
+                    console.log(`Board "${board.boardName}" - permission "${board.permission}" - user has: ${hasPermission}`);
+                    return hasPermission;
                   });
+
+                  console.log('Filtered authorized boards:', filtered.map(b => b.boardName));
+
+                  // FALLBACK: If no boards pass permission filter, show all boards
+                  // This prevents empty UI when permissions aren't set up correctly
+                  if (filtered.length === 0 && boardConfigs.length > 0) {
+                    console.log('No boards passed permission filter - showing all boards as fallback');
+                    return boardConfigs;
+                  }
+
+                  return filtered;
                 }, [boardConfigs, authorization?.mondayBoards]);
 
                 // Auto-select first authorized board when boards load
@@ -3047,6 +3067,24 @@
                 if (error) {
                   return React.createElement('div', { className: 'alert alert-danger' },
                     'Error loading activities: ', error
+                  );
+                }
+
+                // Show message if no boards are configured
+                if (authorizedBoards.length === 0) {
+                  return React.createElement('div', { className: 'alert alert-info' },
+                    React.createElement('i', { className: 'bi bi-info-circle me-2' }),
+                    'No internal boards configured. Please check the InternalBoards sheet.',
+                    React.createElement('div', { className: 'mt-2' },
+                      React.createElement('button', {
+                        className: 'btn btn-sm btn-outline-primary',
+                        onClick: () => loadActivities(true),
+                        disabled: loading
+                      },
+                        React.createElement('i', { className: 'bi bi-arrow-clockwise me-1' }),
+                        'Refresh'
+                      )
+                    )
                   );
                 }
 
