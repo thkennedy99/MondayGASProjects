@@ -814,11 +814,18 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
       columnMap[col.title] = col;
     });
 
+    // Check if Name column is being updated - it requires a separate API call
+    let newItemName = null;
+    if (updates['Name'] !== undefined && updates['Name'] !== null && updates['Name'] !== '') {
+      newItemName = updates['Name'];
+      console.log(`Debug: Item name will be updated separately to: "${newItemName}"`);
+    }
+
     // Build the column values object with proper formatting
     const columnValues = {};
 
     // Non-updatable column types
-    const nonUpdatableTypes = ['formula', 'mirror', 'board-relation', 'dependency', 'file', 'subtasks', 'auto-number'];
+    const nonUpdatableTypes = ['formula', 'mirror', 'board-relation', 'dependency', 'file', 'subtasks', 'auto-number', 'name'];
 
     // Non-updatable column ID patterns
     const nonUpdatablePatterns = ['formula_', 'files_', 'subtasks_', 'subitems', 'link_to_item'];
@@ -913,13 +920,24 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
 
     console.log('Debug Updating item:', itemId, 'with values:', JSON.stringify(columnValues));
 
-    // Check if we have any values to update
-    if (Object.keys(columnValues).length === 0) {
-      console.log('No valid columns to update');
-      return { success: true, message: 'No columns to update' };
+    // Update item name first if it was changed (requires separate API call)
+    if (newItemName) {
+      console.log(`Updating item name to: "${newItemName}"`);
+      const nameResult = updateMondayItemName(boardId, itemId, newItemName);
+      if (!nameResult.success) {
+        console.error('Failed to update item name:', nameResult.error);
+      } else {
+        console.log('Item name updated successfully');
+      }
     }
 
-    // Update using the Monday API
+    // Check if we have any other column values to update
+    if (Object.keys(columnValues).length === 0) {
+      console.log('No other columns to update');
+      return { success: true, message: newItemName ? 'Name updated' : 'No columns to update' };
+    }
+
+    // Update other columns using the Monday API
     const result = monday.updateMultipleColumns(boardId, itemId, columnValues);
 
     // Full sync of the board from Monday.com to spreadsheet after item update
