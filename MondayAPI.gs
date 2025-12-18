@@ -733,7 +733,9 @@ function deleteMondayItem(itemId, boardId) {
           console.log(`Syncing single GW board ${boardId} after item deletion...`);
           syncSingleGWBoard(boardId);
           // GWMondayData auto-updates via formula
-          console.log('GW board sync complete');
+          // Clear internal activity caches so UI gets fresh data
+          clearInternalActivityCaches();
+          console.log('GW board sync and cache clear complete');
         } else if (boardId === PARTNER_BOARD_ID) {
           // For partner board, sync just the partner activities
           console.log('Syncing Partner Activities board after item deletion...');
@@ -940,7 +942,9 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
         console.log(`Syncing single GW board ${boardId} after item update...`);
         syncSingleGWBoard(boardId);
         // GWMondayData auto-updates via formula
-        console.log('GW board sync complete');
+        // Clear internal activity caches so UI gets fresh data
+        clearInternalActivityCaches();
+        console.log('GW board sync and cache clear complete');
       } else if (boardId === PARTNER_BOARD_ID) {
         // For partner board, sync just the partner activities
         console.log('Syncing Partner Activities board after item update...');
@@ -1394,7 +1398,9 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
         console.log(`Syncing single GW board ${boardId} after item creation...`);
         syncSingleGWBoard(boardId);
         // GWMondayData auto-updates via formula
-        console.log('GW board sync complete');
+        // Clear internal activity caches so UI gets fresh data
+        clearInternalActivityCaches();
+        console.log('GW board sync and cache clear complete');
       } else if (boardId === PARTNER_BOARD_ID) {
         // For partner board, sync just the partner activities
         console.log('Syncing Partner Activities board after item creation...');
