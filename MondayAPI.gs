@@ -726,23 +726,24 @@ function deleteMondayItem(itemId, boardId) {
         } else if (boardId === APPROVALS_2026_BOARD_ID) {
           console.log('Syncing 2026 Approvals board after item deletion...');
           sync2026ApprovalsBoard();
-          clear2026ApprovalsCaches();
-          console.log('2026 Approvals board sync and cache clear complete');
+          // Cache clearing is now done in sync2026ApprovalsBoard()
+          console.log('2026 Approvals board sync complete');
         } else if (GW_BOARD_IDS.includes(boardId)) {
           // Sync only the specific GW board that was affected
           console.log(`Syncing single GW board ${boardId} after item deletion...`);
           // Add a short delay to allow Monday to process the deletion (eventual consistency)
           Utilities.sleep(1500);
           syncSingleGWBoard(boardId);
-          // GWMondayData auto-updates via formula
-          // Clear internal activity caches so UI gets fresh data
-          clearInternalActivityCaches();
-          console.log('GW board sync and cache clear complete');
-        } else if (boardId === PARTNER_BOARD_ID) {
-          // For partner board, sync just the partner activities
-          console.log('Syncing Partner Activities board after item deletion...');
-          syncPartnerActivitiesData();
-          console.log('Partner Activities sync complete');
+          // Cache clearing is now done in syncSingleGWBoard()
+          console.log('GW board sync complete');
+        } else if (isPartnerBoard(boardId)) {
+          // Sync only the specific partner board that was affected
+          console.log(`Syncing partner board ${boardId} after item deletion...`);
+          // Add a short delay to allow Monday to process the deletion (eventual consistency)
+          Utilities.sleep(1500);
+          syncPartnerBoardById(boardId);
+          // Cache clearing is now done in syncSinglePartnerBoard()
+          console.log('Partner board sync complete');
         }
       } catch (syncError) {
         // Log sync error but don't fail the delete
@@ -1016,23 +1017,24 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
       } else if (boardId === APPROVALS_2026_BOARD_ID) {
         console.log('Syncing 2026 Approvals board after item update...');
         sync2026ApprovalsBoard();
-        clear2026ApprovalsCaches();
-        console.log('2026 Approvals board sync and cache clear complete');
+        // Cache clearing is now done in sync2026ApprovalsBoard()
+        console.log('2026 Approvals board sync complete');
       } else if (GW_BOARD_IDS.includes(boardId)) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item update...`);
         // Add a short delay to allow Monday to process the update (eventual consistency)
         Utilities.sleep(1500);
         syncSingleGWBoard(boardId);
-        // GWMondayData auto-updates via formula
-        // Clear internal activity caches so UI gets fresh data
-        clearInternalActivityCaches();
-        console.log('GW board sync and cache clear complete');
-      } else if (boardId === PARTNER_BOARD_ID) {
-        // For partner board, sync just the partner activities
-        console.log('Syncing Partner Activities board after item update...');
-        syncPartnerActivitiesData();
-        console.log('Partner Activities sync complete');
+        // Cache clearing is now done in syncSingleGWBoard()
+        console.log('GW board sync complete');
+      } else if (isPartnerBoard(boardId)) {
+        // Sync only the specific partner board that was affected
+        console.log(`Syncing partner board ${boardId} after item update...`);
+        // Add a short delay to allow Monday to process the update (eventual consistency)
+        Utilities.sleep(1500);
+        syncPartnerBoardById(boardId);
+        // Cache clearing is now done in syncSinglePartnerBoard()
+        console.log('Partner board sync complete');
       }
     } catch (syncError) {
       // Log sync error but don't fail the update
@@ -1643,23 +1645,24 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
       } else if (boardId === APPROVALS_2026_BOARD_ID) {
         console.log('Syncing 2026 Approvals board after item creation...');
         sync2026ApprovalsBoard();
-        clear2026ApprovalsCaches();
-        console.log('2026 Approvals board sync and cache clear complete');
+        // Cache clearing is now done in sync2026ApprovalsBoard()
+        console.log('2026 Approvals board sync complete');
       } else if (GW_BOARD_IDS.includes(boardId)) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item creation...`);
         // Add a short delay to allow Monday to process the creation (eventual consistency)
         Utilities.sleep(1500);
         syncSingleGWBoard(boardId);
-        // GWMondayData auto-updates via formula
-        // Clear internal activity caches so UI gets fresh data
-        clearInternalActivityCaches();
-        console.log('GW board sync and cache clear complete');
-      } else if (boardId === PARTNER_BOARD_ID) {
-        // For partner board, sync just the partner activities
-        console.log('Syncing Partner Activities board after item creation...');
-        syncPartnerActivitiesData();
-        console.log('Partner Activities sync complete');
+        // Cache clearing is now done in syncSingleGWBoard()
+        console.log('GW board sync complete');
+      } else if (isPartnerBoard(boardId)) {
+        // Sync only the specific partner board that was affected
+        console.log(`Syncing partner board ${boardId} after item creation...`);
+        // Add a short delay to allow Monday to process the creation (eventual consistency)
+        Utilities.sleep(1500);
+        syncPartnerBoardById(boardId);
+        // Cache clearing is now done in syncSinglePartnerBoard()
+        console.log('Partner board sync complete');
       }
     } catch (syncError) {
       // Log sync error but don't fail the item creation
@@ -1990,6 +1993,10 @@ function syncMarketingApprovalBoard() {
       console.log('No items found on board');
     }
 
+    // Clear marketing approval caches after sync to ensure fresh data
+    console.log('Clearing marketing approval caches...');
+    clearMarketingApprovalCaches();
+
     console.log('Marketing Approval Board sync complete');
     return { success: true, itemCount: items.length };
 
@@ -2045,6 +2052,10 @@ function syncMarketingCalendarBoard() {
     } else {
       console.log('No items found on board');
     }
+
+    // Clear marketing calendar caches after sync to ensure fresh data
+    console.log('Clearing marketing calendar caches...');
+    clearMarketingCalendarCaches();
 
     console.log('Marketing Calendar Board sync complete');
     return { success: true, itemCount: items.length };
@@ -2117,6 +2128,10 @@ function sync2026ApprovalsBoard() {
     } else {
       console.log('WARNING: No items found on Monday board');
     }
+
+    // Clear 2026 approvals caches after sync to ensure fresh data
+    console.log('Clearing 2026 approvals caches...');
+    clear2026ApprovalsCaches();
 
     console.log('=== sync2026ApprovalsBoard END ===');
     return { success: true, itemCount: items.length };
@@ -2260,6 +2275,10 @@ function syncSingleGWBoard(boardId, overrideBoardName, overrideSheetName) {
       const rowCount = targetSheet.getLastRow();
       console.log(`Sheet ${sheetName} now has ${rowCount} rows (including header)`);
     }
+
+    // Clear internal activity caches after sync to ensure fresh data
+    console.log('Clearing internal activity caches...');
+    clearInternalActivityCaches();
 
     console.log(`GW board ${boardId} sync complete - ${items.length} items`);
     return { success: true, itemCount: items.length };
@@ -2529,6 +2548,11 @@ function syncSinglePartnerBoard(partnerName) {
       console.log(`Synced ${items.length} items for partner ${partnerName}`);
     }
 
+    // Clear partner activity and heatmap caches after sync to ensure fresh data
+    console.log('Clearing partner activity and heatmap caches...');
+    clearActivityCaches();
+    clearHeatmapCaches();
+
     console.log(`=== Single Partner Board Sync Complete: ${partnerName} ===`);
 
     return {
@@ -2556,4 +2580,124 @@ function syncSinglePartnerBoard(partnerName) {
 function refreshPartnerData(partnerName) {
   console.log(`Refreshing partner data for: ${partnerName}`);
   return syncSinglePartnerBoard(partnerName);
+}
+
+/**
+ * Get all partner board IDs from MondayDashboard sheet
+ * @returns {string[]} Array of partner board IDs
+ */
+function getPartnerBoardIds() {
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const dashboardSheet = spreadsheet.getSheetByName('MondayDashboard');
+
+    if (!dashboardSheet) {
+      console.log('MondayDashboard sheet not found');
+      return [];
+    }
+
+    const headerRow = dashboardSheet.getRange(1, 1, 1, dashboardSheet.getLastColumn()).getValues()[0];
+    const partnerBoardIndex = headerRow.indexOf('PartnerBoard');
+
+    if (partnerBoardIndex === -1) {
+      console.log('PartnerBoard column not found in MondayDashboard');
+      return [];
+    }
+
+    const lastRow = dashboardSheet.getLastRow();
+    if (lastRow < 2) {
+      return [];
+    }
+
+    const boardIds = dashboardSheet.getRange(2, partnerBoardIndex + 1, lastRow - 1, 1).getValues();
+
+    // Filter out empty values and get unique board IDs
+    const uniqueBoardIds = [...new Set(
+      boardIds
+        .map(row => row[0])
+        .filter(id => id && String(id).trim() !== '')
+        .map(id => String(id).trim())
+    )];
+
+    return uniqueBoardIds;
+
+  } catch (error) {
+    console.error('Error getting partner board IDs:', error);
+    return [];
+  }
+}
+
+/**
+ * Check if a board ID is a partner board (exists in MondayDashboard)
+ * @param {string} boardId - The board ID to check
+ * @returns {boolean} True if it's a partner board
+ */
+function isPartnerBoard(boardId) {
+  if (!boardId) return false;
+  const partnerBoardIds = getPartnerBoardIds();
+  return partnerBoardIds.includes(String(boardId).trim());
+}
+
+/**
+ * Sync a partner board by its board ID
+ * Looks up the partner name from MondayDashboard and calls syncSinglePartnerBoard
+ * @param {string} boardId - The board ID to sync
+ * @returns {Object} Result with success status
+ */
+function syncPartnerBoardById(boardId) {
+  try {
+    console.log(`=== syncPartnerBoardById: ${boardId} ===`);
+
+    if (!boardId) {
+      throw new Error('Board ID is required');
+    }
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const dashboardSheet = spreadsheet.getSheetByName('MondayDashboard');
+
+    if (!dashboardSheet) {
+      throw new Error('MondayDashboard sheet not found');
+    }
+
+    const headerRow = dashboardSheet.getRange(1, 1, 1, dashboardSheet.getLastColumn()).getValues()[0];
+    const partnerNameIndex = headerRow.indexOf('Partner Name');
+    const partnerBoardIndex = headerRow.indexOf('PartnerBoard');
+
+    if (partnerNameIndex === -1 || partnerBoardIndex === -1) {
+      throw new Error('Required columns not found in MondayDashboard');
+    }
+
+    const lastRow = dashboardSheet.getLastRow();
+    const dataRange = dashboardSheet.getRange(2, 1, lastRow - 1, dashboardSheet.getLastColumn());
+    const dashboardData = dataRange.getValues();
+
+    // Find the partner name for this board ID
+    let partnerName = null;
+    const boardIdStr = String(boardId).trim();
+
+    for (const row of dashboardData) {
+      const rowBoardId = row[partnerBoardIndex];
+      if (rowBoardId && String(rowBoardId).trim() === boardIdStr) {
+        partnerName = row[partnerNameIndex];
+        break;
+      }
+    }
+
+    if (!partnerName) {
+      throw new Error(`Partner name not found for board ID: ${boardId}`);
+    }
+
+    console.log(`Found partner "${partnerName}" for board ID ${boardId}`);
+
+    // Use the existing syncSinglePartnerBoard function
+    return syncSinglePartnerBoard(partnerName);
+
+  } catch (error) {
+    console.error(`Error in syncPartnerBoardById(${boardId}):`, error);
+    return {
+      success: false,
+      boardId: boardId,
+      error: error.message
+    };
+  }
 }
