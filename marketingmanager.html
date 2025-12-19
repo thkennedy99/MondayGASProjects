@@ -2703,6 +2703,222 @@
       );
     }
 
+    // Tasks Due Now Tab Component - filters Partner Activities for overdue and upcoming items
+    function TasksDueNowTab({ data, onRefresh }) {
+      const [columnsByBoard, setColumnsByBoard] = useState({});
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
+
+      // Filter data for tasks that are:
+      // 1. Overdue (current date past Date Due) AND Status not Completed
+      // 2. Due within 5 days AND Status not Completed
+      const filteredData = useMemo(() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const fiveDaysFromNow = new Date(today);
+        fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
+
+        return data.filter(item => {
+          // Check status - exclude Completed items
+          const status = (item['Activity Status'] || item['Status'] || '').toLowerCase();
+          if (status === 'completed' || status === 'done' || status === 'complete') {
+            return false;
+          }
+
+          // Get the due date
+          const dueDateStr = item['Date Due'] || item['Due Date'] || item['Deadline'] || '';
+          if (!dueDateStr) {
+            return false; // No due date, don't include
+          }
+
+          // Parse the date
+          let dueDate;
+          try {
+            dueDate = new Date(dueDateStr);
+            if (isNaN(dueDate.getTime())) {
+              return false; // Invalid date
+            }
+            dueDate.setHours(0, 0, 0, 0);
+          } catch (e) {
+            return false;
+          }
+
+          // Check if overdue OR due within 5 days
+          return dueDate <= fiveDaysFromNow;
+        });
+      }, [data]);
+
+      // Sort by due date (most urgent first)
+      const sortedData = useMemo(() => {
+        return [...filteredData].sort((a, b) => {
+          const dateA = new Date(a['Date Due'] || a['Due Date'] || a['Deadline'] || '');
+          const dateB = new Date(b['Date Due'] || b['Due Date'] || b['Deadline'] || '');
+          return dateA - dateB;
+        });
+      }, [filteredData]);
+
+      // Load column metadata for a board
+      const loadColumnMetadata = async (boardId) => {
+        if (!boardId || columnsByBoard[boardId]) return;
+        try {
+          const cols = await api.call('getBoardColumnsStructure', boardId);
+          setColumnsByBoard(prev => ({ ...prev, [boardId]: cols || [] }));
+        } catch (err) {
+          console.error('Error loading columns for board', boardId, err);
+        }
+      };
+
+      // Handle edit click
+      const handleEdit = async (item) => {
+        const boardId = item['Board ID'];
+        if (boardId && !columnsByBoard[boardId]) {
+          await loadColumnMetadata(boardId);
+        }
+        setEditingItem(item);
+      };
+
+      // Handle save edit
+      const handleSaveEdit = async (updatedData) => {
+        const itemToEdit = editingItem;
+        setEditingItem(null);
+
+        // Update MondayData sheet immediately
+        if (itemToEdit && itemToEdit['Monday Item ID']) {
+          try {
+            await api.call(
+              'updatePartnerActivityInSheet',
+              itemToEdit['Monday Item ID'],
+              updatedData,
+              itemToEdit['Board ID'],
+              itemToEdit['Partner Name'] || itemToEdit['Partner']
+            );
+          } catch (err) {
+            console.error('Error updating MondayData sheet:', err);
+          }
+        }
+
+        onRefresh();
+      };
+
+      // Handle delete
+      const handleDelete = (item) => {
+        setDeletingItem(item);
+      };
+
+      const handleConfirmDelete = () => {
+        setDeletingItem(null);
+        onRefresh();
+      };
+
+      // Get urgency badge
+      const getUrgencyBadge = (item) => {
+        const dueDateStr = item['Date Due'] || item['Due Date'] || item['Deadline'] || '';
+        if (!dueDateStr) return null;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const dueDate = new Date(dueDateStr);
+        dueDate.setHours(0, 0, 0, 0);
+
+        const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) {
+          return <span className="badge bg-danger">Overdue by {Math.abs(diffDays)} day{Math.abs(diffDays) !== 1 ? 's' : ''}</span>;
+        } else if (diffDays === 0) {
+          return <span className="badge bg-danger">Due Today</span>;
+        } else if (diffDays <= 2) {
+          return <span className="badge bg-warning text-dark">Due in {diffDays} day{diffDays !== 1 ? 's' : ''}</span>;
+        } else {
+          return <span className="badge bg-info">Due in {diffDays} days</span>;
+        }
+      };
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          {/* Header */}
+          <div className="filter-section">
+            <div className="d-flex justify-content-between align-items-center">
+              <div>
+                <h5 className="mb-1">Tasks Due Now</h5>
+                <span className="text-muted">Showing {sortedData.length} overdue or due within 5 days</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <table className="table table-striped table-hover table-sm">
+                <thead className="table-light sticky-top">
+                  <tr>
+                    <th>Activity</th>
+                    <th>Partner</th>
+                    <th>Status</th>
+                    <th>Owner</th>
+                    <th>Due Date</th>
+                    <th>Urgency</th>
+                    <th style={{ width: '100px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedData.map((item, idx) => (
+                    <tr key={item['Monday Item ID'] || idx}>
+                      <td>{item['Name'] || item['Item Name'] || ''}</td>
+                      <td>{item['Partner Name'] || item['Partner'] || ''}</td>
+                      <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
+                      <td>{item['Owner'] || ''}</td>
+                      <td>{item['Date Due'] || item['Due Date'] || item['Deadline'] || ''}</td>
+                      <td>{getUrgencyBadge(item)}</td>
+                      <td>
+                        <div className="action-buttons">
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
+                            Edit
+                          </button>
+                          <button className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(item)} title="Delete">
+                            Del
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {sortedData.length === 0 && (
+                    <tr>
+                      <td colSpan="7" className="text-center text-muted py-4">
+                        No overdue or upcoming tasks
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Edit Modal */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={editingItem['Board ID']}
+              columns={columnsByBoard[editingItem['Board ID']] || []}
+              onClose={() => setEditingItem(null)}
+              onSave={handleSaveEdit}
+              partnerOptions={[]}
+            />
+          )}
+
+          {/* Delete Modal */}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={deletingItem['Board ID']}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleConfirmDelete}
+            />
+          )}
+        </div>
+      );
+    }
+
     // Partner Heatmap Tab Component
     function PartnerHeatmapTab({ data, onRefresh }) {
       const [filterTemperature, setFilterTemperature] = useState('');
@@ -3177,7 +3393,7 @@
 
       // Subtab states for Marketing and Partner sections
       const [marketingSubTab, setMarketingSubTab] = useState(initialTabs.mainTab === 'marketing' ? initialTabs.subTab : 'calendar');
-      const [partnerSubTab, setPartnerSubTab] = useState('partnerActivities');
+      const [partnerSubTab, setPartnerSubTab] = useState('tasksDueNow');
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
       const [approvalsData, setApprovalsData] = useState([]);
@@ -3397,6 +3613,31 @@
       const filteredPartnerActivitiesData = useMemo(() => {
         return filterDataByViewMode(partnerActivitiesData, viewMode);
       }, [partnerActivitiesData, viewMode, authorization, managedPartners]);
+
+      // Filter for Tasks Due Now count (overdue or due within 5 days, not completed)
+      const tasksDueNowCount = useMemo(() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const fiveDaysFromNow = new Date(today);
+        fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
+
+        return filteredPartnerActivitiesData.filter(item => {
+          const status = (item['Activity Status'] || item['Status'] || '').toLowerCase();
+          if (status === 'completed' || status === 'done' || status === 'complete') {
+            return false;
+          }
+          const dueDateStr = item['Date Due'] || item['Due Date'] || item['Deadline'] || '';
+          if (!dueDateStr) return false;
+          try {
+            const dueDate = new Date(dueDateStr);
+            if (isNaN(dueDate.getTime())) return false;
+            dueDate.setHours(0, 0, 0, 0);
+            return dueDate <= fiveDaysFromNow;
+          } catch (e) {
+            return false;
+          }
+        }).length;
+      }, [filteredPartnerActivitiesData]);
 
       const filteredPartnerHeatmapData = useMemo(() => {
         return filterDataByViewMode(partnerHeatmapData, viewMode);
@@ -3909,6 +4150,26 @@
                     <div className="nav flex-column" style={{ minWidth: '180px', borderRight: '1px solid #dee2e6', paddingRight: '0.5rem', marginRight: '1rem' }}>
                       {isBoardAuthorized('PartnerActivites') && (
                         <button
+                          onClick={() => setPartnerSubTab('tasksDueNow')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: partnerSubTab === 'tasksDueNow' ? '#00739d' : 'transparent',
+                            color: partnerSubTab === 'tasksDueNow' ? 'white' : '#00739d',
+                            fontWeight: partnerSubTab === 'tasksDueNow' ? '600' : '400',
+                            border: partnerSubTab === 'tasksDueNow' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          Tasks Due Now ({tasksDueNowCount})
+                        </button>
+                      )}
+                      {isBoardAuthorized('PartnerActivites') && (
+                        <button
                           onClick={() => setPartnerSubTab('partnerActivities')}
                           type="button"
                           className="text-start mb-1"
@@ -3950,6 +4211,12 @@
                     </div>
                     {/* Partner Subtab Content */}
                     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                      {partnerSubTab === 'tasksDueNow' && isBoardAuthorized('PartnerActivites') && (
+                        <TasksDueNowTab
+                          data={filteredPartnerActivitiesData}
+                          onRefresh={loadData}
+                        />
+                      )}
                       {partnerSubTab === 'partnerActivities' && isBoardAuthorized('PartnerActivites') && (
                         <PartnerActivitiesTab
                           data={filteredPartnerActivitiesData}
