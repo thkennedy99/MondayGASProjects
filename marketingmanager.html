@@ -2951,18 +2951,25 @@
       // View mode for role-based filtering: 'self', 'team', or 'dept'
       const [viewMode, setViewMode] = useState('self');
 
-      // Determine initial tab based on boardId from URL
-      const getInitialTab = () => {
+      // Determine initial main tab and subtab based on boardId from URL
+      const getInitialTabs = () => {
         if (String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID) {
-          return 'calendar';
+          return { mainTab: 'marketing', subTab: 'calendar' };
         }
         if (String(editBoardIdFromUrl) === APPROVALS_2026_BOARD_ID) {
-          return 'approvals2026';
+          return { mainTab: 'marketing', subTab: 'approvals2026' };
         }
-        return 'approvals';
+        // Default to marketing main tab with calendar subtab
+        return { mainTab: 'marketing', subTab: 'calendar' };
       };
 
-      const [activeTab, setActiveTab] = useState(getInitialTab());
+      const initialTabs = getInitialTabs();
+      const [activeMainTab, setActiveMainTab] = useState(initialTabs.mainTab);
+      const [activeTab, setActiveTab] = useState(initialTabs.subTab);
+
+      // Subtab states for Marketing and Partner sections
+      const [marketingSubTab, setMarketingSubTab] = useState(initialTabs.mainTab === 'marketing' ? initialTabs.subTab : 'calendar');
+      const [partnerSubTab, setPartnerSubTab] = useState('partnerActivities');
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
       const [approvalsData, setApprovalsData] = useState([]);
@@ -3013,39 +3020,46 @@
         }
       }, [currentManager]);
 
-      // Set activeTab to first authorized tab after authorization loads
+      // Set activeMainTab to first authorized main tab after authorization loads
       useEffect(() => {
         if (!authLoading && authorization.mondayBoards && authorization.mondayBoards.length > 0) {
-          // Define the mapping from board auth values to tab IDs
-          // Note: Internal boards (PartnerManagement, SolutionOps, MarketingProjects, Compliance) all map to 'internalActivities'
+          // Define the mapping from board auth values to main tabs and subtabs
           const boardToTabMapping = [
-            { board: 'MarketingApprovals', tab: 'approvals' },
-            { board: 'MarketingCalendar', tab: 'calendar' },
-            { board: '2026MarketingApprovals', tab: 'approvals2026' },
-            { board: 'Activity Stats', tab: 'stats' },
-            { board: 'PartnerActivites', tab: 'partnerActivities' },
-            { board: 'PartnerHealthHeatmap', tab: 'heatmap' },
-            // Internal boards - any of these authorizes the internalActivities tab
-            { board: 'PartnerManagement', tab: 'internalActivities' },
-            { board: 'SolutionOps', tab: 'internalActivities' },
-            { board: 'MarketingProjects', tab: 'internalActivities' },
-            { board: 'Compliance', tab: 'internalActivities' }
+            // Marketing Activities subtabs (Marketing Calendar, 2026 Approvals, Activity Stats)
+            { board: 'MarketingCalendar', mainTab: 'marketing', subTab: 'calendar' },
+            { board: '2026MarketingApprovals', mainTab: 'marketing', subTab: 'approvals2026' },
+            { board: 'Activity Stats', mainTab: 'marketing', subTab: 'stats' },
+            // Partner Activities subtabs
+            { board: 'PartnerActivites', mainTab: 'partner', subTab: 'partnerActivities' },
+            { board: 'PartnerHealthHeatmap', mainTab: 'partner', subTab: 'heatmap' },
+            // Internal Activities (main tab only, subtabs handled by InternalActivitiesTab)
+            { board: 'PartnerManagement', mainTab: 'internal', subTab: null },
+            { board: 'SolutionOps', mainTab: 'internal', subTab: null },
+            { board: 'MarketingProjects', mainTab: 'internal', subTab: null },
+            { board: 'Compliance', mainTab: 'internal', subTab: null }
           ];
 
-          // Find the first authorized tab
+          // Find the first authorized main tab
           const firstAuthorized = boardToTabMapping.find(mapping =>
             authorization.mondayBoards.includes(mapping.board)
           );
 
           if (firstAuthorized) {
-            // Check if current tab is authorized
-            const isCurrentTabAuthorized = boardToTabMapping
-              .filter(m => m.tab === activeTab)
+            // Check if current main tab is authorized
+            const isCurrentMainTabAuthorized = boardToTabMapping
+              .filter(m => m.mainTab === activeMainTab)
               .some(m => authorization.mondayBoards.includes(m.board));
 
-            if (!isCurrentTabAuthorized) {
-              console.log('Current tab not authorized, switching to:', firstAuthorized.tab);
-              setActiveTab(firstAuthorized.tab);
+            if (!isCurrentMainTabAuthorized) {
+              console.log('Current main tab not authorized, switching to:', firstAuthorized.mainTab);
+              setActiveMainTab(firstAuthorized.mainTab);
+              if (firstAuthorized.subTab) {
+                if (firstAuthorized.mainTab === 'marketing') {
+                  setMarketingSubTab(firstAuthorized.subTab);
+                } else if (firstAuthorized.mainTab === 'partner') {
+                  setPartnerSubTab(firstAuthorized.subTab);
+                }
+              }
             }
           }
         }
@@ -3337,6 +3351,36 @@
         return authorizedBoards;
       };
 
+      // Check if Marketing Activities main tab should be shown
+      const isMarketingTabAuthorized = () => {
+        // Only check boards that are visible subtabs: Marketing Calendar, 2026 Approvals, Activity Stats
+        const marketingBoards = ['MarketingCalendar', '2026MarketingApprovals', 'Activity Stats'];
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          return true; // backward compatibility
+        }
+        return marketingBoards.some(board => authorization.mondayBoards.includes(board));
+      };
+
+      // Check if Partner Activities main tab should be shown
+      const isPartnerTabAuthorized = () => {
+        const partnerBoards = ['PartnerActivites', 'PartnerHealthHeatmap'];
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          return true; // backward compatibility
+        }
+        return partnerBoards.some(board => authorization.mondayBoards.includes(board));
+      };
+
+      // Get count for Marketing Activities (sum of visible marketing subtabs)
+      const getMarketingCount = () => {
+        return filteredCalendarData.length + filteredApprovals2026Data.length;
+        // Note: Activity Stats doesn't have a count
+      };
+
+      // Get count for Partner Activities (sum of all partner subtabs)
+      const getPartnerCount = () => {
+        return filteredPartnerActivitiesData.length + filteredPartnerHeatmapData.length;
+      };
+
       // Render view mode filter buttons based on role
       const renderViewModeButtons = () => {
         const role = authorization.role;
@@ -3472,73 +3516,33 @@
               </div>
             )}
 
-            {/* Tabs */}
+            {/* Main Tabs - 3 primary tabs */}
             <ul className="nav nav-tabs" style={{ flexWrap: 'wrap' }}>
-              {isBoardAuthorized('MarketingApprovals') && (
+              {isMarketingTabAuthorized() && (
                 <li className="nav-item">
                   <button
-                    className={`nav-link ${activeTab === 'approvals' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('approvals')}
+                    className={`nav-link ${activeMainTab === 'marketing' ? 'active' : ''}`}
+                    onClick={() => setActiveMainTab('marketing')}
                   >
-                    Marketing Approvals ({filteredApprovalsData.length})
+                    Marketing Activities ({getMarketingCount()})
                   </button>
                 </li>
               )}
-              {isBoardAuthorized('MarketingCalendar') && (
+              {isPartnerTabAuthorized() && (
                 <li className="nav-item">
                   <button
-                    className={`nav-link ${activeTab === 'calendar' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('calendar')}
+                    className={`nav-link ${activeMainTab === 'partner' ? 'active' : ''}`}
+                    onClick={() => setActiveMainTab('partner')}
                   >
-                    Marketing Calendar ({filteredCalendarData.length})
-                  </button>
-                </li>
-              )}
-              {isBoardAuthorized('2026MarketingApprovals') && (
-                <li className="nav-item">
-                  <button
-                    className={`nav-link ${activeTab === 'approvals2026' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('approvals2026')}
-                  >
-                    2026 Approvals ({filteredApprovals2026Data.length})
-                  </button>
-                </li>
-              )}
-              {isBoardAuthorized('Activity Stats') && (
-                <li className="nav-item">
-                  <button
-                    className={`nav-link ${activeTab === 'stats' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('stats')}
-                  >
-                    Activity Stats
-                  </button>
-                </li>
-              )}
-              {isBoardAuthorized('PartnerActivites') && (
-                <li className="nav-item">
-                  <button
-                    className={`nav-link ${activeTab === 'partnerActivities' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('partnerActivities')}
-                  >
-                    Partner Activities ({filteredPartnerActivitiesData.length})
-                  </button>
-                </li>
-              )}
-              {isBoardAuthorized('PartnerHealthHeatmap') && (
-                <li className="nav-item">
-                  <button
-                    className={`nav-link ${activeTab === 'heatmap' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('heatmap')}
-                  >
-                    Partner Heatmap ({filteredPartnerHeatmapData.length})
+                    Partner Activities ({getPartnerCount()})
                   </button>
                 </li>
               )}
               {isAnyInternalBoardAuthorized() && (
                 <li className="nav-item">
                   <button
-                    className={`nav-link ${activeTab === 'internalActivities' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('internalActivities')}
+                    className={`nav-link ${activeMainTab === 'internal' ? 'active' : ''}`}
+                    onClick={() => setActiveMainTab('internal')}
                   >
                     Internal Activities ({filteredInternalActivitiesData.length})
                   </button>
@@ -3555,56 +3559,171 @@
               </div>
             ) : (
               <div className="tab-content-container">
-                {activeTab === 'approvals' && isBoardAuthorized('MarketingApprovals') && (
-                  <MarketingApprovalsTab
-                    data={filteredApprovalsData}
-                    filterOptions={filterOptions.approvalFilters || {}}
-                    columns={approvalColumns}
-                    onRefresh={loadData}
-                    autoEditItemId={String(editBoardIdFromUrl) === MARKETING_APPROVAL_BOARD_ID ? autoEditItemId : null}
-                    onAutoEditHandled={handleAutoEditHandled}
-                  />
+                {/* Marketing Activities Main Tab */}
+                {activeMainTab === 'marketing' && isMarketingTabAuthorized() && (
+                  <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+                    {/* Vertical Subtabs on Left */}
+                    <div className="nav flex-column" style={{ minWidth: '180px', borderRight: '1px solid #dee2e6', paddingRight: '0.5rem', marginRight: '1rem' }}>
+                      {isBoardAuthorized('MarketingCalendar') && (
+                        <button
+                          onClick={() => setMarketingSubTab('calendar')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: marketingSubTab === 'calendar' ? '#00739d' : 'transparent',
+                            color: marketingSubTab === 'calendar' ? 'white' : '#00739d',
+                            fontWeight: marketingSubTab === 'calendar' ? '600' : '400',
+                            border: marketingSubTab === 'calendar' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          Marketing Calendar ({filteredCalendarData.length})
+                        </button>
+                      )}
+                      {isBoardAuthorized('2026MarketingApprovals') && (
+                        <button
+                          onClick={() => setMarketingSubTab('approvals2026')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: marketingSubTab === 'approvals2026' ? '#00739d' : 'transparent',
+                            color: marketingSubTab === 'approvals2026' ? 'white' : '#00739d',
+                            fontWeight: marketingSubTab === 'approvals2026' ? '600' : '400',
+                            border: marketingSubTab === 'approvals2026' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          2026 Approvals ({filteredApprovals2026Data.length})
+                        </button>
+                      )}
+                      {isBoardAuthorized('Activity Stats') && (
+                        <button
+                          onClick={() => setMarketingSubTab('stats')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: marketingSubTab === 'stats' ? '#00739d' : 'transparent',
+                            color: marketingSubTab === 'stats' ? 'white' : '#00739d',
+                            fontWeight: marketingSubTab === 'stats' ? '600' : '400',
+                            border: marketingSubTab === 'stats' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          Activity Stats
+                        </button>
+                      )}
+                    </div>
+                    {/* Marketing Subtab Content */}
+                    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                      {marketingSubTab === 'calendar' && isBoardAuthorized('MarketingCalendar') && (
+                        <MarketingCalendarTab
+                          data={filteredCalendarData}
+                          filterOptions={filterOptions.calendarFilters || {}}
+                          columns={calendarColumns}
+                          onRefresh={loadData}
+                          autoEditItemId={String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID ? autoEditItemId : null}
+                          onAutoEditHandled={handleAutoEditHandled}
+                        />
+                      )}
+                      {marketingSubTab === 'approvals2026' && isBoardAuthorized('2026MarketingApprovals') && (
+                        <Approvals2026Tab
+                          data={filteredApprovals2026Data}
+                          filterOptions={filterOptions.approvals2026Filters || {}}
+                          columns={approvals2026Columns}
+                          flowConfig={flowConfig2026}
+                          onRefresh={loadData}
+                          autoEditItemId={String(editBoardIdFromUrl) === APPROVALS_2026_BOARD_ID ? autoEditItemId : null}
+                          onAutoEditHandled={handleAutoEditHandled}
+                        />
+                      )}
+                      {marketingSubTab === 'stats' && isBoardAuthorized('Activity Stats') && (
+                        <MarketingStatsTab
+                          chartData={chartData}
+                          onRefresh={loadData}
+                        />
+                      )}
+                    </div>
+                  </div>
                 )}
-                {activeTab === 'calendar' && isBoardAuthorized('MarketingCalendar') && (
-                  <MarketingCalendarTab
-                    data={filteredCalendarData}
-                    filterOptions={filterOptions.calendarFilters || {}}
-                    columns={calendarColumns}
-                    onRefresh={loadData}
-                    autoEditItemId={String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID ? autoEditItemId : null}
-                    onAutoEditHandled={handleAutoEditHandled}
-                  />
+
+                {/* Partner Activities Main Tab */}
+                {activeMainTab === 'partner' && isPartnerTabAuthorized() && (
+                  <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+                    {/* Vertical Subtabs on Left */}
+                    <div className="nav flex-column" style={{ minWidth: '180px', borderRight: '1px solid #dee2e6', paddingRight: '0.5rem', marginRight: '1rem' }}>
+                      {isBoardAuthorized('PartnerActivites') && (
+                        <button
+                          onClick={() => setPartnerSubTab('partnerActivities')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: partnerSubTab === 'partnerActivities' ? '#00739d' : 'transparent',
+                            color: partnerSubTab === 'partnerActivities' ? 'white' : '#00739d',
+                            fontWeight: partnerSubTab === 'partnerActivities' ? '600' : '400',
+                            border: partnerSubTab === 'partnerActivities' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          Partner Activities ({filteredPartnerActivitiesData.length})
+                        </button>
+                      )}
+                      {isBoardAuthorized('PartnerHealthHeatmap') && (
+                        <button
+                          onClick={() => setPartnerSubTab('heatmap')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: partnerSubTab === 'heatmap' ? '#00739d' : 'transparent',
+                            color: partnerSubTab === 'heatmap' ? 'white' : '#00739d',
+                            fontWeight: partnerSubTab === 'heatmap' ? '600' : '400',
+                            border: partnerSubTab === 'heatmap' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          Partner Heatmap ({filteredPartnerHeatmapData.length})
+                        </button>
+                      )}
+                    </div>
+                    {/* Partner Subtab Content */}
+                    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                      {partnerSubTab === 'partnerActivities' && isBoardAuthorized('PartnerActivites') && (
+                        <PartnerActivitiesTab
+                          data={filteredPartnerActivitiesData}
+                          onRefresh={loadData}
+                        />
+                      )}
+                      {partnerSubTab === 'heatmap' && isBoardAuthorized('PartnerHealthHeatmap') && (
+                        <PartnerHeatmapTab
+                          data={filteredPartnerHeatmapData}
+                          onRefresh={loadData}
+                        />
+                      )}
+                    </div>
+                  </div>
                 )}
-                {activeTab === 'approvals2026' && isBoardAuthorized('2026MarketingApprovals') && (
-                  <Approvals2026Tab
-                    data={filteredApprovals2026Data}
-                    filterOptions={filterOptions.approvals2026Filters || {}}
-                    columns={approvals2026Columns}
-                    flowConfig={flowConfig2026}
-                    onRefresh={loadData}
-                    autoEditItemId={String(editBoardIdFromUrl) === APPROVALS_2026_BOARD_ID ? autoEditItemId : null}
-                    onAutoEditHandled={handleAutoEditHandled}
-                  />
-                )}
-                {activeTab === 'stats' && isBoardAuthorized('Activity Stats') && (
-                  <MarketingStatsTab
-                    chartData={chartData}
-                    onRefresh={loadData}
-                  />
-                )}
-                {activeTab === 'partnerActivities' && isBoardAuthorized('PartnerActivites') && (
-                  <PartnerActivitiesTab
-                    data={filteredPartnerActivitiesData}
-                    onRefresh={loadData}
-                  />
-                )}
-                {activeTab === 'heatmap' && isBoardAuthorized('PartnerHealthHeatmap') && (
-                  <PartnerHeatmapTab
-                    data={filteredPartnerHeatmapData}
-                    onRefresh={loadData}
-                  />
-                )}
-                {activeTab === 'internalActivities' && isAnyInternalBoardAuthorized() && (
+
+                {/* Internal Activities Main Tab - uses existing component with built-in subtabs */}
+                {activeMainTab === 'internal' && isAnyInternalBoardAuthorized() && (
                   <InternalActivitiesTab
                     data={filteredInternalActivitiesData}
                     boardConfigs={getAuthorizedInternalBoardConfigs()}
