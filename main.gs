@@ -90,64 +90,109 @@ function getMarketingBoardConfigurations() {
 
 /**
  * Get board configurations from the MondayDashboard sheet PartnerBoard column
+ * Deduplicates board IDs and tracks all partners associated with each board
  */
 function getBoardConfigurations() {
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const dashboardSheet = spreadsheet.getSheetByName('MondayDashboard');
-    
+
     if (!dashboardSheet) {
       console.log('MondayDashboard sheet not found. Using fallback board ID: ' + BOARD_ID);
       return [{ boardName: 'Default Board', partnerName: 'Default Partner', boardId: BOARD_ID, targetSheetName: SHEET_TAB_NAME }];
     }
-    
+
     const lastRow = dashboardSheet.getLastRow();
     if (lastRow < 2) {
       console.log('No data found in MondayDashboard sheet. Using fallback board ID: ' + BOARD_ID);
       return [{ boardName: 'Default Board', partnerName: 'Default Partner', boardId: BOARD_ID, targetSheetName: SHEET_TAB_NAME }];
     }
-    
+
     // Get all data from the sheet to find column indices
     const headerRow = dashboardSheet.getRange(1, 1, 1, dashboardSheet.getLastColumn()).getValues()[0];
-    
+
     // Find column indices
     const partnerNameIndex = headerRow.indexOf('Partner Name');
     const partnerBoardIndex = headerRow.indexOf('PartnerBoard');
-    
+
     if (partnerNameIndex === -1 || partnerBoardIndex === -1) {
       console.log('Required columns not found in MondayDashboard sheet. Using fallback board ID: ' + BOARD_ID);
+      console.log('Available columns:', headerRow.join(', '));
       return [{ boardName: 'Default Board', partnerName: 'Default Partner', boardId: BOARD_ID, targetSheetName: SHEET_TAB_NAME }];
     }
-    
+
     // Get the data rows
     const dataRange = dashboardSheet.getRange(2, 1, lastRow - 1, dashboardSheet.getLastColumn());
     const data = dataRange.getValues();
-    
-    const boardConfigs = [];
-    
+
+    // Track unique board IDs and their associated partners
+    const boardMap = new Map(); // Map of boardId -> { partners: [], firstPartnerName: string }
+    let skippedEmptyCount = 0;
+    let skippedInvalidCount = 0;
+
+    console.log(`Processing ${data.length} rows from MondayDashboard...`);
+
     data.forEach((row, index) => {
-      const partnerName = row[partnerNameIndex];
-      const partnerBoard = row[partnerBoardIndex];
-      
-      // Skip empty rows
-      if (partnerBoard && partnerBoard.toString().trim() !== '') {
-        boardConfigs.push({
-          boardName: `${partnerName} Board` || `Board ${index + 1}`,
-          partnerName: partnerName || 'Unknown Partner',
-          boardId: partnerBoard.toString().trim(),
-          targetSheetName: SHEET_TAB_NAME // All dashboard boards go to MondayData sheet
+      const partnerName = row[partnerNameIndex] ? row[partnerNameIndex].toString().trim() : '';
+      const partnerBoard = row[partnerBoardIndex] ? row[partnerBoardIndex].toString().trim() : '';
+
+      // Log each row being processed
+      console.log(`Row ${index + 2}: Partner="${partnerName}", BoardID="${partnerBoard}"`);
+
+      // Skip rows with empty PartnerBoard
+      if (!partnerBoard || partnerBoard === '') {
+        skippedEmptyCount++;
+        console.log(`  -> Skipped: Empty PartnerBoard`);
+        return;
+      }
+
+      // Validate board ID (should be numeric)
+      if (!/^\d+$/.test(partnerBoard)) {
+        skippedInvalidCount++;
+        console.log(`  -> Skipped: Invalid board ID format "${partnerBoard}"`);
+        return;
+      }
+
+      // Track unique board IDs
+      if (!boardMap.has(partnerBoard)) {
+        boardMap.set(partnerBoard, {
+          partners: [partnerName],
+          firstPartnerName: partnerName || 'Unknown Partner'
         });
+        console.log(`  -> Added new board: ${partnerBoard}`);
+      } else {
+        // Board already exists, add partner to the list
+        boardMap.get(partnerBoard).partners.push(partnerName);
+        console.log(`  -> Board ${partnerBoard} already tracked, adding partner`);
       }
     });
-    
+
+    // Convert map to array of board configs
+    const boardConfigs = [];
+    boardMap.forEach((info, boardId) => {
+      boardConfigs.push({
+        boardName: `${info.firstPartnerName} Board`,
+        partnerName: info.firstPartnerName,
+        boardId: boardId,
+        targetSheetName: SHEET_TAB_NAME,
+        allPartners: info.partners // Track all partners associated with this board
+      });
+    });
+
+    console.log(`\n=== Board Configuration Summary ===`);
+    console.log(`Total rows in MondayDashboard: ${data.length}`);
+    console.log(`Skipped (empty PartnerBoard): ${skippedEmptyCount}`);
+    console.log(`Skipped (invalid format): ${skippedInvalidCount}`);
+    console.log(`Unique boards to sync: ${boardConfigs.length}`);
+
     if (boardConfigs.length === 0) {
       console.log('No valid board IDs found in MondayDashboard sheet. Using fallback board ID: ' + BOARD_ID);
       return [{ boardName: 'Default Board', partnerName: 'Default Partner', boardId: BOARD_ID, targetSheetName: SHEET_TAB_NAME }];
     }
-    
-    console.log(`Found ${boardConfigs.length} board configurations from MondayDashboard:`, boardConfigs.map(b => `${b.boardName} (${b.boardId})`));
+
+    console.log(`Board configurations:`, boardConfigs.map(b => `${b.boardName} (${b.boardId}) - ${b.allPartners.length} partners`));
     return boardConfigs;
-    
+
   } catch (error) {
     console.error('Error reading board configurations from MondayDashboard:', error);
     console.log('Using fallback board ID: ' + BOARD_ID);
