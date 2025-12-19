@@ -2495,9 +2495,29 @@
         setDeletingItem(item);
       };
 
-      // Handle save edit
-      const handleSaveEdit = (updatedData) => {
+      // Handle save edit - also update MondayData sheet immediately
+      const handleSaveEdit = async (updatedData) => {
+        const itemToEdit = editingItem;
         setEditingItem(null);
+
+        // Update MondayData sheet immediately for quick UI feedback
+        if (itemToEdit && itemToEdit['Monday Item ID']) {
+          try {
+            console.log('Updating MondayData sheet for Partner Activity:', itemToEdit['Monday Item ID']);
+            await api.call(
+              'updatePartnerActivityInSheet',
+              itemToEdit['Monday Item ID'],
+              updatedData,
+              itemToEdit['Board ID'],
+              itemToEdit['Partner Name'] || itemToEdit['Partner']
+            );
+            console.log('MondayData sheet updated successfully');
+          } catch (err) {
+            console.error('Error updating MondayData sheet (non-blocking):', err);
+            // Non-blocking - the sync will catch it later
+          }
+        }
+
         onRefresh();
       };
 
@@ -2526,10 +2546,32 @@
         }
       };
 
-      // Handle create new item
-      const handleCreate = (newItem) => {
+      // Handle create new item - also add to MondayData sheet immediately
+      const handleCreate = async (newItem) => {
+        const partnerInfo = selectedPartnerForAdd;
         setShowAddModal(false);
         setSelectedPartnerForAdd(null);
+
+        // Add to MondayData sheet immediately for quick UI feedback
+        if (newItem && newItem['Monday Item ID'] && partnerInfo) {
+          try {
+            console.log('Adding new Partner Activity to MondayData sheet');
+            await api.call(
+              'addPartnerActivityToSheet',
+              newItem['Item Name'] || newItem['Name'],
+              newItem['Monday Item ID'],
+              partnerInfo.boardId,
+              newItem['Board Name'] || partnerInfo.name + ' Board',
+              partnerInfo.name,
+              newItem
+            );
+            console.log('MondayData sheet updated with new item');
+          } catch (err) {
+            console.error('Error adding to MondayData sheet (non-blocking):', err);
+            // Non-blocking - the sync will catch it later
+          }
+        }
+
         onRefresh();
       };
 

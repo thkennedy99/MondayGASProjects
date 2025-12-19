@@ -666,26 +666,34 @@ function clearAllDataCaches() {
 function syncMondayData() {
   try {
     console.log('Starting Monday.com multi-stage sync...');
-    
+
     // STAGE 1: Sync MondayDashboard first
     console.log('\n=== STAGE 1: Syncing MondayDashboard ===');
     syncMondayDashboard();
-    
+
     // STAGE 2: Sync MondayData using board IDs from MondayDashboard
     console.log('\n=== STAGE 2: Syncing MondayData ===');
-    
-    // Get the MondayData sheet
-    const sheet = getOrCreateSheet(SHEET_TAB_NAME);
-    
-    // Clear existing data from row 2 onwards
-    clearSheetData(sheet);
-    
+
+    // Get the temp sheet for fast sync - write all data here first
+    const TEMP_SHEET_NAME = 'MondayData_Temp';
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Delete temp sheet if it exists from a previous failed run
+    let tempSheet = spreadsheet.getSheetByName(TEMP_SHEET_NAME);
+    if (tempSheet) {
+      spreadsheet.deleteSheet(tempSheet);
+    }
+
+    // Create fresh temp sheet
+    tempSheet = spreadsheet.insertSheet(TEMP_SHEET_NAME);
+    console.log('Created temp sheet for fast sync');
+
     // Get board configurations from MondayDashboard
     const boardConfigs = getBoardConfigurations();
-    
+
     let totalItems = 0;
     let allBoardsProcessed = false;
-    
+
     for (let i = 0; i < boardConfigs.length; i++) {
       const boardConfig = boardConfigs[i];
       const isFirstBoard = (i === 0);
@@ -700,7 +708,7 @@ function syncMondayData() {
         // Get all items from the board
         const items = getAllBoardItems(boardConfig.boardId);
 
-        // Process and write data to sheet
+        // Process and write data to TEMP sheet
         if (items.length > 0) {
           // Add board info to each item for identification
           items.forEach(item => {
@@ -709,15 +717,15 @@ function syncMondayData() {
             item.boardId = boardConfig.boardId;
           });
 
-          writeDataToSheet(sheet, boardStructure, items, isFirstBoard, boardConfig);
+          writeDataToSheet(tempSheet, boardStructure, items, isFirstBoard, boardConfig);
           totalItems += items.length;
         }
-        
+
         // Mark all boards as processed if this is the last board
         if (isLastBoard) {
           allBoardsProcessed = true;
         }
-        
+
       } catch (boardError) {
         console.error(`Error processing board ${boardConfig.boardName} (${boardConfig.boardId}):`, boardError);
         // Continue with next board instead of stopping entire sync
@@ -726,33 +734,56 @@ function syncMondayData() {
         }
       }
     }
-    
-    // Apply post-processing after all boards are processed
+
+    // Apply post-processing to temp sheet after all boards are processed
     if (allBoardsProcessed) {
-      console.log('\n=== Starting Post-Processing ===');
-      
+      console.log('\n=== Starting Post-Processing on Temp Sheet ===');
+
       // 1. Delete rows where column B (Group) equals completed statuses
-      deleteCompletedRows(sheet);
-      
+      deleteCompletedRows(tempSheet);
+
       // 2. Apply partner name translations
-      translatePartnerNames();
-      
+      translatePartnerNamesOnSheet(tempSheet);
+
       // 3. Sort the data by column A (Item Name)
-      sortDataByItemName(sheet);
-      
-      // Auto-resize columns for better visibility
-      const lastColumn = sheet.getLastColumn();
-      for (let i = 1; i <= lastColumn; i++) {
-        sheet.autoResizeColumn(i);
+      sortDataByItemName(tempSheet);
+
+      console.log('Post-processing complete on temp sheet');
+
+      // Now copy from temp sheet to MondayData in one fast operation
+      console.log('\n=== Copying data from temp to MondayData ===');
+      const mainSheet = getOrCreateSheet(SHEET_TAB_NAME);
+
+      // Clear existing data in main sheet
+      clearSheetData(mainSheet);
+
+      // Get all data from temp sheet
+      const tempLastRow = tempSheet.getLastRow();
+      const tempLastCol = tempSheet.getLastColumn();
+
+      if (tempLastRow > 0 && tempLastCol > 0) {
+        const allData = tempSheet.getRange(1, 1, tempLastRow, tempLastCol).getValues();
+
+        // Write all data to main sheet in one operation
+        mainSheet.getRange(1, 1, tempLastRow, tempLastCol).setValues(allData);
+
+        // Auto-resize columns for better visibility
+        for (let i = 1; i <= tempLastCol; i++) {
+          mainSheet.autoResizeColumn(i);
+        }
+
+        console.log(`Copied ${tempLastRow} rows to MondayData sheet`);
       }
-      
-      console.log('Post-processing complete');
+
+      // Delete the temp sheet
+      spreadsheet.deleteSheet(tempSheet);
+      console.log('Deleted temp sheet');
     }
-    
+
     // STAGE 3: Sync Marketing Boards
     console.log('\n=== STAGE 3: Syncing Marketing Boards ===');
     syncMarketingBoards();
-    
+
     console.log(`\n=== Sync Complete ===`);
     console.log(`Dashboard synced successfully`);
     console.log(`Total items synced from ${boardConfigs.length} dashboard boards: ${totalItems}`);
