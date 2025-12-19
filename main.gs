@@ -708,8 +708,8 @@ function canStartSync(debounceSeconds) {
  */
 function setSyncLock() {
   const cache = CacheService.getScriptCache();
-  cache.put('SYNC_IN_PROGRESS', 'true', 600); // 10 min max lock (safety timeout)
-  cache.put('SYNC_STARTED_AT', String(Date.now()), 600);
+  cache.put('SYNC_IN_PROGRESS', 'true', 900); // 15 min max lock (safety timeout for 4+ min syncs)
+  cache.put('SYNC_STARTED_AT', String(Date.now()), 900);
   console.log('Sync lock acquired');
 }
 
@@ -719,7 +719,7 @@ function setSyncLock() {
 function clearSyncLock() {
   const cache = CacheService.getScriptCache();
   cache.remove('SYNC_IN_PROGRESS');
-  cache.put('LAST_SYNC_COMPLETED', String(Date.now()), 600); // Remember for 10 minutes
+  cache.put('LAST_SYNC_COMPLETED', String(Date.now()), 900); // Remember for 15 minutes
   console.log('Sync lock released, completion time recorded');
 }
 
@@ -744,7 +744,7 @@ function getSyncStatus() {
     syncDuration = Math.round((Date.now() - parseInt(syncStartedAt)) / 1000);
   }
 
-  const checkResult = canStartSync(60);
+  const checkResult = canStartSync(300); // 5 minute debounce for 4+ min syncs
 
   return {
     inProgress: syncInProgress,
@@ -785,7 +785,7 @@ function clearAllDataCaches() {
  */
 function syncMondayData(force) {
   // Check if we can start a sync
-  const syncCheck = canStartSync(60); // 60 second debounce
+  const syncCheck = canStartSync(300); // 5 minute debounce (syncs take 4+ minutes)
 
   if (!syncCheck.canStart) {
     // If sync is in progress, always skip
