@@ -1635,10 +1635,40 @@
       const [editingItem, setEditingItem] = useState(null);
       const [deletingItem, setDeletingItem] = useState(null);
       const [showAddModal, setShowAddModal] = useState(false);
+      const [loadingItem, setLoadingItem] = useState(false);
+
+      // Fetch fresh item data from Monday before opening edit modal
+      const openEditModal = async (item) => {
+        const itemId = item['Monday Item ID'];
+        if (!itemId) {
+          console.error('No Monday Item ID found for item');
+          setEditingItem(item); // Fall back to cached data
+          return;
+        }
+
+        setLoadingItem(true);
+        try {
+          console.log('Fetching fresh data from Monday for item:', itemId);
+          const result = await api.call('getMondayItemById', MARKETING_CALENDAR_BOARD_ID, itemId);
+
+          if (result.success && result.item) {
+            console.log('Got fresh item data:', result.item);
+            setEditingItem(result.item);
+          } else {
+            console.warn('Failed to fetch fresh data, using cached:', result.error);
+            setEditingItem(item); // Fall back to cached data
+          }
+        } catch (err) {
+          console.error('Error fetching fresh item data:', err);
+          setEditingItem(item); // Fall back to cached data
+        } finally {
+          setLoadingItem(false);
+        }
+      };
 
       // Auto-open edit modal if itemId is provided via URL
       useEffect(() => {
-        if (autoEditItemId && data.length > 0) {
+        if (autoEditItemId && data.length > 0 && !editingItem && !loadingItem) {
           console.log('Calendar: Looking for item to auto-edit:', autoEditItemId);
           console.log('Calendar data has', data.length, 'items');
 
@@ -1649,13 +1679,14 @@
 
           if (itemToEdit) {
             console.log('Calendar: Found item to auto-edit:', itemToEdit['Item Name']);
-            setEditingItem(itemToEdit);
+            // Fetch fresh data from Monday before opening edit modal
+            openEditModal(itemToEdit);
             if (onAutoEditHandled) onAutoEditHandled();
           } else {
             console.log('Calendar: Item not found in data. Looking for ID:', autoEditItemId);
           }
         }
-      }, [autoEditItemId, data, onAutoEditHandled]);
+      }, [autoEditItemId, data, onAutoEditHandled, editingItem, loadingItem]);
 
       // Apply filters (OR within, AND between)
       const filteredData = useMemo(() => {
@@ -1743,8 +1774,8 @@
                     <tr key={idx}>
                       <td>
                         <div className="action-buttons">
-                          <button className="btn btn-outline-primary btn-sm" onClick={() => setEditingItem(item)} title="Edit">
-                            Edit
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => openEditModal(item)} title="Edit" disabled={loadingItem}>
+                            {loadingItem ? '...' : 'Edit'}
                           </button>
                           <button className="btn btn-outline-danger btn-sm" onClick={() => setDeletingItem(item)} title="Delete">
                             Del
@@ -1857,7 +1888,19 @@
           const itemId = updatedItem['Monday Item ID'];
           const boardId = APPROVALS_2026_BOARD_ID;
 
-          // Build column values for update
+          // First, update Item Name if it changed (requires separate API call)
+          const newItemName = updatedItem['Item Name'] || updatedItem['Name'];
+          if (newItemName) {
+            console.log('Updating item name to:', newItemName);
+            try {
+              await api.call('updateMondayItemName', boardId, itemId, newItemName);
+            } catch (nameErr) {
+              console.error('Error updating item name:', nameErr);
+              // Continue with other updates even if name update fails
+            }
+          }
+
+          // Build column values for update using column IDs
           const columnValues = {};
 
           // Map form fields to Monday column IDs
@@ -1865,26 +1908,29 @@
           if (updatedItem['Requestor'] !== undefined) {
             columnValues['text_mky7xyqh'] = updatedItem['Requestor'];
           }
-          // Funding Type - color_mkxxef94
+          // Funding Type - color_mkxxef94 (status column - needs label format)
           if (updatedItem['Funding Type'] !== undefined) {
-            columnValues['color_mkxxef94'] = updatedItem['Funding Type'];
+            columnValues['color_mkxxef94'] = { label: updatedItem['Funding Type'] };
           }
-          // Overall Status - status
+          // Overall Status - status (status column - needs label format)
           if (updatedItem['Overall Status'] !== undefined) {
-            columnValues['status'] = updatedItem['Overall Status'];
+            columnValues['status'] = { label: updatedItem['Overall Status'] };
           }
           // Partner - text_mkv092nh
           if (updatedItem['Partner'] !== undefined) {
             columnValues['text_mkv092nh'] = updatedItem['Partner'];
           }
-          // Event Date - date_mktkb5sf
-          if (updatedItem['Event Date'] !== undefined) {
-            columnValues['date_mktkb5sf'] = updatedItem['Event Date'];
+          // Event Date - date_mktkb5sf (date column - needs date format)
+          if (updatedItem['Event Date'] !== undefined && updatedItem['Event Date'] !== '') {
+            columnValues['date_mktkb5sf'] = { date: updatedItem['Event Date'].substring(0, 10) };
           }
 
-          console.log('Updating 2026 approval item:', itemId, 'with values:', columnValues);
+          // Only call update if there are columns to update
+          if (Object.keys(columnValues).length > 0) {
+            console.log('Updating 2026 approval item:', itemId, 'with values:', columnValues);
+            await api.call('updateMondayItemDirectColumns', boardId, itemId, columnValues);
+          }
 
-          await api.call('updateMondayItemMultipleColumns', boardId, itemId, columnValues);
           setEditingItem(null);
           onRefresh();
 

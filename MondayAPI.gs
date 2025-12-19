@@ -808,6 +808,67 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
   try {
     const monday = new MondayAPI();
 
+    // Handle case where columnMetadata is not provided
+    if (!columnMetadata || !Array.isArray(columnMetadata) || columnMetadata.length === 0) {
+      console.log('No column metadata provided - using direct update approach');
+
+      // Check if Name/Item Name needs to be updated separately
+      let newItemName = null;
+      if (updates['Name'] !== undefined && updates['Name'] !== null && updates['Name'] !== '') {
+        newItemName = updates['Name'];
+      }
+      if (updates['Item Name'] !== undefined && updates['Item Name'] !== null && updates['Item Name'] !== '') {
+        newItemName = updates['Item Name'];
+      }
+
+      // Update item name first if needed
+      if (newItemName) {
+        console.log(`Updating item name to: "${newItemName}"`);
+        const nameResult = updateMondayItemName(boardId, itemId, newItemName);
+        if (!nameResult.success) {
+          console.error('Failed to update item name:', nameResult.error);
+        }
+      }
+
+      // Build column values directly from updates (excluding name fields)
+      const columnValues = {};
+      for (const [key, value] of Object.entries(updates)) {
+        if (key === 'Name' || key === 'Item Name' || key === 'Monday Item ID' || key === 'Board ID') {
+          continue;
+        }
+        if (value === null || value === undefined || value === '') {
+          continue;
+        }
+        columnValues[key] = value;
+      }
+
+      if (Object.keys(columnValues).length === 0) {
+        console.log('No column values to update');
+        return { success: true, message: 'No columns to update (only item name was updated)' };
+      }
+
+      // Use change_multiple_column_values with direct column ID mapping
+      const graphqlQuery = `
+        mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+          change_multiple_column_values(
+            board_id: $boardId,
+            item_id: $itemId,
+            column_values: $columnValues
+          ) {
+            id
+          }
+        }
+      `;
+
+      const result = monday.query(graphqlQuery, {
+        boardId: String(boardId),
+        itemId: String(itemId),
+        columnValues: JSON.stringify(columnValues)
+      });
+
+      return { success: true, result: DataService.ensureSerializable(result) };
+    }
+
     // Create a map of column titles to column info
     const columnMap = {};
     columnMetadata.forEach(col => {
@@ -983,6 +1044,150 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
   } catch (error) {
     console.error('Update error:', error);
     return { success: false, error: String(error.message) };
+  }
+}
+
+/**
+ * Update Monday item columns using direct column IDs (pre-formatted values)
+ * Use this when you have column IDs as keys and properly formatted values
+ * @param {string} boardId - Monday board ID
+ * @param {string} itemId - Monday item ID
+ * @param {Object} columnValues - Object with column IDs as keys and pre-formatted values
+ * @returns {Object} Success/error result
+ */
+function updateMondayItemDirectColumns(boardId, itemId, columnValues) {
+  try {
+    const monday = new MondayAPI();
+
+    console.log('updateMondayItemDirectColumns called with:', {
+      boardId,
+      itemId,
+      columnValues: JSON.stringify(columnValues)
+    });
+
+    if (!columnValues || Object.keys(columnValues).length === 0) {
+      console.log('No column values to update');
+      return { success: true, message: 'No columns to update' };
+    }
+
+    const graphqlQuery = `
+      mutation ($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+        change_multiple_column_values(
+          board_id: $boardId,
+          item_id: $itemId,
+          column_values: $columnValues
+        ) {
+          id
+        }
+      }
+    `;
+
+    const result = monday.query(graphqlQuery, {
+      boardId: String(boardId),
+      itemId: String(itemId),
+      columnValues: JSON.stringify(columnValues)
+    });
+
+    console.log('Update result:', JSON.stringify(result));
+    return { success: true, result: DataService.ensureSerializable(result) };
+
+  } catch (error) {
+    console.error('updateMondayItemDirectColumns error:', error);
+    return { success: false, error: String(error.message || error) };
+  }
+}
+
+/**
+ * Fetch a single item from Monday.com by item ID
+ * Returns fresh data directly from Monday, not from the cached sheet
+ * @param {string} boardId - Monday board ID
+ * @param {string} itemId - Monday item ID
+ * @returns {Object} Item data with all column values
+ */
+function getMondayItemById(boardId, itemId) {
+  try {
+    const monday = new MondayAPI();
+
+    console.log('Fetching item from Monday:', { boardId, itemId });
+
+    const graphqlQuery = `
+      query GetItem($boardId: [ID!]!, $itemId: [ID!]!) {
+        boards(ids: $boardId) {
+          items_page(limit: 1, query_params: { ids: $itemId }) {
+            items {
+              id
+              name
+              group {
+                id
+                title
+              }
+              column_values {
+                id
+                type
+                text
+                value
+              }
+            }
+          }
+          columns {
+            id
+            title
+            type
+            settings_str
+          }
+        }
+      }
+    `;
+
+    const result = monday.query(graphqlQuery, {
+      boardId: [String(boardId)],
+      itemId: [String(itemId)]
+    });
+
+    if (!result || !result.data || !result.data.boards || result.data.boards.length === 0) {
+      console.error('Failed to fetch item - no board data');
+      return { success: false, error: 'Board not found' };
+    }
+
+    const board = result.data.boards[0];
+    const items = board.items_page?.items || [];
+
+    if (items.length === 0) {
+      console.error('Item not found:', itemId);
+      return { success: false, error: 'Item not found' };
+    }
+
+    const item = items[0];
+    const columns = board.columns || [];
+
+    // Build a column ID to title map
+    const columnMap = {};
+    columns.forEach(col => {
+      columnMap[col.id] = col.title;
+    });
+
+    // Convert column values to a readable format
+    const itemData = {
+      'Monday Item ID': item.id,
+      'Board ID': String(boardId),
+      'Item Name': item.name,
+      'Name': item.name,
+      'Group': item.group?.title || ''
+    };
+
+    // Process each column value
+    item.column_values.forEach(cv => {
+      const title = columnMap[cv.id] || cv.id;
+      // Use text representation for display
+      itemData[title] = cv.text || '';
+    });
+
+    console.log('Fetched item data:', JSON.stringify(itemData));
+    return { success: true, item: DataService.ensureSerializable(itemData) };
+
+  } catch (error) {
+    console.error('getMondayItemById error:', error);
+    return { success: false, error: String(error.message || error) };
   }
 }
 
