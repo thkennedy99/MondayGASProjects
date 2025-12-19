@@ -425,6 +425,100 @@ function clearMarketingCaches() {
   }
 }
 
+// ============================================
+// INDIVIDUAL BOARD SYNC + CACHE CLEAR FUNCTIONS
+// These do NOT use locks - for quick individual board syncs
+// Called after add/edit/delete operations
+// ============================================
+
+/**
+ * Sync Marketing Calendar board and clear its cache
+ * No lock - designed for quick sync after edits
+ */
+function syncAndClearMarketingCalendar() {
+  try {
+    console.log('Syncing Marketing Calendar board...');
+    syncMarketingBoards(); // This syncs both calendar and approvals
+    clearMarketingCalendarCaches();
+    console.log('Marketing Calendar sync and cache clear complete');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in syncAndClearMarketingCalendar:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * Sync Marketing Approvals board and clear its cache
+ * No lock - designed for quick sync after edits
+ */
+function syncAndClearMarketingApprovals() {
+  try {
+    console.log('Syncing Marketing Approvals board...');
+    syncMarketingBoards(); // This syncs both calendar and approvals
+    clearMarketingApprovalCaches();
+    console.log('Marketing Approvals sync and cache clear complete');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in syncAndClearMarketingApprovals:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * Sync 2026 Approvals board and clear its cache
+ * No lock - designed for quick sync after edits
+ */
+function syncAndClear2026Approvals() {
+  try {
+    console.log('Syncing 2026 Approvals board...');
+    sync2026ApprovalsBoard();
+    clear2026ApprovalsCaches();
+    console.log('2026 Approvals sync and cache clear complete');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in syncAndClear2026Approvals:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * Sync Internal Activities boards and clear cache
+ * No lock - designed for quick sync after edits
+ */
+function syncAndClearInternalActivities() {
+  try {
+    console.log('Syncing Internal Activities boards...');
+    syncInternalActivitiesData(); // This calls syncGuidewireBoards
+    clearInternalActivityCaches();
+    console.log('Internal Activities sync and cache clear complete');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in syncAndClearInternalActivities:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * Sync Partner Activities and clear cache
+ * USES LOCK - these syncs take 4+ minutes
+ */
+function syncAndClearPartnerActivities(force) {
+  try {
+    console.log('Syncing Partner Activities (with lock)...');
+    const result = syncMondayData(force);
+    if (result && !result.skipped) {
+      clearActivityCaches();
+      clearHeatmapCaches();
+    }
+    console.log('Partner Activities sync complete');
+    return result;
+  } catch (error) {
+    console.error('Error in syncAndClearPartnerActivities:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
 /**
  * Refresh all data from Monday.com
  * This syncs ALL boards to spreadsheets and clears ALL caches

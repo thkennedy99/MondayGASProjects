@@ -1706,18 +1706,27 @@
 
       const hasFilters = partners.length > 0 || owners.length > 0 || activityTypes.length > 0;
 
-      const handleEditSave = () => {
+      const handleEditSave = async () => {
         setEditingItem(null);
+        // Sync Marketing Calendar from Monday and clear cache
+        console.log('Syncing Marketing Calendar after edit...');
+        await api.call('syncAndClearMarketingCalendar');
         onRefresh();
       };
 
-      const handleDeleteConfirm = () => {
+      const handleDeleteConfirm = async () => {
         setDeletingItem(null);
+        // Sync Marketing Calendar from Monday and clear cache
+        console.log('Syncing Marketing Calendar after delete...');
+        await api.call('syncAndClearMarketingCalendar');
         onRefresh();
       };
 
-      const handleAddCreate = () => {
+      const handleAddCreate = async () => {
         setShowAddModal(false);
+        // Sync Marketing Calendar from Monday and clear cache
+        console.log('Syncing Marketing Calendar after add...');
+        await api.call('syncAndClearMarketingCalendar');
         onRefresh();
       };
 
@@ -1932,6 +1941,9 @@
           }
 
           setEditingItem(null);
+          // Sync 2026 Approvals from Monday and clear cache
+          console.log('Syncing 2026 Approvals after edit...');
+          await api.call('syncAndClear2026Approvals');
           onRefresh();
 
         } catch (err) {
@@ -1950,6 +1962,9 @@
 
           await api.call('deleteMondayItem', itemId, boardId);
           setDeletingItem(null);
+          // Sync 2026 Approvals from Monday and clear cache
+          console.log('Syncing 2026 Approvals after delete...');
+          await api.call('syncAndClear2026Approvals');
           onRefresh();
 
         } catch (err) {
@@ -1998,6 +2013,9 @@
 
           await api.call('createMondayItem', boardId, itemName, columnValues);
           setShowAddModal(false);
+          // Sync 2026 Approvals from Monday and clear cache
+          console.log('Syncing 2026 Approvals after add...');
+          await api.call('syncAndClear2026Approvals');
           onRefresh();
 
         } catch (err) {
@@ -3167,14 +3185,20 @@
       };
 
       // Handle save edit
-      const handleSaveEdit = (updatedData) => {
+      const handleSaveEdit = async (updatedData) => {
         setEditingItem(null);
+        // Sync Internal Activities from Monday and clear cache
+        console.log('Syncing Internal Activities after edit...');
+        await api.call('syncAndClearInternalActivities');
         onRefresh();
       };
 
       // Handle confirm delete
-      const handleConfirmDelete = () => {
+      const handleConfirmDelete = async () => {
         setDeletingItem(null);
+        // Sync Internal Activities from Monday and clear cache
+        console.log('Syncing Internal Activities after delete...');
+        await api.call('syncAndClearInternalActivities');
         onRefresh();
       };
 
@@ -3201,9 +3225,12 @@
       };
 
       // Handle create new item
-      const handleCreate = (newItem) => {
+      const handleCreate = async (newItem) => {
         setShowAddModal(false);
         setSelectedBoardIdForAdd(null);
+        // Sync Internal Activities from Monday and clear cache
+        console.log('Syncing Internal Activities after add...');
+        await api.call('syncAndClearInternalActivities');
         onRefresh();
       };
 
