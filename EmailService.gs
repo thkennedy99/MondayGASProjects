@@ -202,7 +202,7 @@ function buildMarketingApprovalEmailHtml(itemDetails) {
           <tr>
             <td style="padding: 0 30px 20px 30px; text-align: center;">
               <a href="${portalEditUrl}" style="display: inline-block; background: linear-gradient(135deg, #28a745 0%, #218838 100%); color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px;">
-                ✏️ Edit in Marketing Manager Portal
+              Edit in Marketing Manager Portal
               </a>
             </td>
           </tr>
