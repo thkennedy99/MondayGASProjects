@@ -1990,6 +1990,10 @@ function syncMarketingApprovalBoard() {
       console.log('No items found on board');
     }
 
+    // Clear marketing approval caches after sync to ensure fresh data
+    console.log('Clearing marketing approval caches...');
+    clearMarketingApprovalCaches();
+
     console.log('Marketing Approval Board sync complete');
     return { success: true, itemCount: items.length };
 
@@ -2045,6 +2049,10 @@ function syncMarketingCalendarBoard() {
     } else {
       console.log('No items found on board');
     }
+
+    // Clear marketing calendar caches after sync to ensure fresh data
+    console.log('Clearing marketing calendar caches...');
+    clearMarketingCalendarCaches();
 
     console.log('Marketing Calendar Board sync complete');
     return { success: true, itemCount: items.length };
@@ -2117,6 +2125,10 @@ function sync2026ApprovalsBoard() {
     } else {
       console.log('WARNING: No items found on Monday board');
     }
+
+    // Clear 2026 approvals caches after sync to ensure fresh data
+    console.log('Clearing 2026 approvals caches...');
+    clear2026ApprovalsCaches();
 
     console.log('=== sync2026ApprovalsBoard END ===');
     return { success: true, itemCount: items.length };
@@ -2260,6 +2272,10 @@ function syncSingleGWBoard(boardId, overrideBoardName, overrideSheetName) {
       const rowCount = targetSheet.getLastRow();
       console.log(`Sheet ${sheetName} now has ${rowCount} rows (including header)`);
     }
+
+    // Clear internal activity caches after sync to ensure fresh data
+    console.log('Clearing internal activity caches...');
+    clearInternalActivityCaches();
 
     console.log(`GW board ${boardId} sync complete - ${items.length} items`);
     return { success: true, itemCount: items.length };
