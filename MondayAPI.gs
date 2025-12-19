@@ -1028,8 +1028,8 @@ function updateMondayItemName(boardId, itemId, newName) {
 }
 
 /**
- * Get partner names from Partner sheet (exposed to client)
- * Reads from column A starting at row 2 (A2:A)
+ * Get partner names from Partner sheet Account Name column (exposed to client)
+ * Reads the Account Name column from the Partner sheet
  */
 function getPartnerNamesFromSheet() {
   try {
@@ -1041,21 +1041,40 @@ function getPartnerNamesFromSheet() {
       return [];
     }
 
-    // Get values from A2 down to the last row with data
     const lastRow = sheet.getLastRow();
-    if (lastRow < 2) {
+    const lastCol = sheet.getLastColumn();
+    if (lastRow < 2 || lastCol < 1) {
       return [];
     }
 
-    const range = sheet.getRange('A2:A' + lastRow);
+    // Get header row to find Account Name column
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const accountNameIndex = headers.indexOf('Account Name');
+
+    if (accountNameIndex === -1) {
+      console.warn('Account Name column not found in Partner sheet. Available columns:', headers.join(', '));
+      // Fallback to column A if Account Name not found
+      const range = sheet.getRange('A2:A' + lastRow);
+      const values = range.getValues();
+      return values
+        .map(row => row[0])
+        .filter(name => name && String(name).trim() !== '')
+        .map(name => String(name).trim())
+        .sort();
+    }
+
+    // Get values from Account Name column (column index is 0-based, range is 1-based)
+    const range = sheet.getRange(2, accountNameIndex + 1, lastRow - 1, 1);
     const values = range.getValues();
 
-    // Filter out empty values and flatten
+    // Filter out empty values, flatten, and sort
     const partnerNames = values
       .map(row => row[0])
       .filter(name => name && String(name).trim() !== '')
-      .map(name => String(name).trim());
+      .map(name => String(name).trim())
+      .sort();
 
+    console.log(`Loaded ${partnerNames.length} partner names from Partner sheet Account Name column`);
     return partnerNames;
   } catch (error) {
     console.error('Error getting partner names from sheet:', error);

@@ -1306,7 +1306,7 @@
     }
 
     // Marketing Approvals Tab Component
-    function MarketingApprovalsTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
+    function MarketingApprovalsTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled, partnerNamesFromSheet }) {
       const [fundingTypes, setFundingTypes] = useState([]);
       const [overallStatuses, setOverallStatuses] = useState([]);
       const [allianceManagers, setAllianceManagers] = useState([]);
@@ -1484,7 +1484,7 @@
               columns={columns}
               onClose={() => setEditingItem(null)}
               onSave={handleEditSave}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
               allianceManagerOptions={filterOptions.allianceManagers || []}
             />
           )}
@@ -1502,7 +1502,7 @@
               columns={columns}
               onClose={() => setShowAddModal(false)}
               onCreate={handleAddCreate}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
               allianceManagerOptions={filterOptions.allianceManagers || []}
             />
           )}
@@ -1511,7 +1511,7 @@
     }
 
     // Marketing Calendar Tab Component
-    function MarketingCalendarTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
+    function MarketingCalendarTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled, partnerNamesFromSheet }) {
       const [partners, setPartners] = useState([]);
       const [owners, setOwners] = useState([]);
       const [activityTypes, setActivityTypes] = useState([]);
@@ -1664,7 +1664,7 @@
               columns={columns}
               onClose={() => setEditingItem(null)}
               onSave={handleEditSave}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
               allianceManagerOptions={[]}
             />
           )}
@@ -1682,7 +1682,7 @@
               columns={columns}
               onClose={() => setShowAddModal(false)}
               onCreate={handleAddCreate}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
               allianceManagerOptions={[]}
             />
           )}
@@ -1691,7 +1691,7 @@
     }
 
     // 2026 Approvals Tab Component
-    function Approvals2026Tab({ data, filterOptions, columns, flowConfig, onRefresh, autoEditItemId, onAutoEditHandled }) {
+    function Approvals2026Tab({ data, filterOptions, columns, flowConfig, onRefresh, autoEditItemId, onAutoEditHandled, partnerNamesFromSheet }) {
       const [fundingTypes, setFundingTypes] = useState([]);
       const [overallStatuses, setOverallStatuses] = useState([]);
       const [partners, setPartners] = useState([]);
@@ -1940,7 +1940,7 @@
               flowConfig={flowConfig}
               onClose={() => setEditingItem(null)}
               onSave={handleEditSave}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
             />
           )}
           {/* Delete Confirmation Modal */}
@@ -1959,7 +1959,7 @@
               flowConfig={flowConfig}
               onClose={() => setShowAddModal(false)}
               onCreate={handleAddCreate}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
             />
           )}
         </div>
@@ -2993,6 +2993,9 @@
       const [internalActivitiesData, setInternalActivitiesData] = useState([]);
       const [internalBoardNames, setInternalBoardNames] = useState([]);
 
+      // Partner names from Partner sheet (Account Name column) for dropdowns
+      const [partnerNamesFromSheet, setPartnerNamesFromSheet] = useState([]);
+
       // Load authorization data on mount
       useEffect(() => {
         console.log('=== Authorization Load Debug ===');
@@ -3193,7 +3196,7 @@
 
         try {
           // Load all data in parallel
-          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames, partnerNames] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
             api.call('getAll2026Approvals'),
@@ -3206,7 +3209,8 @@
             api.call('getAllPartnerActivitiesUnfiltered'),
             api.call('getAllPartnerHeatmapUnfiltered'),
             api.call('getAllInternalActivitiesUnfiltered'),
-            api.call('getInternalActivityBoardNames')
+            api.call('getInternalActivityBoardNames'),
+            api.call('getPartnerNamesFromSheet')
           ]);
 
           setApprovalsData(approvals || []);
@@ -3223,6 +3227,8 @@
           setInternalActivitiesData(internalActs?.data || []);
           console.log('=== Internal Board Names from API ===', boardNames);
           setInternalBoardNames(boardNames || []);
+          console.log('=== Partner Names from Sheet ===', partnerNames);
+          setPartnerNamesFromSheet(partnerNames || []);
 
         } catch (err) {
           console.error('Error loading data:', err);
@@ -3252,7 +3258,7 @@
           console.log('Monday sync complete, now loading fresh data...');
 
           // Then load the fresh data
-          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames, partnerNames] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
             api.call('getAll2026Approvals'),
@@ -3265,7 +3271,8 @@
             api.call('getAllPartnerActivitiesUnfiltered'),
             api.call('getAllPartnerHeatmapUnfiltered'),
             api.call('getAllInternalActivitiesUnfiltered'),
-            api.call('getInternalActivityBoardNames')
+            api.call('getInternalActivityBoardNames'),
+            api.call('getPartnerNamesFromSheet')
           ]);
 
           setApprovalsData(approvals || []);
@@ -3281,6 +3288,7 @@
           setPartnerHeatmapData(heatmap || []);
           setInternalActivitiesData(internalActs?.data || []);
           setInternalBoardNames(boardNames || []);
+          setPartnerNamesFromSheet(partnerNames || []);
 
         } catch (err) {
           console.error('Error refreshing from Monday:', err);
@@ -3635,6 +3643,7 @@
                           onRefresh={loadData}
                           autoEditItemId={String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID ? autoEditItemId : null}
                           onAutoEditHandled={handleAutoEditHandled}
+                          partnerNamesFromSheet={partnerNamesFromSheet}
                         />
                       )}
                       {marketingSubTab === 'approvals2026' && isBoardAuthorized('2026MarketingApprovals') && (
@@ -3646,6 +3655,7 @@
                           onRefresh={loadData}
                           autoEditItemId={String(editBoardIdFromUrl) === APPROVALS_2026_BOARD_ID ? autoEditItemId : null}
                           onAutoEditHandled={handleAutoEditHandled}
+                          partnerNamesFromSheet={partnerNamesFromSheet}
                         />
                       )}
                       {marketingSubTab === 'stats' && isBoardAuthorized('Activity Stats') && (
