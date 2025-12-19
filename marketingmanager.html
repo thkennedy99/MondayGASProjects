@@ -820,38 +820,26 @@
         setFormData(prev => ({ ...prev, [columnTitle]: value }));
       };
 
-      // Check if all mandatory fields are filled
-      const allMandatoryFieldsFilled = useMemo(() => {
-        if (!flowConfig?.columns || !columns) return true;
-
-        // Check each mandatory field in the flow config
-        for (const flowCol of flowConfig.columns) {
-          if (!flowCol.mandatory) continue;
-
-          // Find the column definition to get the title
-          const column = columns.find(c => c.id === flowCol.columnId);
-          if (!column) continue;
-
-          // Check if the field has a value
-          const value = formData[column.title];
-          if (value === undefined || value === null || value === '') {
-            return false;
-          }
-        }
-
-        // Also check item name
+      // Check if form can be saved - for edit mode, just require item name
+      const canSave = useMemo(() => {
+        // Item name is always required
         if (!itemName || itemName.trim() === '') {
           return false;
         }
-
         return true;
-      }, [flowConfig, columns, formData, itemName]);
+      }, [itemName]);
 
       const handleSave = async () => {
         setSaving(true);
         setError(null);
         try {
-          onSave({ ...formData, 'Item Name': itemName, 'Name': itemName });
+          // Include the Monday Item ID from the original item so the parent can update the correct item
+          onSave({
+            ...formData,
+            'Item Name': itemName,
+            'Name': itemName,
+            'Monday Item ID': item['Monday Item ID']
+          });
         } catch (err) {
           setError(err.message || 'Failed to update item');
           setSaving(false);
@@ -888,6 +876,8 @@
 
         const { title, type, settings } = column;
         const value = formData[title] || '';
+        const isMandatory = flowCol.mandatory === true;
+        const labelContent = isMandatory ? <>{title} <span style={{ color: 'red' }}>*</span></> : title;
 
         // Skip system columns
         const skipColumns = ['Monday Item ID', 'Board ID', 'Board Name', 'Group', '_rowIndex'];
@@ -901,7 +891,7 @@
         if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">(Blank)</option>
                 {partnerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -923,7 +913,7 @@
           const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
                 {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -938,7 +928,7 @@
           const options = Array.isArray(labels) ? labels.map(l => l.name || l) : Object.values(labels);
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
                 {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -951,7 +941,7 @@
         if (type === 'date') {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <input type="date" className="form-control" value={value ? value.substring(0, 10) : ''} onChange={(e) => handleChange(title, e.target.value)} />
             </div>
           );
@@ -961,7 +951,7 @@
         if (type === 'numbers' || type === 'numeric') {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <input type="number" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
             </div>
           );
@@ -970,7 +960,7 @@
         // Default text input
         return (
           <div className="mb-3" key={column.id}>
-            <label className="form-label">{title}</label>
+            <label className="form-label">{labelContent}</label>
             <input type="text" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
           </div>
         );
@@ -1033,7 +1023,7 @@
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
-                <button type="button" className="btn" onClick={handleSave} disabled={saving || !allMandatoryFieldsFilled} style={{ backgroundColor: '#00739d', color: 'white' }}>
+                <button type="button" className="btn" onClick={handleSave} disabled={saving || !canSave} style={{ backgroundColor: '#00739d', color: 'white' }}>
                   {saving ? <><span className="spinner-border spinner-border-sm me-2"></span>Saving...</> : 'Save Changes'}
                 </button>
               </div>
@@ -1150,6 +1140,8 @@
 
         const { title, type, settings } = column;
         const value = formData[title] || '';
+        const isMandatory = flowCol.mandatory === true;
+        const labelContent = isMandatory ? <>{title} <span style={{ color: 'red' }}>*</span></> : title;
 
         // Skip system columns
         const skipColumns = ['Monday Item ID', 'Board ID', 'Board Name', 'Group', '_rowIndex'];
@@ -1163,7 +1155,7 @@
         if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">(Blank)</option>
                 {partnerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -1185,7 +1177,7 @@
           const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
                 {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -1200,7 +1192,7 @@
           const options = Array.isArray(labels) ? labels.map(l => l.name || l) : Object.values(labels);
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
                 {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -1213,7 +1205,7 @@
         if (type === 'date') {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <input type="date" className="form-control" value={value ? value.substring(0, 10) : ''} onChange={(e) => handleChange(title, e.target.value)} />
             </div>
           );
@@ -1223,7 +1215,7 @@
         if (type === 'numbers' || type === 'numeric') {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <input type="number" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
             </div>
           );
@@ -1232,7 +1224,7 @@
         // Default text input
         return (
           <div className="mb-3" key={column.id}>
-            <label className="form-label">{title}</label>
+            <label className="form-label">{labelContent}</label>
             <input type="text" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
           </div>
         );
@@ -2948,6 +2940,9 @@
       });
       const [authLoading, setAuthLoading] = useState(true);
 
+      // Managed partners for the current user (partners where Account Owner matches current manager)
+      const [managedPartners, setManagedPartners] = useState([]);
+
       // View mode for role-based filtering: 'self', 'team', or 'dept'
       const [viewMode, setViewMode] = useState('self');
 
@@ -3012,9 +3007,16 @@
               console.log('Reports:', auth.reports);
               setAuthorization(auth);
               setAuthLoading(false);
+
+              // Also load managed partners for the current user
+              return api.call('getManagedPartners', currentManager);
+            })
+            .then(partners => {
+              console.log('Loaded managed partners:', partners);
+              setManagedPartners(partners || []);
             })
             .catch(error => {
-              console.error('Error loading authorization:', error);
+              console.error('Error loading authorization or managed partners:', error);
               setAuthLoading(false);
             });
         } else {
@@ -3083,7 +3085,7 @@
       };
 
       // Filter function that checks if a row involves a person
-      const rowInvolvesPerson = (row, personNames) => {
+      const rowInvolvesPerson = (row, personNames, userManagedPartners) => {
         // Convert all values we're checking to lowercase for comparison
         const fieldsToCheck = [
           'Owner', 'Alliance Manager', 'AllianceManager', 'Assigned To', 'AssignedTo',
@@ -3104,7 +3106,22 @@
         }
 
         // Also check if the partner is managed by this person
-        // (This would require partner-to-manager mapping which we may not have client-side)
+        // Check Partner field against managed partners list
+        if (userManagedPartners && userManagedPartners.length > 0) {
+          const partnerValue = row['Partner'] || row['Partner Name'] || row['PartnerName'] || '';
+          if (partnerValue) {
+            const partnerLower = String(partnerValue).toLowerCase();
+            for (const managedPartner of userManagedPartners) {
+              const managedPartnerLower = String(managedPartner).toLowerCase();
+              if (partnerLower === managedPartnerLower ||
+                  partnerLower.includes(managedPartnerLower) ||
+                  managedPartnerLower.includes(partnerLower)) {
+                console.log('Row matched by managed partner:', partnerValue, 'matches', managedPartner);
+                return true;
+              }
+            }
+          }
+        }
 
         return false;
       };
@@ -3112,6 +3129,7 @@
       // Filter data based on view mode
       const filterDataByViewMode = (data, viewModeValue) => {
         console.log('filterDataByViewMode called with viewMode:', viewModeValue, 'data length:', data?.length);
+        console.log('managedPartners for filtering:', managedPartners);
 
         // Dept mode = show all
         if (viewModeValue === 'dept') {
@@ -3125,24 +3143,27 @@
 
         const managerName = getManagerName();
         let peopleToMatch = [];
+        let partnersToMatch = [];
 
         if (viewModeValue === 'self') {
-          // Self mode - only match the current manager
+          // Self mode - only match the current manager and their managed partners
           peopleToMatch = [managerName].filter(n => n);
-          console.log('Self mode - matching:', peopleToMatch);
+          partnersToMatch = managedPartners || [];
+          console.log('Self mode - matching people:', peopleToMatch, 'partners:', partnersToMatch);
         } else if (viewModeValue === 'team') {
-          // Team mode - match the manager AND all their reports
+          // Team mode - match the manager AND all their reports, plus managed partners
           const teamNames = getTeamMemberNames();
           peopleToMatch = [managerName, ...teamNames].filter(n => n);
-          console.log('Team mode - matching:', peopleToMatch);
+          partnersToMatch = managedPartners || [];
+          console.log('Team mode - matching people:', peopleToMatch, 'partners:', partnersToMatch);
         }
 
-        if (peopleToMatch.length === 0) {
-          console.log('No people to match - returning all data');
+        if (peopleToMatch.length === 0 && partnersToMatch.length === 0) {
+          console.log('No people or partners to match - returning all data');
           return data;
         }
 
-        const filteredData = data.filter(row => rowInvolvesPerson(row, peopleToMatch));
+        const filteredData = data.filter(row => rowInvolvesPerson(row, peopleToMatch, partnersToMatch));
         console.log('Filtered data length:', filteredData.length);
         return filteredData;
       };
@@ -3150,27 +3171,27 @@
       // Memoized filtered data for each dataset
       const filteredApprovalsData = useMemo(() => {
         return filterDataByViewMode(approvalsData, viewMode);
-      }, [approvalsData, viewMode, authorization]);
+      }, [approvalsData, viewMode, authorization, managedPartners]);
 
       const filteredCalendarData = useMemo(() => {
         return filterDataByViewMode(calendarData, viewMode);
-      }, [calendarData, viewMode, authorization]);
+      }, [calendarData, viewMode, authorization, managedPartners]);
 
       const filteredApprovals2026Data = useMemo(() => {
         return filterDataByViewMode(approvals2026Data, viewMode);
-      }, [approvals2026Data, viewMode, authorization]);
+      }, [approvals2026Data, viewMode, authorization, managedPartners]);
 
       const filteredPartnerActivitiesData = useMemo(() => {
         return filterDataByViewMode(partnerActivitiesData, viewMode);
-      }, [partnerActivitiesData, viewMode, authorization]);
+      }, [partnerActivitiesData, viewMode, authorization, managedPartners]);
 
       const filteredPartnerHeatmapData = useMemo(() => {
         return filterDataByViewMode(partnerHeatmapData, viewMode);
-      }, [partnerHeatmapData, viewMode, authorization]);
+      }, [partnerHeatmapData, viewMode, authorization, managedPartners]);
 
       const filteredInternalActivitiesData = useMemo(() => {
         return filterDataByViewMode(internalActivitiesData, viewMode);
-      }, [internalActivitiesData, viewMode, authorization]);
+      }, [internalActivitiesData, viewMode, authorization, managedPartners]);
 
       // Debug logging for deep link
       useEffect(() => {
