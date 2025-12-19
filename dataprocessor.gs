@@ -684,6 +684,87 @@ function translatePartnerNames() {
 }
 
 /**
+ * Translate partner names on a specific sheet (for temp sheet sync)
+ * @param {Sheet} targetSheet - The sheet to translate partner names on
+ */
+function translatePartnerNamesOnSheet(targetSheet) {
+  try {
+    console.log('Starting partner name translation on sheet:', targetSheet.getName());
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Get the PartnerTranslate sheet
+    const translateSheet = spreadsheet.getSheetByName('PartnerTranslate');
+    if (!translateSheet) {
+      console.log('PartnerTranslate sheet not found. Skipping translation.');
+      return;
+    }
+
+    // Get the translation mapping from PartnerTranslate
+    const translateLastRow = translateSheet.getLastRow();
+    if (translateLastRow < 2) {
+      console.log('No translation mappings found in PartnerTranslate sheet.');
+      return;
+    }
+
+    // Get all translation data at once (columns A and B starting from row 2)
+    const translationData = translateSheet.getRange(2, 1, translateLastRow - 1, 2).getValues();
+
+    // Create a map for faster lookups
+    const translationMap = new Map();
+    translationData.forEach(row => {
+      const originalName = row[0];
+      const correctName = row[1];
+      if (originalName && correctName) {
+        translationMap.set(originalName.toString().trim(), correctName.toString().trim());
+      }
+    });
+
+    console.log(`Found ${translationMap.size} translation mappings`);
+
+    // Get all data from target sheet column D (Partner Name)
+    const lastRow = targetSheet.getLastRow();
+    if (lastRow < 2) {
+      console.log('No data found in target sheet.');
+      return;
+    }
+
+    // Get all values from column D (Partner Name) at once
+    const range = targetSheet.getRange(2, 4, lastRow - 1, 1);
+    const values = range.getValues();
+
+    // Track changes
+    let changesCount = 0;
+
+    // Update values based on translation map
+    const updatedValues = values.map(row => {
+      const currentValue = row[0];
+      if (currentValue) {
+        const trimmedValue = currentValue.toString().trim();
+        if (translationMap.has(trimmedValue)) {
+          const newValue = translationMap.get(trimmedValue);
+          changesCount++;
+          return [newValue];
+        }
+      }
+      return row;
+    });
+
+    // Write all updated values back at once
+    if (changesCount > 0) {
+      range.setValues(updatedValues);
+      console.log(`Partner name translation complete. ${changesCount} names updated.`);
+    } else {
+      console.log('No partner names needed translation.');
+    }
+
+  } catch (error) {
+    console.error('Error translating partner names on sheet:', error);
+    // Don't throw the error - allow the sync to continue even if translation fails
+  }
+}
+
+/**
  * Sort the data by column A (Item Name)
  */
 function sortDataByItemName(sheet) {
@@ -803,5 +884,194 @@ function appendItemToSheet(sheetName, itemName, itemId, boardId, boardName, colu
   } catch (error) {
     console.error('Error appending item to sheet:', error);
     return false;
+  }
+}
+
+/**
+ * Update an existing Partner Activity item in the MondayData sheet
+ * This provides immediate UI feedback while the sync runs in the background
+ *
+ * @param {string} itemId - Monday.com item ID
+ * @param {Object} updates - Object with column titles as keys and new values
+ * @param {string} boardId - Board ID for the item
+ * @param {string} partnerName - Partner name for the item
+ * @returns {Object} Success/error result
+ */
+function updatePartnerActivityInSheet(itemId, updates, boardId, partnerName) {
+  try {
+    console.log('Updating Partner Activity in MondayData sheet:', itemId);
+    console.log('Updates:', JSON.stringify(updates));
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName(SHEET_TAB_NAME);
+
+    if (!sheet) {
+      console.error('MondayData sheet not found');
+      return { success: false, error: 'MondayData sheet not found' };
+    }
+
+    // Get headers
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headerMap = {};
+    headers.forEach((header, index) => {
+      headerMap[header] = index;
+    });
+
+    // Find the Monday Item ID column
+    const itemIdColIndex = headerMap['Monday Item ID'];
+    if (itemIdColIndex === undefined) {
+      console.error('Monday Item ID column not found');
+      return { success: false, error: 'Monday Item ID column not found' };
+    }
+
+    // Find the row with this item ID
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) {
+      console.log('No data rows in sheet');
+      return { success: false, error: 'No data rows in sheet' };
+    }
+
+    const itemIdCol = sheet.getRange(2, itemIdColIndex + 1, lastRow - 1, 1).getValues();
+    let rowIndex = -1;
+
+    for (let i = 0; i < itemIdCol.length; i++) {
+      if (String(itemIdCol[i][0]) === String(itemId)) {
+        rowIndex = i + 2; // +2 because data starts at row 2
+        break;
+      }
+    }
+
+    if (rowIndex === -1) {
+      console.log('Item not found in sheet, will be added on next sync');
+      return { success: false, error: 'Item not found in sheet' };
+    }
+
+    console.log('Found item at row:', rowIndex);
+
+    // Get the current row data
+    const rowData = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+
+    // Update values
+    const sanitizeValue = sanitizeValueForSheet;
+    let changesCount = 0;
+
+    Object.entries(updates).forEach(([key, value]) => {
+      // Handle Item Name / Name updates
+      if (key === 'Item Name' || key === 'Name') {
+        if (headerMap['Item Name'] !== undefined) {
+          rowData[headerMap['Item Name']] = sanitizeValue(value);
+          changesCount++;
+        }
+        return;
+      }
+
+      // Try exact match first
+      if (headerMap[key] !== undefined) {
+        rowData[headerMap[key]] = sanitizeValue(value);
+        changesCount++;
+        return;
+      }
+
+      // Try case-insensitive match
+      const keyLower = key.toLowerCase();
+      for (const header of headers) {
+        if (header.toLowerCase() === keyLower) {
+          rowData[headerMap[header]] = sanitizeValue(value);
+          changesCount++;
+          break;
+        }
+      }
+    });
+
+    if (changesCount > 0) {
+      // Write updated row back
+      sheet.getRange(rowIndex, 1, 1, headers.length).setValues([rowData]);
+      SpreadsheetApp.flush();
+      console.log(`Updated ${changesCount} fields for item ${itemId}`);
+    }
+
+    return { success: true, rowIndex, changesCount };
+
+  } catch (error) {
+    console.error('Error updating Partner Activity in sheet:', error);
+    return { success: false, error: String(error.message || error) };
+  }
+}
+
+/**
+ * Add a new Partner Activity item to the MondayData sheet
+ * This provides immediate UI feedback while the sync runs in the background
+ *
+ * @param {string} itemName - Name of the new item
+ * @param {string} itemId - Monday.com item ID
+ * @param {string} boardId - Monday.com board ID
+ * @param {string} boardName - Name of the board
+ * @param {string} partnerName - Partner name
+ * @param {Object} columnValues - Column values from the create form
+ * @returns {Object} Success/error result
+ */
+function addPartnerActivityToSheet(itemName, itemId, boardId, boardName, partnerName, columnValues) {
+  try {
+    console.log('Adding Partner Activity to MondayData sheet:', itemName);
+    console.log('Column values:', JSON.stringify(columnValues));
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = spreadsheet.getSheetByName(SHEET_TAB_NAME);
+
+    if (!sheet) {
+      console.error('MondayData sheet not found');
+      return { success: false, error: 'MondayData sheet not found' };
+    }
+
+    // Get headers
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const headerMap = {};
+    headers.forEach((header, index) => {
+      headerMap[header] = index;
+    });
+
+    // Create new row
+    const newRow = new Array(headers.length).fill('');
+    const sanitizeValue = sanitizeValueForSheet;
+
+    // Set standard fields
+    if (headerMap['Item Name'] !== undefined) newRow[headerMap['Item Name']] = sanitizeValue(itemName);
+    if (headerMap['Monday Item ID'] !== undefined) newRow[headerMap['Monday Item ID']] = sanitizeValue(itemId);
+    if (headerMap['Board ID'] !== undefined) newRow[headerMap['Board ID']] = sanitizeValue(boardId);
+    if (headerMap['Board Name'] !== undefined) newRow[headerMap['Board Name']] = sanitizeValue(boardName);
+    if (headerMap['Partner Name'] !== undefined) newRow[headerMap['Partner Name']] = sanitizeValue(partnerName);
+
+    // Map column values to headers
+    Object.entries(columnValues || {}).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === '') return;
+
+      const sanitizedValue = sanitizeValue(value);
+
+      // Try exact match first
+      if (headerMap[key] !== undefined) {
+        newRow[headerMap[key]] = sanitizedValue;
+        return;
+      }
+
+      // Try case-insensitive match
+      const keyLower = key.toLowerCase();
+      for (const header of headers) {
+        if (header.toLowerCase() === keyLower) {
+          newRow[headerMap[header]] = sanitizedValue;
+          break;
+        }
+      }
+    });
+
+    // Append the new row
+    sheet.appendRow(newRow);
+    SpreadsheetApp.flush();
+
+    console.log(`Successfully added Partner Activity "${itemName}" to MondayData`);
+    return { success: true };
+
+  } catch (error) {
+    console.error('Error adding Partner Activity to sheet:', error);
+    return { success: false, error: String(error.message || error) };
   }
 }

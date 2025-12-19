@@ -90,64 +90,109 @@ function getMarketingBoardConfigurations() {
 
 /**
  * Get board configurations from the MondayDashboard sheet PartnerBoard column
+ * Deduplicates board IDs and tracks all partners associated with each board
  */
 function getBoardConfigurations() {
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const dashboardSheet = spreadsheet.getSheetByName('MondayDashboard');
-    
+
     if (!dashboardSheet) {
       console.log('MondayDashboard sheet not found. Using fallback board ID: ' + BOARD_ID);
       return [{ boardName: 'Default Board', partnerName: 'Default Partner', boardId: BOARD_ID, targetSheetName: SHEET_TAB_NAME }];
     }
-    
+
     const lastRow = dashboardSheet.getLastRow();
     if (lastRow < 2) {
       console.log('No data found in MondayDashboard sheet. Using fallback board ID: ' + BOARD_ID);
       return [{ boardName: 'Default Board', partnerName: 'Default Partner', boardId: BOARD_ID, targetSheetName: SHEET_TAB_NAME }];
     }
-    
+
     // Get all data from the sheet to find column indices
     const headerRow = dashboardSheet.getRange(1, 1, 1, dashboardSheet.getLastColumn()).getValues()[0];
-    
+
     // Find column indices
     const partnerNameIndex = headerRow.indexOf('Partner Name');
     const partnerBoardIndex = headerRow.indexOf('PartnerBoard');
-    
+
     if (partnerNameIndex === -1 || partnerBoardIndex === -1) {
       console.log('Required columns not found in MondayDashboard sheet. Using fallback board ID: ' + BOARD_ID);
+      console.log('Available columns:', headerRow.join(', '));
       return [{ boardName: 'Default Board', partnerName: 'Default Partner', boardId: BOARD_ID, targetSheetName: SHEET_TAB_NAME }];
     }
-    
+
     // Get the data rows
     const dataRange = dashboardSheet.getRange(2, 1, lastRow - 1, dashboardSheet.getLastColumn());
     const data = dataRange.getValues();
-    
-    const boardConfigs = [];
-    
+
+    // Track unique board IDs and their associated partners
+    const boardMap = new Map(); // Map of boardId -> { partners: [], firstPartnerName: string }
+    let skippedEmptyCount = 0;
+    let skippedInvalidCount = 0;
+
+    console.log(`Processing ${data.length} rows from MondayDashboard...`);
+
     data.forEach((row, index) => {
-      const partnerName = row[partnerNameIndex];
-      const partnerBoard = row[partnerBoardIndex];
-      
-      // Skip empty rows
-      if (partnerBoard && partnerBoard.toString().trim() !== '') {
-        boardConfigs.push({
-          boardName: `${partnerName} Board` || `Board ${index + 1}`,
-          partnerName: partnerName || 'Unknown Partner',
-          boardId: partnerBoard.toString().trim(),
-          targetSheetName: SHEET_TAB_NAME // All dashboard boards go to MondayData sheet
+      const partnerName = row[partnerNameIndex] ? row[partnerNameIndex].toString().trim() : '';
+      const partnerBoard = row[partnerBoardIndex] ? row[partnerBoardIndex].toString().trim() : '';
+
+      // Log each row being processed
+      console.log(`Row ${index + 2}: Partner="${partnerName}", BoardID="${partnerBoard}"`);
+
+      // Skip rows with empty PartnerBoard
+      if (!partnerBoard || partnerBoard === '') {
+        skippedEmptyCount++;
+        console.log(`  -> Skipped: Empty PartnerBoard`);
+        return;
+      }
+
+      // Validate board ID (should be numeric)
+      if (!/^\d+$/.test(partnerBoard)) {
+        skippedInvalidCount++;
+        console.log(`  -> Skipped: Invalid board ID format "${partnerBoard}"`);
+        return;
+      }
+
+      // Track unique board IDs
+      if (!boardMap.has(partnerBoard)) {
+        boardMap.set(partnerBoard, {
+          partners: [partnerName],
+          firstPartnerName: partnerName || 'Unknown Partner'
         });
+        console.log(`  -> Added new board: ${partnerBoard}`);
+      } else {
+        // Board already exists, add partner to the list
+        boardMap.get(partnerBoard).partners.push(partnerName);
+        console.log(`  -> Board ${partnerBoard} already tracked, adding partner`);
       }
     });
-    
+
+    // Convert map to array of board configs
+    const boardConfigs = [];
+    boardMap.forEach((info, boardId) => {
+      boardConfigs.push({
+        boardName: `${info.firstPartnerName} Board`,
+        partnerName: info.firstPartnerName,
+        boardId: boardId,
+        targetSheetName: SHEET_TAB_NAME,
+        allPartners: info.partners // Track all partners associated with this board
+      });
+    });
+
+    console.log(`\n=== Board Configuration Summary ===`);
+    console.log(`Total rows in MondayDashboard: ${data.length}`);
+    console.log(`Skipped (empty PartnerBoard): ${skippedEmptyCount}`);
+    console.log(`Skipped (invalid format): ${skippedInvalidCount}`);
+    console.log(`Unique boards to sync: ${boardConfigs.length}`);
+
     if (boardConfigs.length === 0) {
       console.log('No valid board IDs found in MondayDashboard sheet. Using fallback board ID: ' + BOARD_ID);
       return [{ boardName: 'Default Board', partnerName: 'Default Partner', boardId: BOARD_ID, targetSheetName: SHEET_TAB_NAME }];
     }
-    
-    console.log(`Found ${boardConfigs.length} board configurations from MondayDashboard:`, boardConfigs.map(b => `${b.boardName} (${b.boardId})`));
+
+    console.log(`Board configurations:`, boardConfigs.map(b => `${b.boardName} (${b.boardId}) - ${b.allPartners.length} partners`));
     return boardConfigs;
-    
+
   } catch (error) {
     console.error('Error reading board configurations from MondayDashboard:', error);
     console.log('Using fallback board ID: ' + BOARD_ID);
@@ -380,18 +425,124 @@ function clearMarketingCaches() {
   }
 }
 
+// ============================================
+// INDIVIDUAL BOARD SYNC + CACHE CLEAR FUNCTIONS
+// These do NOT use locks - for quick individual board syncs
+// Called after add/edit/delete operations
+// ============================================
+
+/**
+ * Sync Marketing Calendar board and clear its cache
+ * No lock - designed for quick sync after edits
+ */
+function syncAndClearMarketingCalendar() {
+  try {
+    console.log('Syncing Marketing Calendar board...');
+    syncMarketingBoards(); // This syncs both calendar and approvals
+    clearMarketingCalendarCaches();
+    console.log('Marketing Calendar sync and cache clear complete');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in syncAndClearMarketingCalendar:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * Sync Marketing Approvals board and clear its cache
+ * No lock - designed for quick sync after edits
+ */
+function syncAndClearMarketingApprovals() {
+  try {
+    console.log('Syncing Marketing Approvals board...');
+    syncMarketingBoards(); // This syncs both calendar and approvals
+    clearMarketingApprovalCaches();
+    console.log('Marketing Approvals sync and cache clear complete');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in syncAndClearMarketingApprovals:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * Sync 2026 Approvals board and clear its cache
+ * No lock - designed for quick sync after edits
+ */
+function syncAndClear2026Approvals() {
+  try {
+    console.log('Syncing 2026 Approvals board...');
+    sync2026ApprovalsBoard();
+    clear2026ApprovalsCaches();
+    console.log('2026 Approvals sync and cache clear complete');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in syncAndClear2026Approvals:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * Sync Internal Activities boards and clear cache
+ * No lock - designed for quick sync after edits
+ */
+function syncAndClearInternalActivities() {
+  try {
+    console.log('Syncing Internal Activities boards...');
+    syncInternalActivitiesData(); // This calls syncGuidewireBoards
+    clearInternalActivityCaches();
+    console.log('Internal Activities sync and cache clear complete');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in syncAndClearInternalActivities:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
+/**
+ * Sync Partner Activities and clear cache
+ * USES LOCK - these syncs take 4+ minutes
+ */
+function syncAndClearPartnerActivities(force) {
+  try {
+    console.log('Syncing Partner Activities (with lock)...');
+    const result = syncMondayData(force);
+    if (result && !result.skipped) {
+      clearActivityCaches();
+      clearHeatmapCaches();
+    }
+    console.log('Partner Activities sync complete');
+    return result;
+  } catch (error) {
+    console.error('Error in syncAndClearPartnerActivities:', error);
+    return { success: false, error: error.toString() };
+  }
+}
+
 /**
  * Refresh all data from Monday.com
  * This syncs ALL boards to spreadsheets and clears ALL caches
  * Called by the Marketing Manager Portal "Refresh Data" button
  */
-function refreshMarketingDataFromMonday() {
+function refreshMarketingDataFromMonday(force) {
   try {
     console.log('Starting full data refresh from Monday.com...');
 
     // Step 1: Sync all Monday data (Dashboard, Partner Activities, Marketing, Guidewire)
     console.log('Step 1: Syncing all Monday.com boards...');
-    syncMondayData();
+    const syncResult = syncMondayData(force);
+
+    // If sync was skipped (debounced or already in progress), return early with that info
+    if (syncResult && syncResult.skipped) {
+      console.log('Sync was skipped:', syncResult.message);
+      return { success: true, message: syncResult.message, skipped: true };
+    }
+
+    // If sync failed, return the error
+    if (syncResult && !syncResult.success) {
+      console.log('Sync failed:', syncResult.message);
+      return { success: false, message: syncResult.message, skipped: false };
+    }
 
     // Step 2: Sync 2026 Approvals board
     console.log('Step 2: Syncing 2026 Approvals board...');
@@ -410,11 +561,11 @@ function refreshMarketingDataFromMonday() {
     clear2026ApprovalsCaches();
 
     console.log('Full data refresh completed successfully');
-    return { success: true, message: 'All data refreshed from Monday.com' };
+    return { success: true, message: 'All data refreshed from Monday.com', skipped: false };
 
   } catch (error) {
     console.error('Error refreshing data from Monday:', error);
-    return { success: false, message: error.toString() };
+    return { success: false, message: error.toString(), skipped: false };
   }
 }
 
@@ -603,6 +754,112 @@ function clearHeatmapCaches() {
   }
 }
 
+// ============================================
+// SYNC LOCK AND DEBOUNCE FUNCTIONS
+// Prevent concurrent syncs and rapid re-syncs
+// ============================================
+
+/**
+ * Check if a sync can start (not already running, not recently completed)
+ * @param {number} debounceSeconds - Minimum seconds between syncs (default 60)
+ * @returns {Object} { canStart: boolean, reason: string, syncInProgress: boolean, lastSyncAge: number }
+ */
+function canStartSync(debounceSeconds) {
+  debounceSeconds = debounceSeconds || 60;
+  const cache = CacheService.getScriptCache();
+  const syncInProgress = cache.get('SYNC_IN_PROGRESS');
+  const lastSyncTime = cache.get('LAST_SYNC_COMPLETED');
+
+  // Check if sync is already running
+  if (syncInProgress === 'true') {
+    return {
+      canStart: false,
+      reason: 'Sync already in progress',
+      syncInProgress: true,
+      lastSyncAge: null
+    };
+  }
+
+  // Check if sync completed recently (within debounce window)
+  if (lastSyncTime) {
+    const elapsed = Date.now() - parseInt(lastSyncTime);
+    const elapsedSeconds = Math.round(elapsed / 1000);
+    if (elapsed < debounceSeconds * 1000) {
+      return {
+        canStart: false,
+        reason: 'Recent sync completed ' + elapsedSeconds + 's ago (waiting ' + debounceSeconds + 's)',
+        syncInProgress: false,
+        lastSyncAge: elapsedSeconds
+      };
+    }
+  }
+
+  return { canStart: true, reason: 'Ready to sync', syncInProgress: false, lastSyncAge: null };
+}
+
+/**
+ * Set the sync lock to prevent concurrent syncs
+ */
+function setSyncLock() {
+  const cache = CacheService.getScriptCache();
+  cache.put('SYNC_IN_PROGRESS', 'true', 900); // 15 min max lock (safety timeout for 4+ min syncs)
+  cache.put('SYNC_STARTED_AT', String(Date.now()), 900);
+  console.log('Sync lock acquired');
+}
+
+/**
+ * Clear the sync lock and record completion time
+ */
+function clearSyncLock() {
+  const cache = CacheService.getScriptCache();
+  cache.remove('SYNC_IN_PROGRESS');
+  cache.put('LAST_SYNC_COMPLETED', String(Date.now()), 900); // Remember for 15 minutes
+  console.log('Sync lock released, completion time recorded');
+}
+
+/**
+ * Get current sync status for UI display
+ * @returns {Object} { inProgress: boolean, lastCompleted: number|null, canSync: boolean, message: string }
+ */
+function getSyncStatus() {
+  const cache = CacheService.getScriptCache();
+  const syncInProgress = cache.get('SYNC_IN_PROGRESS') === 'true';
+  const lastSyncTime = cache.get('LAST_SYNC_COMPLETED');
+  const syncStartedAt = cache.get('SYNC_STARTED_AT');
+
+  let lastCompletedAge = null;
+  let syncDuration = null;
+
+  if (lastSyncTime) {
+    lastCompletedAge = Math.round((Date.now() - parseInt(lastSyncTime)) / 1000);
+  }
+
+  if (syncInProgress && syncStartedAt) {
+    syncDuration = Math.round((Date.now() - parseInt(syncStartedAt)) / 1000);
+  }
+
+  const checkResult = canStartSync(300); // 5 minute debounce for 4+ min syncs
+
+  return {
+    inProgress: syncInProgress,
+    lastCompletedSecondsAgo: lastCompletedAge,
+    syncDurationSeconds: syncDuration,
+    canSync: checkResult.canStart,
+    message: checkResult.reason
+  };
+}
+
+/**
+ * Force clear sync lock (for admin/debugging purposes)
+ */
+function forceClearSyncLock() {
+  const cache = CacheService.getScriptCache();
+  cache.remove('SYNC_IN_PROGRESS');
+  cache.remove('SYNC_STARTED_AT');
+  console.log('Sync lock force cleared');
+  return { success: true, message: 'Sync lock cleared' };
+}
+
 /**
  * Clear ALL data caches (marketing, activities, heatmap)
  * Call this for comprehensive cache invalidation
@@ -617,30 +874,60 @@ function clearAllDataCaches() {
 
 /**
  * Main function to sync Monday.com data to Google Sheets (Dashboard first, then Data)
+ * @param {boolean} force - If true, skip the debounce check (but still respect the lock)
+ * @returns {Object} { success: boolean, message: string, skipped: boolean }
  */
-function syncMondayData() {
+function syncMondayData(force) {
+  // Check if we can start a sync
+  const syncCheck = canStartSync(300); // 5 minute debounce (syncs take 4+ minutes)
+
+  if (!syncCheck.canStart) {
+    // If sync is in progress, always skip
+    if (syncCheck.syncInProgress) {
+      console.log('Sync skipped: ' + syncCheck.reason);
+      return { success: false, message: syncCheck.reason, skipped: true };
+    }
+    // If just debounced, skip unless forced
+    if (!force) {
+      console.log('Sync skipped: ' + syncCheck.reason);
+      return { success: false, message: syncCheck.reason, skipped: true };
+    }
+    console.log('Sync debounce overridden by force flag');
+  }
+
+  // Acquire the sync lock
+  setSyncLock();
+
   try {
     console.log('Starting Monday.com multi-stage sync...');
-    
+
     // STAGE 1: Sync MondayDashboard first
     console.log('\n=== STAGE 1: Syncing MondayDashboard ===');
     syncMondayDashboard();
-    
+
     // STAGE 2: Sync MondayData using board IDs from MondayDashboard
     console.log('\n=== STAGE 2: Syncing MondayData ===');
-    
-    // Get the MondayData sheet
-    const sheet = getOrCreateSheet(SHEET_TAB_NAME);
-    
-    // Clear existing data from row 2 onwards
-    clearSheetData(sheet);
-    
+
+    // Get the temp sheet for fast sync - write all data here first
+    const TEMP_SHEET_NAME = 'MondayData_Temp';
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Delete temp sheet if it exists from a previous failed run
+    let tempSheet = spreadsheet.getSheetByName(TEMP_SHEET_NAME);
+    if (tempSheet) {
+      spreadsheet.deleteSheet(tempSheet);
+    }
+
+    // Create fresh temp sheet
+    tempSheet = spreadsheet.insertSheet(TEMP_SHEET_NAME);
+    console.log('Created temp sheet for fast sync');
+
     // Get board configurations from MondayDashboard
     const boardConfigs = getBoardConfigurations();
-    
+
     let totalItems = 0;
     let allBoardsProcessed = false;
-    
+
     for (let i = 0; i < boardConfigs.length; i++) {
       const boardConfig = boardConfigs[i];
       const isFirstBoard = (i === 0);
@@ -655,7 +942,7 @@ function syncMondayData() {
         // Get all items from the board
         const items = getAllBoardItems(boardConfig.boardId);
 
-        // Process and write data to sheet
+        // Process and write data to TEMP sheet
         if (items.length > 0) {
           // Add board info to each item for identification
           items.forEach(item => {
@@ -664,15 +951,15 @@ function syncMondayData() {
             item.boardId = boardConfig.boardId;
           });
 
-          writeDataToSheet(sheet, boardStructure, items, isFirstBoard, boardConfig);
+          writeDataToSheet(tempSheet, boardStructure, items, isFirstBoard, boardConfig);
           totalItems += items.length;
         }
-        
+
         // Mark all boards as processed if this is the last board
         if (isLastBoard) {
           allBoardsProcessed = true;
         }
-        
+
       } catch (boardError) {
         console.error(`Error processing board ${boardConfig.boardName} (${boardConfig.boardId}):`, boardError);
         // Continue with next board instead of stopping entire sync
@@ -681,33 +968,56 @@ function syncMondayData() {
         }
       }
     }
-    
-    // Apply post-processing after all boards are processed
+
+    // Apply post-processing to temp sheet after all boards are processed
     if (allBoardsProcessed) {
-      console.log('\n=== Starting Post-Processing ===');
-      
+      console.log('\n=== Starting Post-Processing on Temp Sheet ===');
+
       // 1. Delete rows where column B (Group) equals completed statuses
-      deleteCompletedRows(sheet);
-      
+      deleteCompletedRows(tempSheet);
+
       // 2. Apply partner name translations
-      translatePartnerNames();
-      
+      translatePartnerNamesOnSheet(tempSheet);
+
       // 3. Sort the data by column A (Item Name)
-      sortDataByItemName(sheet);
-      
-      // Auto-resize columns for better visibility
-      const lastColumn = sheet.getLastColumn();
-      for (let i = 1; i <= lastColumn; i++) {
-        sheet.autoResizeColumn(i);
+      sortDataByItemName(tempSheet);
+
+      console.log('Post-processing complete on temp sheet');
+
+      // Now copy from temp sheet to MondayData in one fast operation
+      console.log('\n=== Copying data from temp to MondayData ===');
+      const mainSheet = getOrCreateSheet(SHEET_TAB_NAME);
+
+      // Clear existing data in main sheet
+      clearSheetData(mainSheet);
+
+      // Get all data from temp sheet
+      const tempLastRow = tempSheet.getLastRow();
+      const tempLastCol = tempSheet.getLastColumn();
+
+      if (tempLastRow > 0 && tempLastCol > 0) {
+        const allData = tempSheet.getRange(1, 1, tempLastRow, tempLastCol).getValues();
+
+        // Write all data to main sheet in one operation
+        mainSheet.getRange(1, 1, tempLastRow, tempLastCol).setValues(allData);
+
+        // Auto-resize columns for better visibility
+        for (let i = 1; i <= tempLastCol; i++) {
+          mainSheet.autoResizeColumn(i);
+        }
+
+        console.log(`Copied ${tempLastRow} rows to MondayData sheet`);
       }
-      
-      console.log('Post-processing complete');
+
+      // Delete the temp sheet
+      spreadsheet.deleteSheet(tempSheet);
+      console.log('Deleted temp sheet');
     }
-    
+
     // STAGE 3: Sync Marketing Boards
     console.log('\n=== STAGE 3: Syncing Marketing Boards ===');
     syncMarketingBoards();
-    
+
     console.log(`\n=== Sync Complete ===`);
     console.log(`Dashboard synced successfully`);
     console.log(`Total items synced from ${boardConfigs.length} dashboard boards: ${totalItems}`);
@@ -722,9 +1032,16 @@ function syncMondayData() {
     clearActivityCaches();
     clearHeatmapCaches();
 
+    // Release sync lock and record completion
+    clearSyncLock();
+
+    return { success: true, message: 'Sync completed successfully', skipped: false };
+
   } catch (error) {
     console.error('Error syncing Monday data:', error);
-  //  SpreadsheetApp.getUi().alert('Error: ' + error.toString());
+    // Release sync lock even on error
+    clearSyncLock();
+    return { success: false, message: 'Sync error: ' + String(error), skipped: false };
   }
 }
 

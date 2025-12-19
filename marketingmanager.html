@@ -798,6 +798,7 @@
       const [saving, setSaving] = useState(false);
       const [error, setError] = useState(null);
       const [selectedGroup, setSelectedGroup] = useState(null);
+      const [showIncompleteModal, setShowIncompleteModal] = useState(false);
 
       // Initialize form data and set default group
       useEffect(() => {
@@ -820,9 +821,20 @@
         setFormData(prev => ({ ...prev, [columnTitle]: value }));
       };
 
+      // Check if form can be saved - for edit mode, just require item name
+      const canSave = useMemo(() => {
+        // Item name is always required
+        if (!itemName || itemName.trim() === '') {
+          return false;
+        }
+        return true;
+      }, [itemName]);
+
       // Check if all mandatory fields are filled
-      const allMandatoryFieldsFilled = useMemo(() => {
-        if (!flowConfig?.columns || !columns) return true;
+      const checkMandatoryFields = () => {
+        if (!flowConfig?.columns || !columns) return { allFilled: true, missingFields: [] };
+
+        const missingFields = [];
 
         // Check each mandatory field in the flow config
         for (const flowCol of flowConfig.columns) {
@@ -835,27 +847,54 @@
           // Check if the field has a value
           const value = formData[column.title];
           if (value === undefined || value === null || value === '') {
-            return false;
+            missingFields.push(column.title);
           }
         }
 
-        // Also check item name
-        if (!itemName || itemName.trim() === '') {
-          return false;
-        }
-
-        return true;
-      }, [flowConfig, columns, formData, itemName]);
+        return { allFilled: missingFields.length === 0, missingFields };
+      };
 
       const handleSave = async () => {
+        // Check if all mandatory fields are filled
+        const { allFilled } = checkMandatoryFields();
+
+        if (!allFilled) {
+          // Show confirmation modal
+          setShowIncompleteModal(true);
+          return;
+        }
+
+        // All mandatory fields filled, proceed with save
+        performSave(formData);
+      };
+
+      // Perform the actual save operation
+      const performSave = (dataToSave) => {
         setSaving(true);
         setError(null);
         try {
-          onSave({ ...formData, 'Item Name': itemName, 'Name': itemName });
+          // Include the Monday Item ID from the original item so the parent can update the correct item
+          onSave({
+            ...dataToSave,
+            'Item Name': itemName,
+            'Name': itemName,
+            'Monday Item ID': item['Monday Item ID']
+          });
         } catch (err) {
           setError(err.message || 'Failed to update item');
           setSaving(false);
         }
+      };
+
+      // Handle "Save Anyway" from confirmation modal - set Overall Status to In Progress
+      const handleSaveAnyway = () => {
+        setShowIncompleteModal(false);
+        const updatedData = {
+          ...formData,
+          'Overall Status': 'In Progress'
+        };
+        setFormData(updatedData);
+        performSave(updatedData);
       };
 
       // Get columns for the selected group
@@ -888,6 +927,8 @@
 
         const { title, type, settings } = column;
         const value = formData[title] || '';
+        const isMandatory = flowCol.mandatory === true;
+        const labelContent = isMandatory ? <>{title} <span style={{ color: 'red' }}>*</span></> : title;
 
         // Skip system columns
         const skipColumns = ['Monday Item ID', 'Board ID', 'Board Name', 'Group', '_rowIndex'];
@@ -901,7 +942,7 @@
         if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">(Blank)</option>
                 {partnerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -923,7 +964,7 @@
           const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
                 {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -938,7 +979,7 @@
           const options = Array.isArray(labels) ? labels.map(l => l.name || l) : Object.values(labels);
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
                 {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -951,7 +992,7 @@
         if (type === 'date') {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <input type="date" className="form-control" value={value ? value.substring(0, 10) : ''} onChange={(e) => handleChange(title, e.target.value)} />
             </div>
           );
@@ -961,7 +1002,7 @@
         if (type === 'numbers' || type === 'numeric') {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <input type="number" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
             </div>
           );
@@ -970,7 +1011,7 @@
         // Default text input
         return (
           <div className="mb-3" key={column.id}>
-            <label className="form-label">{title}</label>
+            <label className="form-label">{labelContent}</label>
             <input type="text" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
           </div>
         );
@@ -979,67 +1020,91 @@
       const groupColumns = getGroupColumns();
 
       return (
-        <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <div className="modal-dialog modal-xl modal-dialog-scrollable">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">Edit 2026 Approval: {itemName}</h5>
-                <button type="button" className="btn-close" onClick={onClose} disabled={saving}></button>
-              </div>
-              <div className="modal-body" style={{ display: 'flex', minHeight: '400px' }}>
-                {/* Vertical Group Navigation on Left */}
-                {flowConfig?.groups?.length > 0 && (
-                  <div className="nav flex-column me-3" style={{ minWidth: '150px', borderRight: '1px solid #dee2e6', paddingRight: '1rem' }}>
-                    {flowConfig.groups.map((group, idx) => (
-                      <button
-                        key={group.key}
-                        onClick={() => setSelectedGroup(group.key)}
-                        type="button"
-                        style={{
-                          marginBottom: '0.25rem',
-                          padding: '0.5rem 1rem',
-                          border: 'none',
-                          borderRadius: '4px',
-                          textAlign: 'left',
-                          backgroundColor: selectedGroup === group.key ? '#00739d' : 'transparent',
-                          color: selectedGroup === group.key ? 'white' : '#00739d',
-                          fontWeight: selectedGroup === group.key ? '600' : '400',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {group.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Form Fields on Right */}
-                <div style={{ flex: 1, overflowY: 'auto', paddingLeft: '1rem' }}>
-                  {error && <div className="alert alert-danger">{error}</div>}
-
-                  {/* Item Name - always visible */}
-                  <div className="mb-3">
-                    <label className="form-label">Activity Name</label>
-                    <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} />
-                  </div>
-
-                  {/* Group Fields */}
-                  {groupColumns.length > 0 ? (
-                    groupColumns.map(flowCol => renderFormControl(flowCol))
-                  ) : (
-                    <div className="text-muted">No fields available for this section.</div>
-                  )}
+        <>
+          <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <div className="modal-dialog modal-xl modal-dialog-scrollable">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h5 className="modal-title">Edit 2026 Approval: {itemName}</h5>
+                  <button type="button" className="btn-close" onClick={onClose} disabled={saving}></button>
                 </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
-                <button type="button" className="btn" onClick={handleSave} disabled={saving || !allMandatoryFieldsFilled} style={{ backgroundColor: '#00739d', color: 'white' }}>
-                  {saving ? <><span className="spinner-border spinner-border-sm me-2"></span>Saving...</> : 'Save Changes'}
-                </button>
+                <div className="modal-body" style={{ display: 'flex', minHeight: '400px' }}>
+                  {/* Vertical Group Navigation on Left */}
+                  {flowConfig?.groups?.length > 0 && (
+                    <div className="nav flex-column me-3" style={{ minWidth: '150px', borderRight: '1px solid #dee2e6', paddingRight: '1rem' }}>
+                      {flowConfig.groups.map((group, idx) => (
+                        <button
+                          key={group.key}
+                          onClick={() => setSelectedGroup(group.key)}
+                          type="button"
+                          style={{
+                            marginBottom: '0.25rem',
+                            padding: '0.5rem 1rem',
+                            border: 'none',
+                            borderRadius: '4px',
+                            textAlign: 'left',
+                            backgroundColor: selectedGroup === group.key ? '#00739d' : 'transparent',
+                            color: selectedGroup === group.key ? 'white' : '#00739d',
+                            fontWeight: selectedGroup === group.key ? '600' : '400',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {group.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Form Fields on Right */}
+                  <div style={{ flex: 1, overflowY: 'auto', paddingLeft: '1rem' }}>
+                    {error && <div className="alert alert-danger">{error}</div>}
+
+                    {/* Item Name - always visible */}
+                    <div className="mb-3">
+                      <label className="form-label">Activity Name</label>
+                      <input type="text" className="form-control" value={itemName} onChange={(e) => setItemName(e.target.value)} />
+                    </div>
+
+                    {/* Group Fields */}
+                    {groupColumns.length > 0 ? (
+                      groupColumns.map(flowCol => renderFormControl(flowCol))
+                    ) : (
+                      <div className="text-muted">No fields available for this section.</div>
+                    )}
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+                  <button type="button" className="btn" onClick={handleSave} disabled={saving || !canSave} style={{ backgroundColor: '#00739d', color: 'white' }}>
+                    {saving ? <><span className="spinner-border spinner-border-sm me-2"></span>Saving...</> : 'Save Changes'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+
+          {/* Incomplete Fields Confirmation Modal */}
+          {showIncompleteModal && (
+            <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1060 }}>
+              <div className="modal-dialog modal-dialog-centered">
+                <div className="modal-content">
+                  <div className="modal-header">
+                    <h5 className="modal-title">Incomplete Form</h5>
+                    <button type="button" className="btn-close" onClick={() => setShowIncompleteModal(false)}></button>
+                  </div>
+                  <div className="modal-body">
+                    <p>All Required Fields not Complete, Save Anyway?</p>
+                    <p className="text-muted small">If you save now, the Overall Status will be set to "In Progress".</p>
+                  </div>
+                  <div className="modal-footer">
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowIncompleteModal(false)}>No</button>
+                    <button type="button" className="btn btn-primary" onClick={handleSaveAnyway} style={{ backgroundColor: '#00739d', borderColor: '#00739d' }}>Yes</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
       );
     }
 
@@ -1050,6 +1115,7 @@
       const [creating, setCreating] = useState(false);
       const [error, setError] = useState(null);
       const [selectedGroup, setSelectedGroup] = useState(null);
+      const [showIncompleteModal, setShowIncompleteModal] = useState(false);
 
       // Set default group
       useEffect(() => {
@@ -1062,17 +1128,16 @@
         setFormData(prev => ({ ...prev, [columnTitle]: value }));
       };
 
-      // Check if all mandatory fields are filled (only visible mandatory fields)
-      const allMandatoryFieldsFilled = useMemo(() => {
-        // If no config yet, allow creation if item name is filled
-        if (!flowConfig?.columns || !columns || columns.length === 0) {
-          return itemName && itemName.trim() !== '';
-        }
+      // Check if form can be saved - require item name
+      const canSave = useMemo(() => {
+        return itemName && itemName.trim() !== '';
+      }, [itemName]);
 
-        // Check item name first
-        if (!itemName || itemName.trim() === '') {
-          return false;
-        }
+      // Check if all mandatory fields are filled (only visible mandatory fields)
+      const checkMandatoryFields = () => {
+        if (!flowConfig?.columns || !columns) return { allFilled: true, missingFields: [] };
+
+        const missingFields = [];
 
         // Check each mandatory field in the flow config (only if visible)
         for (const flowCol of flowConfig.columns) {
@@ -1097,12 +1162,12 @@
           // Check if the field has a value
           const value = formData[column.title];
           if (value === undefined || value === null || value === '') {
-            return false;
+            missingFields.push(column.title);
           }
         }
 
-        return true;
-      }, [flowConfig, columns, formData, itemName]);
+        return { allFilled: missingFields.length === 0, missingFields };
+      };
 
       const handleCreate = async () => {
         if (!itemName.trim()) {
@@ -1110,14 +1175,40 @@
           return;
         }
 
+        // Check if all mandatory fields are filled
+        const { allFilled } = checkMandatoryFields();
+
+        if (!allFilled) {
+          // Show confirmation modal
+          setShowIncompleteModal(true);
+          return;
+        }
+
+        // All mandatory fields filled, proceed with create
+        performCreate(formData);
+      };
+
+      // Perform the actual create operation
+      const performCreate = (dataToCreate) => {
         setCreating(true);
         setError(null);
         try {
-          onCreate({ ...formData, 'Item Name': itemName, 'Name': itemName });
+          onCreate({ ...dataToCreate, 'Item Name': itemName, 'Name': itemName });
         } catch (err) {
           setError(err.message || 'Failed to create item');
           setCreating(false);
         }
+      };
+
+      // Handle "Save Anyway" from confirmation modal - set Overall Status to In Progress
+      const handleCreateAnyway = () => {
+        setShowIncompleteModal(false);
+        const updatedData = {
+          ...formData,
+          'Overall Status': 'In Progress'
+        };
+        setFormData(updatedData);
+        performCreate(updatedData);
       };
 
       // Get columns for the selected group
@@ -1150,6 +1241,8 @@
 
         const { title, type, settings } = column;
         const value = formData[title] || '';
+        const isMandatory = flowCol.mandatory === true;
+        const labelContent = isMandatory ? <>{title} <span style={{ color: 'red' }}>*</span></> : title;
 
         // Skip system columns
         const skipColumns = ['Monday Item ID', 'Board ID', 'Board Name', 'Group', '_rowIndex'];
@@ -1163,7 +1256,7 @@
         if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">(Blank)</option>
                 {partnerOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -1185,7 +1278,7 @@
           const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
                 {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -1200,7 +1293,7 @@
           const options = Array.isArray(labels) ? labels.map(l => l.name || l) : Object.values(labels);
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
                 {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
@@ -1213,7 +1306,7 @@
         if (type === 'date') {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <input type="date" className="form-control" value={value ? value.substring(0, 10) : ''} onChange={(e) => handleChange(title, e.target.value)} />
             </div>
           );
@@ -1223,7 +1316,7 @@
         if (type === 'numbers' || type === 'numeric') {
           return (
             <div className="mb-3" key={column.id}>
-              <label className="form-label">{title}</label>
+              <label className="form-label">{labelContent}</label>
               <input type="number" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
             </div>
           );
@@ -1232,7 +1325,7 @@
         // Default text input
         return (
           <div className="mb-3" key={column.id}>
-            <label className="form-label">{title}</label>
+            <label className="form-label">{labelContent}</label>
             <input type="text" className="form-control" value={value} onChange={(e) => handleChange(title, e.target.value)} />
           </div>
         );
@@ -1241,6 +1334,7 @@
       const groupColumns = getGroupColumns();
 
       return (
+        <>
         <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.5)' }}>
           <div className="modal-dialog modal-xl modal-dialog-scrollable">
             <div className="modal-content">
@@ -1295,18 +1389,41 @@
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={onClose} disabled={creating}>Cancel</button>
-                <button type="button" className="btn" onClick={handleCreate} disabled={creating || !allMandatoryFieldsFilled} style={{ backgroundColor: '#00739d', color: 'white' }}>
+                <button type="button" className="btn" onClick={handleCreate} disabled={creating || !canSave} style={{ backgroundColor: '#00739d', color: 'white' }}>
                   {creating ? <><span className="spinner-border spinner-border-sm me-2"></span>Creating...</> : 'Create Item'}
                 </button>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Incomplete Fields Confirmation Modal */}
+        {showIncompleteModal && (
+          <div className="modal fade show" style={{ display: 'block', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 1060 }}>
+            <div className="modal-dialog modal-dialog-centered">
+              <div className="modal-content">
+                <div className="modal-header">
+                  <h5 className="modal-title">Incomplete Form</h5>
+                  <button type="button" className="btn-close" onClick={() => setShowIncompleteModal(false)}></button>
+                </div>
+                <div className="modal-body">
+                  <p>All Required Fields not Complete, Save Anyway?</p>
+                  <p className="text-muted small">If you save now, the Overall Status will be set to "In Progress".</p>
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowIncompleteModal(false)}>No</button>
+                  <button type="button" className="btn btn-primary" onClick={handleCreateAnyway} style={{ backgroundColor: '#00739d', borderColor: '#00739d' }}>Yes</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
       );
     }
 
     // Marketing Approvals Tab Component
-    function MarketingApprovalsTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
+    function MarketingApprovalsTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled, partnerNamesFromSheet }) {
       const [fundingTypes, setFundingTypes] = useState([]);
       const [overallStatuses, setOverallStatuses] = useState([]);
       const [allianceManagers, setAllianceManagers] = useState([]);
@@ -1484,7 +1601,7 @@
               columns={columns}
               onClose={() => setEditingItem(null)}
               onSave={handleEditSave}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
               allianceManagerOptions={filterOptions.allianceManagers || []}
             />
           )}
@@ -1502,7 +1619,7 @@
               columns={columns}
               onClose={() => setShowAddModal(false)}
               onCreate={handleAddCreate}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
               allianceManagerOptions={filterOptions.allianceManagers || []}
             />
           )}
@@ -1511,17 +1628,47 @@
     }
 
     // Marketing Calendar Tab Component
-    function MarketingCalendarTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled }) {
+    function MarketingCalendarTab({ data, filterOptions, columns, onRefresh, autoEditItemId, onAutoEditHandled, partnerNamesFromSheet }) {
       const [partners, setPartners] = useState([]);
       const [owners, setOwners] = useState([]);
       const [activityTypes, setActivityTypes] = useState([]);
       const [editingItem, setEditingItem] = useState(null);
       const [deletingItem, setDeletingItem] = useState(null);
       const [showAddModal, setShowAddModal] = useState(false);
+      const [loadingItem, setLoadingItem] = useState(false);
+
+      // Fetch fresh item data from Monday before opening edit modal
+      const openEditModal = async (item) => {
+        const itemId = item['Monday Item ID'];
+        if (!itemId) {
+          console.error('No Monday Item ID found for item');
+          setEditingItem(item); // Fall back to cached data
+          return;
+        }
+
+        setLoadingItem(true);
+        try {
+          console.log('Fetching fresh data from Monday for item:', itemId);
+          const result = await api.call('getMondayItemById', MARKETING_CALENDAR_BOARD_ID, itemId);
+
+          if (result.success && result.item) {
+            console.log('Got fresh item data:', result.item);
+            setEditingItem(result.item);
+          } else {
+            console.warn('Failed to fetch fresh data, using cached:', result.error);
+            setEditingItem(item); // Fall back to cached data
+          }
+        } catch (err) {
+          console.error('Error fetching fresh item data:', err);
+          setEditingItem(item); // Fall back to cached data
+        } finally {
+          setLoadingItem(false);
+        }
+      };
 
       // Auto-open edit modal if itemId is provided via URL
       useEffect(() => {
-        if (autoEditItemId && data.length > 0) {
+        if (autoEditItemId && data.length > 0 && !editingItem && !loadingItem) {
           console.log('Calendar: Looking for item to auto-edit:', autoEditItemId);
           console.log('Calendar data has', data.length, 'items');
 
@@ -1532,13 +1679,14 @@
 
           if (itemToEdit) {
             console.log('Calendar: Found item to auto-edit:', itemToEdit['Item Name']);
-            setEditingItem(itemToEdit);
+            // Fetch fresh data from Monday before opening edit modal
+            openEditModal(itemToEdit);
             if (onAutoEditHandled) onAutoEditHandled();
           } else {
             console.log('Calendar: Item not found in data. Looking for ID:', autoEditItemId);
           }
         }
-      }, [autoEditItemId, data, onAutoEditHandled]);
+      }, [autoEditItemId, data, onAutoEditHandled, editingItem, loadingItem]);
 
       // Apply filters (OR within, AND between)
       const filteredData = useMemo(() => {
@@ -1558,18 +1706,27 @@
 
       const hasFilters = partners.length > 0 || owners.length > 0 || activityTypes.length > 0;
 
-      const handleEditSave = () => {
+      const handleEditSave = async () => {
         setEditingItem(null);
+        // Sync Marketing Calendar from Monday and clear cache
+        console.log('Syncing Marketing Calendar after edit...');
+        await api.call('syncAndClearMarketingCalendar');
         onRefresh();
       };
 
-      const handleDeleteConfirm = () => {
+      const handleDeleteConfirm = async () => {
         setDeletingItem(null);
+        // Sync Marketing Calendar from Monday and clear cache
+        console.log('Syncing Marketing Calendar after delete...');
+        await api.call('syncAndClearMarketingCalendar');
         onRefresh();
       };
 
-      const handleAddCreate = () => {
+      const handleAddCreate = async () => {
         setShowAddModal(false);
+        // Sync Marketing Calendar from Monday and clear cache
+        console.log('Syncing Marketing Calendar after add...');
+        await api.call('syncAndClearMarketingCalendar');
         onRefresh();
       };
 
@@ -1626,8 +1783,8 @@
                     <tr key={idx}>
                       <td>
                         <div className="action-buttons">
-                          <button className="btn btn-outline-primary btn-sm" onClick={() => setEditingItem(item)} title="Edit">
-                            Edit
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => openEditModal(item)} title="Edit" disabled={loadingItem}>
+                            {loadingItem ? '...' : 'Edit'}
                           </button>
                           <button className="btn btn-outline-danger btn-sm" onClick={() => setDeletingItem(item)} title="Delete">
                             Del
@@ -1664,7 +1821,7 @@
               columns={columns}
               onClose={() => setEditingItem(null)}
               onSave={handleEditSave}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
               allianceManagerOptions={[]}
             />
           )}
@@ -1682,7 +1839,7 @@
               columns={columns}
               onClose={() => setShowAddModal(false)}
               onCreate={handleAddCreate}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
               allianceManagerOptions={[]}
             />
           )}
@@ -1691,7 +1848,7 @@
     }
 
     // 2026 Approvals Tab Component
-    function Approvals2026Tab({ data, filterOptions, columns, flowConfig, onRefresh, autoEditItemId, onAutoEditHandled }) {
+    function Approvals2026Tab({ data, filterOptions, columns, flowConfig, onRefresh, autoEditItemId, onAutoEditHandled, partnerNamesFromSheet }) {
       const [fundingTypes, setFundingTypes] = useState([]);
       const [overallStatuses, setOverallStatuses] = useState([]);
       const [partners, setPartners] = useState([]);
@@ -1740,7 +1897,19 @@
           const itemId = updatedItem['Monday Item ID'];
           const boardId = APPROVALS_2026_BOARD_ID;
 
-          // Build column values for update
+          // First, update Item Name if it changed (requires separate API call)
+          const newItemName = updatedItem['Item Name'] || updatedItem['Name'];
+          if (newItemName) {
+            console.log('Updating item name to:', newItemName);
+            try {
+              await api.call('updateMondayItemName', boardId, itemId, newItemName);
+            } catch (nameErr) {
+              console.error('Error updating item name:', nameErr);
+              // Continue with other updates even if name update fails
+            }
+          }
+
+          // Build column values for update using column IDs
           const columnValues = {};
 
           // Map form fields to Monday column IDs
@@ -1748,27 +1917,33 @@
           if (updatedItem['Requestor'] !== undefined) {
             columnValues['text_mky7xyqh'] = updatedItem['Requestor'];
           }
-          // Funding Type - color_mkxxef94
+          // Funding Type - color_mkxxef94 (status column - needs label format)
           if (updatedItem['Funding Type'] !== undefined) {
-            columnValues['color_mkxxef94'] = updatedItem['Funding Type'];
+            columnValues['color_mkxxef94'] = { label: updatedItem['Funding Type'] };
           }
-          // Overall Status - status
+          // Overall Status - status (status column - needs label format)
           if (updatedItem['Overall Status'] !== undefined) {
-            columnValues['status'] = updatedItem['Overall Status'];
+            columnValues['status'] = { label: updatedItem['Overall Status'] };
           }
           // Partner - text_mkv092nh
           if (updatedItem['Partner'] !== undefined) {
             columnValues['text_mkv092nh'] = updatedItem['Partner'];
           }
-          // Event Date - date_mktkb5sf
-          if (updatedItem['Event Date'] !== undefined) {
-            columnValues['date_mktkb5sf'] = updatedItem['Event Date'];
+          // Event Date - date_mktkb5sf (date column - needs date format)
+          if (updatedItem['Event Date'] !== undefined && updatedItem['Event Date'] !== '') {
+            columnValues['date_mktkb5sf'] = { date: updatedItem['Event Date'].substring(0, 10) };
           }
 
-          console.log('Updating 2026 approval item:', itemId, 'with values:', columnValues);
+          // Only call update if there are columns to update
+          if (Object.keys(columnValues).length > 0) {
+            console.log('Updating 2026 approval item:', itemId, 'with values:', columnValues);
+            await api.call('updateMondayItemDirectColumns', boardId, itemId, columnValues);
+          }
 
-          await api.call('updateMondayItemMultipleColumns', boardId, itemId, columnValues);
           setEditingItem(null);
+          // Sync 2026 Approvals from Monday and clear cache
+          console.log('Syncing 2026 Approvals after edit...');
+          await api.call('syncAndClear2026Approvals');
           onRefresh();
 
         } catch (err) {
@@ -1787,6 +1962,9 @@
 
           await api.call('deleteMondayItem', itemId, boardId);
           setDeletingItem(null);
+          // Sync 2026 Approvals from Monday and clear cache
+          console.log('Syncing 2026 Approvals after delete...');
+          await api.call('syncAndClear2026Approvals');
           onRefresh();
 
         } catch (err) {
@@ -1835,6 +2013,9 @@
 
           await api.call('createMondayItem', boardId, itemName, columnValues);
           setShowAddModal(false);
+          // Sync 2026 Approvals from Monday and clear cache
+          console.log('Syncing 2026 Approvals after add...');
+          await api.call('syncAndClear2026Approvals');
           onRefresh();
 
         } catch (err) {
@@ -1940,7 +2121,7 @@
               flowConfig={flowConfig}
               onClose={() => setEditingItem(null)}
               onSave={handleEditSave}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
             />
           )}
           {/* Delete Confirmation Modal */}
@@ -1959,7 +2140,7 @@
               flowConfig={flowConfig}
               onClose={() => setShowAddModal(false)}
               onCreate={handleAddCreate}
-              partnerOptions={filterOptions.partners || []}
+              partnerOptions={partnerNamesFromSheet || []}
             />
           )}
         </div>
@@ -2279,8 +2460,8 @@
 
     // Partner Activities Tab Component
     function PartnerActivitiesTab({ data, onRefresh }) {
-      const [filterPartner, setFilterPartner] = useState('');
-      const [filterStatus, setFilterStatus] = useState('');
+      const [filterPartner, setFilterPartner] = useState([]);
+      const [filterStatus, setFilterStatus] = useState([]);
       const [columnsByBoard, setColumnsByBoard] = useState({});
       const [editingItem, setEditingItem] = useState(null);
       const [deletingItem, setDeletingItem] = useState(null);
@@ -2301,8 +2482,8 @@
         return data.filter(item => {
           const partner = item['Partner Name'] || item['Partner'] || '';
           const status = item['Activity Status'] || item['Status'] || '';
-          if (filterPartner && partner !== filterPartner) return false;
-          if (filterStatus && status !== filterStatus) return false;
+          if (filterPartner.length > 0 && !filterPartner.includes(partner)) return false;
+          if (filterStatus.length > 0 && !filterStatus.includes(status)) return false;
           return true;
         });
       }, [data, filterPartner, filterStatus]);
@@ -2332,9 +2513,29 @@
         setDeletingItem(item);
       };
 
-      // Handle save edit
-      const handleSaveEdit = (updatedData) => {
+      // Handle save edit - also update MondayData sheet immediately
+      const handleSaveEdit = async (updatedData) => {
+        const itemToEdit = editingItem;
         setEditingItem(null);
+
+        // Update MondayData sheet immediately for quick UI feedback
+        if (itemToEdit && itemToEdit['Monday Item ID']) {
+          try {
+            console.log('Updating MondayData sheet for Partner Activity:', itemToEdit['Monday Item ID']);
+            await api.call(
+              'updatePartnerActivityInSheet',
+              itemToEdit['Monday Item ID'],
+              updatedData,
+              itemToEdit['Board ID'],
+              itemToEdit['Partner Name'] || itemToEdit['Partner']
+            );
+            console.log('MondayData sheet updated successfully');
+          } catch (err) {
+            console.error('Error updating MondayData sheet (non-blocking):', err);
+            // Non-blocking - the sync will catch it later
+          }
+        }
+
         onRefresh();
       };
 
@@ -2363,10 +2564,32 @@
         }
       };
 
-      // Handle create new item
-      const handleCreate = (newItem) => {
+      // Handle create new item - also add to MondayData sheet immediately
+      const handleCreate = async (newItem) => {
+        const partnerInfo = selectedPartnerForAdd;
         setShowAddModal(false);
         setSelectedPartnerForAdd(null);
+
+        // Add to MondayData sheet immediately for quick UI feedback
+        if (newItem && newItem['Monday Item ID'] && partnerInfo) {
+          try {
+            console.log('Adding new Partner Activity to MondayData sheet');
+            await api.call(
+              'addPartnerActivityToSheet',
+              newItem['Item Name'] || newItem['Name'],
+              newItem['Monday Item ID'],
+              partnerInfo.boardId,
+              newItem['Board Name'] || partnerInfo.name + ' Board',
+              partnerInfo.name,
+              newItem
+            );
+            console.log('MondayData sheet updated with new item');
+          } catch (err) {
+            console.error('Error adding to MondayData sheet (non-blocking):', err);
+            // Non-blocking - the sync will catch it later
+          }
+        }
+
         onRefresh();
       };
 
@@ -2376,18 +2599,10 @@
           <div className="filter-section">
             <div className="row g-2 align-items-end">
               <div className="col-md-3">
-                <label className="form-label">Partner</label>
-                <select className="form-select form-select-sm" value={filterPartner} onChange={e => setFilterPartner(e.target.value)}>
-                  <option value="">All Partners</option>
-                  {partners.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <MultiSelectFilter label="Partner" options={partners} selected={filterPartner} onChange={setFilterPartner} />
               </div>
               <div className="col-md-3">
-                <label className="form-label">Status</label>
-                <select className="form-select form-select-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                  <option value="">All Statuses</option>
-                  {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <MultiSelectFilter label="Status" options={statuses} selected={filterStatus} onChange={setFilterStatus} />
               </div>
               <div className="col-md-3">
                 <span className="text-muted">Showing {filteredData.length} of {data.length}</span>
@@ -2420,7 +2635,7 @@
                       <td>{item['Partner Name'] || item['Partner'] || ''}</td>
                       <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
                       <td>{item['Owner'] || ''}</td>
-                      <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+                      <td>{item['Date Due'] || item['Due Date'] || item['Deadline'] || ''}</td>
                       <td>
                         <div className="action-buttons">
                           <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
@@ -2492,6 +2707,222 @@
               onClose={() => { setShowAddModal(false); setSelectedPartnerForAdd(null); }}
               onCreate={handleCreate}
               partnerOptions={partners}
+            />
+          )}
+        </div>
+      );
+    }
+
+    // Tasks Due Now Tab Component - filters Partner Activities for overdue and upcoming items
+    function TasksDueNowTab({ data, onRefresh }) {
+      const [columnsByBoard, setColumnsByBoard] = useState({});
+      const [editingItem, setEditingItem] = useState(null);
+      const [deletingItem, setDeletingItem] = useState(null);
+
+      // Filter data for tasks that are:
+      // 1. Overdue (current date past Date Due) AND Status not Completed
+      // 2. Due within 5 days AND Status not Completed
+      const filteredData = useMemo(() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const fiveDaysFromNow = new Date(today);
+        fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
+
+        return data.filter(item => {
+          // Check status - exclude Completed items
+          const status = (item['Activity Status'] || item['Status'] || '').toLowerCase();
+          if (status === 'completed' || status === 'done' || status === 'complete') {
+            return false;
+          }
+
+          // Get the due date
+          const dueDateStr = item['Date Due'] || item['Due Date'] || item['Deadline'] || '';
+          if (!dueDateStr) {
+            return false; // No due date, don't include
+          }
+
+          // Parse the date
+          let dueDate;
+          try {
+            dueDate = new Date(dueDateStr);
+            if (isNaN(dueDate.getTime())) {
+              return false; // Invalid date
+            }
+            dueDate.setHours(0, 0, 0, 0);
+          } catch (e) {
+            return false;
+          }
+
+          // Check if overdue OR due within 5 days
+          return dueDate <= fiveDaysFromNow;
+        });
+      }, [data]);
+
+      // Sort by due date (most urgent first)
+      const sortedData = useMemo(() => {
+        return [...filteredData].sort((a, b) => {
+          const dateA = new Date(a['Date Due'] || a['Due Date'] || a['Deadline'] || '');
+          const dateB = new Date(b['Date Due'] || b['Due Date'] || b['Deadline'] || '');
+          return dateA - dateB;
+        });
+      }, [filteredData]);
+
+      // Load column metadata for a board
+      const loadColumnMetadata = async (boardId) => {
+        if (!boardId || columnsByBoard[boardId]) return;
+        try {
+          const cols = await api.call('getBoardColumnsStructure', boardId);
+          setColumnsByBoard(prev => ({ ...prev, [boardId]: cols || [] }));
+        } catch (err) {
+          console.error('Error loading columns for board', boardId, err);
+        }
+      };
+
+      // Handle edit click
+      const handleEdit = async (item) => {
+        const boardId = item['Board ID'];
+        if (boardId && !columnsByBoard[boardId]) {
+          await loadColumnMetadata(boardId);
+        }
+        setEditingItem(item);
+      };
+
+      // Handle save edit
+      const handleSaveEdit = async (updatedData) => {
+        const itemToEdit = editingItem;
+        setEditingItem(null);
+
+        // Update MondayData sheet immediately
+        if (itemToEdit && itemToEdit['Monday Item ID']) {
+          try {
+            await api.call(
+              'updatePartnerActivityInSheet',
+              itemToEdit['Monday Item ID'],
+              updatedData,
+              itemToEdit['Board ID'],
+              itemToEdit['Partner Name'] || itemToEdit['Partner']
+            );
+          } catch (err) {
+            console.error('Error updating MondayData sheet:', err);
+          }
+        }
+
+        onRefresh();
+      };
+
+      // Handle delete
+      const handleDelete = (item) => {
+        setDeletingItem(item);
+      };
+
+      const handleConfirmDelete = () => {
+        setDeletingItem(null);
+        onRefresh();
+      };
+
+      // Get urgency badge
+      const getUrgencyBadge = (item) => {
+        const dueDateStr = item['Date Due'] || item['Due Date'] || item['Deadline'] || '';
+        if (!dueDateStr) return null;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const dueDate = new Date(dueDateStr);
+        dueDate.setHours(0, 0, 0, 0);
+
+        const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) {
+          return <span className="badge bg-danger">Overdue by {Math.abs(diffDays)} day{Math.abs(diffDays) !== 1 ? 's' : ''}</span>;
+        } else if (diffDays === 0) {
+          return <span className="badge bg-danger">Due Today</span>;
+        } else if (diffDays <= 2) {
+          return <span className="badge bg-warning text-dark">Due in {diffDays} day{diffDays !== 1 ? 's' : ''}</span>;
+        } else {
+          return <span className="badge bg-info">Due in {diffDays} days</span>;
+        }
+      };
+
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          {/* Header */}
+          <div className="filter-section">
+            <div className="d-flex justify-content-between align-items-center">
+              <div>
+                <h5 className="mb-1">Tasks Due Now</h5>
+                <span className="text-muted">Showing {sortedData.length} overdue or due within 5 days</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="data-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div className="table-responsive" style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+              <table className="table table-striped table-hover table-sm">
+                <thead className="table-light sticky-top">
+                  <tr>
+                    <th>Activity</th>
+                    <th>Partner</th>
+                    <th>Status</th>
+                    <th>Owner</th>
+                    <th>Due Date</th>
+                    <th>Urgency</th>
+                    <th style={{ width: '100px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedData.map((item, idx) => (
+                    <tr key={item['Monday Item ID'] || idx}>
+                      <td>{item['Name'] || item['Item Name'] || ''}</td>
+                      <td>{item['Partner Name'] || item['Partner'] || ''}</td>
+                      <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
+                      <td>{item['Owner'] || ''}</td>
+                      <td>{item['Date Due'] || item['Due Date'] || item['Deadline'] || ''}</td>
+                      <td>{getUrgencyBadge(item)}</td>
+                      <td>
+                        <div className="action-buttons">
+                          <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
+                            Edit
+                          </button>
+                          <button className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(item)} title="Delete">
+                            Del
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {sortedData.length === 0 && (
+                    <tr>
+                      <td colSpan="7" className="text-center text-muted py-4">
+                        No overdue or upcoming tasks
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Edit Modal */}
+          {editingItem && (
+            <EditItemModal
+              item={editingItem}
+              boardId={editingItem['Board ID']}
+              columns={columnsByBoard[editingItem['Board ID']] || []}
+              onClose={() => setEditingItem(null)}
+              onSave={handleSaveEdit}
+              partnerOptions={[]}
+            />
+          )}
+
+          {/* Delete Modal */}
+          {deletingItem && (
+            <DeleteConfirmModal
+              item={deletingItem}
+              boardId={deletingItem['Board ID']}
+              onClose={() => setDeletingItem(null)}
+              onConfirm={handleConfirmDelete}
             />
           )}
         </div>
@@ -2754,14 +3185,20 @@
       };
 
       // Handle save edit
-      const handleSaveEdit = (updatedData) => {
+      const handleSaveEdit = async (updatedData) => {
         setEditingItem(null);
+        // Sync Internal Activities from Monday and clear cache
+        console.log('Syncing Internal Activities after edit...');
+        await api.call('syncAndClearInternalActivities');
         onRefresh();
       };
 
       // Handle confirm delete
-      const handleConfirmDelete = () => {
+      const handleConfirmDelete = async () => {
         setDeletingItem(null);
+        // Sync Internal Activities from Monday and clear cache
+        console.log('Syncing Internal Activities after delete...');
+        await api.call('syncAndClearInternalActivities');
         onRefresh();
       };
 
@@ -2788,9 +3225,12 @@
       };
 
       // Handle create new item
-      const handleCreate = (newItem) => {
+      const handleCreate = async (newItem) => {
         setShowAddModal(false);
         setSelectedBoardIdForAdd(null);
+        // Sync Internal Activities from Monday and clear cache
+        console.log('Syncing Internal Activities after add...');
+        await api.call('syncAndClearInternalActivities');
         onRefresh();
       };
 
@@ -2948,21 +3388,31 @@
       });
       const [authLoading, setAuthLoading] = useState(true);
 
+      // Managed partners for the current user (partners where Account Owner matches current manager)
+      const [managedPartners, setManagedPartners] = useState([]);
+
       // View mode for role-based filtering: 'self', 'team', or 'dept'
       const [viewMode, setViewMode] = useState('self');
 
-      // Determine initial tab based on boardId from URL
-      const getInitialTab = () => {
+      // Determine initial main tab and subtab based on boardId from URL
+      const getInitialTabs = () => {
         if (String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID) {
-          return 'calendar';
+          return { mainTab: 'marketing', subTab: 'calendar' };
         }
         if (String(editBoardIdFromUrl) === APPROVALS_2026_BOARD_ID) {
-          return 'approvals2026';
+          return { mainTab: 'marketing', subTab: 'approvals2026' };
         }
-        return 'approvals';
+        // Default to marketing main tab with calendar subtab
+        return { mainTab: 'marketing', subTab: 'calendar' };
       };
 
-      const [activeTab, setActiveTab] = useState(getInitialTab());
+      const initialTabs = getInitialTabs();
+      const [activeMainTab, setActiveMainTab] = useState(initialTabs.mainTab);
+      const [activeTab, setActiveTab] = useState(initialTabs.subTab);
+
+      // Subtab states for Marketing and Partner sections
+      const [marketingSubTab, setMarketingSubTab] = useState(initialTabs.mainTab === 'marketing' ? initialTabs.subTab : 'calendar');
+      const [partnerSubTab, setPartnerSubTab] = useState('tasksDueNow');
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
       const [approvalsData, setApprovalsData] = useState([]);
@@ -2986,6 +3436,56 @@
       const [internalActivitiesData, setInternalActivitiesData] = useState([]);
       const [internalBoardNames, setInternalBoardNames] = useState([]);
 
+      // Partner names from Partner sheet (Account Name column) for dropdowns
+      const [partnerNamesFromSheet, setPartnerNamesFromSheet] = useState([]);
+
+      // Sync status state for showing sync progress
+      const [syncStatus, setSyncStatus] = useState({
+        inProgress: false,
+        lastCompletedSecondsAgo: null,
+        message: ''
+      });
+
+      // Ref for debounced refresh timer
+      const refreshTimerRef = React.useRef(null);
+      const lastRefreshRef = React.useRef(0);
+      const REFRESH_DEBOUNCE_MS = 3000; // Wait 3 seconds after last edit before refreshing
+
+      // Debounced loadData - waits for a quiet period before refreshing
+      const debouncedLoadData = React.useCallback(() => {
+        // Clear any existing timer
+        if (refreshTimerRef.current) {
+          clearTimeout(refreshTimerRef.current);
+        }
+
+        // Set new timer
+        refreshTimerRef.current = setTimeout(() => {
+          const now = Date.now();
+          const timeSinceLastRefresh = now - lastRefreshRef.current;
+
+          // Only refresh if enough time has passed since last refresh
+          if (timeSinceLastRefresh >= REFRESH_DEBOUNCE_MS) {
+            console.log('Debounced refresh triggered');
+            lastRefreshRef.current = now;
+            loadData();
+          } else {
+            console.log('Skipping refresh - too recent (' + timeSinceLastRefresh + 'ms ago)');
+          }
+        }, REFRESH_DEBOUNCE_MS);
+      }, []);
+
+      // Check sync status periodically when sync might be in progress
+      const checkSyncStatus = React.useCallback(async () => {
+        try {
+          const status = await api.call('getSyncStatus');
+          setSyncStatus(status);
+          return status;
+        } catch (err) {
+          console.error('Error checking sync status:', err);
+          return null;
+        }
+      }, []);
+
       // Load authorization data on mount
       useEffect(() => {
         console.log('=== Authorization Load Debug ===');
@@ -3002,9 +3502,16 @@
               console.log('Reports:', auth.reports);
               setAuthorization(auth);
               setAuthLoading(false);
+
+              // Also load managed partners for the current user
+              return api.call('getManagedPartners', currentManager);
+            })
+            .then(partners => {
+              console.log('Loaded managed partners:', partners);
+              setManagedPartners(partners || []);
             })
             .catch(error => {
-              console.error('Error loading authorization:', error);
+              console.error('Error loading authorization or managed partners:', error);
               setAuthLoading(false);
             });
         } else {
@@ -3013,39 +3520,46 @@
         }
       }, [currentManager]);
 
-      // Set activeTab to first authorized tab after authorization loads
+      // Set activeMainTab to first authorized main tab after authorization loads
       useEffect(() => {
         if (!authLoading && authorization.mondayBoards && authorization.mondayBoards.length > 0) {
-          // Define the mapping from board auth values to tab IDs
-          // Note: Internal boards (PartnerManagement, SolutionOps, MarketingProjects, Compliance) all map to 'internalActivities'
+          // Define the mapping from board auth values to main tabs and subtabs
           const boardToTabMapping = [
-            { board: 'MarketingApprovals', tab: 'approvals' },
-            { board: 'MarketingCalendar', tab: 'calendar' },
-            { board: '2026MarketingApprovals', tab: 'approvals2026' },
-            { board: 'Activity Stats', tab: 'stats' },
-            { board: 'PartnerActivites', tab: 'partnerActivities' },
-            { board: 'PartnerHealthHeatmap', tab: 'heatmap' },
-            // Internal boards - any of these authorizes the internalActivities tab
-            { board: 'PartnerManagement', tab: 'internalActivities' },
-            { board: 'SolutionOps', tab: 'internalActivities' },
-            { board: 'MarketingProjects', tab: 'internalActivities' },
-            { board: 'Compliance', tab: 'internalActivities' }
+            // Marketing Activities subtabs (Marketing Calendar, 2026 Approvals, Activity Stats)
+            { board: 'MarketingCalendar', mainTab: 'marketing', subTab: 'calendar' },
+            { board: '2026MarketingApprovals', mainTab: 'marketing', subTab: 'approvals2026' },
+            { board: 'Activity Stats', mainTab: 'marketing', subTab: 'stats' },
+            // Partner Activities subtabs
+            { board: 'PartnerActivites', mainTab: 'partner', subTab: 'partnerActivities' },
+            { board: 'PartnerHealthHeatmap', mainTab: 'partner', subTab: 'heatmap' },
+            // Internal Activities (main tab only, subtabs handled by InternalActivitiesTab)
+            { board: 'PartnerManagement', mainTab: 'internal', subTab: null },
+            { board: 'SolutionOps', mainTab: 'internal', subTab: null },
+            { board: 'MarketingProjects', mainTab: 'internal', subTab: null },
+            { board: 'Compliance', mainTab: 'internal', subTab: null }
           ];
 
-          // Find the first authorized tab
+          // Find the first authorized main tab
           const firstAuthorized = boardToTabMapping.find(mapping =>
             authorization.mondayBoards.includes(mapping.board)
           );
 
           if (firstAuthorized) {
-            // Check if current tab is authorized
-            const isCurrentTabAuthorized = boardToTabMapping
-              .filter(m => m.tab === activeTab)
+            // Check if current main tab is authorized
+            const isCurrentMainTabAuthorized = boardToTabMapping
+              .filter(m => m.mainTab === activeMainTab)
               .some(m => authorization.mondayBoards.includes(m.board));
 
-            if (!isCurrentTabAuthorized) {
-              console.log('Current tab not authorized, switching to:', firstAuthorized.tab);
-              setActiveTab(firstAuthorized.tab);
+            if (!isCurrentMainTabAuthorized) {
+              console.log('Current main tab not authorized, switching to:', firstAuthorized.mainTab);
+              setActiveMainTab(firstAuthorized.mainTab);
+              if (firstAuthorized.subTab) {
+                if (firstAuthorized.mainTab === 'marketing') {
+                  setMarketingSubTab(firstAuthorized.subTab);
+                } else if (firstAuthorized.mainTab === 'partner') {
+                  setPartnerSubTab(firstAuthorized.subTab);
+                }
+              }
             }
           }
         }
@@ -3066,7 +3580,7 @@
       };
 
       // Filter function that checks if a row involves a person
-      const rowInvolvesPerson = (row, personNames) => {
+      const rowInvolvesPerson = (row, personNames, userManagedPartners) => {
         // Convert all values we're checking to lowercase for comparison
         const fieldsToCheck = [
           'Owner', 'Alliance Manager', 'AllianceManager', 'Assigned To', 'AssignedTo',
@@ -3087,7 +3601,22 @@
         }
 
         // Also check if the partner is managed by this person
-        // (This would require partner-to-manager mapping which we may not have client-side)
+        // Check Partner field against managed partners list
+        if (userManagedPartners && userManagedPartners.length > 0) {
+          const partnerValue = row['Partner'] || row['Partner Name'] || row['PartnerName'] || '';
+          if (partnerValue) {
+            const partnerLower = String(partnerValue).toLowerCase();
+            for (const managedPartner of userManagedPartners) {
+              const managedPartnerLower = String(managedPartner).toLowerCase();
+              if (partnerLower === managedPartnerLower ||
+                  partnerLower.includes(managedPartnerLower) ||
+                  managedPartnerLower.includes(partnerLower)) {
+                console.log('Row matched by managed partner:', partnerValue, 'matches', managedPartner);
+                return true;
+              }
+            }
+          }
+        }
 
         return false;
       };
@@ -3095,6 +3624,7 @@
       // Filter data based on view mode
       const filterDataByViewMode = (data, viewModeValue) => {
         console.log('filterDataByViewMode called with viewMode:', viewModeValue, 'data length:', data?.length);
+        console.log('managedPartners for filtering:', managedPartners);
 
         // Dept mode = show all
         if (viewModeValue === 'dept') {
@@ -3108,24 +3638,27 @@
 
         const managerName = getManagerName();
         let peopleToMatch = [];
+        let partnersToMatch = [];
 
         if (viewModeValue === 'self') {
-          // Self mode - only match the current manager
+          // Self mode - only match the current manager and their managed partners
           peopleToMatch = [managerName].filter(n => n);
-          console.log('Self mode - matching:', peopleToMatch);
+          partnersToMatch = managedPartners || [];
+          console.log('Self mode - matching people:', peopleToMatch, 'partners:', partnersToMatch);
         } else if (viewModeValue === 'team') {
-          // Team mode - match the manager AND all their reports
+          // Team mode - match the manager AND all their reports, plus managed partners
           const teamNames = getTeamMemberNames();
           peopleToMatch = [managerName, ...teamNames].filter(n => n);
-          console.log('Team mode - matching:', peopleToMatch);
+          partnersToMatch = managedPartners || [];
+          console.log('Team mode - matching people:', peopleToMatch, 'partners:', partnersToMatch);
         }
 
-        if (peopleToMatch.length === 0) {
-          console.log('No people to match - returning all data');
+        if (peopleToMatch.length === 0 && partnersToMatch.length === 0) {
+          console.log('No people or partners to match - returning all data');
           return data;
         }
 
-        const filteredData = data.filter(row => rowInvolvesPerson(row, peopleToMatch));
+        const filteredData = data.filter(row => rowInvolvesPerson(row, peopleToMatch, partnersToMatch));
         console.log('Filtered data length:', filteredData.length);
         return filteredData;
       };
@@ -3133,27 +3666,52 @@
       // Memoized filtered data for each dataset
       const filteredApprovalsData = useMemo(() => {
         return filterDataByViewMode(approvalsData, viewMode);
-      }, [approvalsData, viewMode, authorization]);
+      }, [approvalsData, viewMode, authorization, managedPartners]);
 
       const filteredCalendarData = useMemo(() => {
         return filterDataByViewMode(calendarData, viewMode);
-      }, [calendarData, viewMode, authorization]);
+      }, [calendarData, viewMode, authorization, managedPartners]);
 
       const filteredApprovals2026Data = useMemo(() => {
         return filterDataByViewMode(approvals2026Data, viewMode);
-      }, [approvals2026Data, viewMode, authorization]);
+      }, [approvals2026Data, viewMode, authorization, managedPartners]);
 
       const filteredPartnerActivitiesData = useMemo(() => {
         return filterDataByViewMode(partnerActivitiesData, viewMode);
-      }, [partnerActivitiesData, viewMode, authorization]);
+      }, [partnerActivitiesData, viewMode, authorization, managedPartners]);
+
+      // Filter for Tasks Due Now count (overdue or due within 5 days, not completed)
+      const tasksDueNowCount = useMemo(() => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const fiveDaysFromNow = new Date(today);
+        fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5);
+
+        return filteredPartnerActivitiesData.filter(item => {
+          const status = (item['Activity Status'] || item['Status'] || '').toLowerCase();
+          if (status === 'completed' || status === 'done' || status === 'complete') {
+            return false;
+          }
+          const dueDateStr = item['Date Due'] || item['Due Date'] || item['Deadline'] || '';
+          if (!dueDateStr) return false;
+          try {
+            const dueDate = new Date(dueDateStr);
+            if (isNaN(dueDate.getTime())) return false;
+            dueDate.setHours(0, 0, 0, 0);
+            return dueDate <= fiveDaysFromNow;
+          } catch (e) {
+            return false;
+          }
+        }).length;
+      }, [filteredPartnerActivitiesData]);
 
       const filteredPartnerHeatmapData = useMemo(() => {
         return filterDataByViewMode(partnerHeatmapData, viewMode);
-      }, [partnerHeatmapData, viewMode, authorization]);
+      }, [partnerHeatmapData, viewMode, authorization, managedPartners]);
 
       const filteredInternalActivitiesData = useMemo(() => {
         return filterDataByViewMode(internalActivitiesData, viewMode);
-      }, [internalActivitiesData, viewMode, authorization]);
+      }, [internalActivitiesData, viewMode, authorization, managedPartners]);
 
       // Debug logging for deep link
       useEffect(() => {
@@ -3179,7 +3737,7 @@
 
         try {
           // Load all data in parallel
-          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames, partnerNames] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
             api.call('getAll2026Approvals'),
@@ -3192,7 +3750,8 @@
             api.call('getAllPartnerActivitiesUnfiltered'),
             api.call('getAllPartnerHeatmapUnfiltered'),
             api.call('getAllInternalActivitiesUnfiltered'),
-            api.call('getInternalActivityBoardNames')
+            api.call('getInternalActivityBoardNames'),
+            api.call('getPartnerNamesFromSheet')
           ]);
 
           setApprovalsData(approvals || []);
@@ -3209,6 +3768,8 @@
           setInternalActivitiesData(internalActs?.data || []);
           console.log('=== Internal Board Names from API ===', boardNames);
           setInternalBoardNames(boardNames || []);
+          console.log('=== Partner Names from Sheet ===', partnerNames);
+          setPartnerNamesFromSheet(partnerNames || []);
 
         } catch (err) {
           console.error('Error loading data:', err);
@@ -3219,26 +3780,43 @@
       };
 
       // Refresh data from Monday.com (sync boards, clear caches, then reload)
-      const refreshFromMonday = async () => {
+      const refreshFromMonday = async (force = false) => {
+        // First check sync status
+        const currentStatus = await checkSyncStatus();
+
+        if (currentStatus && currentStatus.inProgress) {
+          console.log('Sync already in progress, skipping...');
+          setError('A sync is already in progress. Please wait for it to complete.');
+          return;
+        }
+
         setLoading(true);
         setError(null);
+        setSyncStatus(prev => ({ ...prev, inProgress: true, message: 'Starting sync...' }));
 
         try {
           // First, sync from Monday.com and clear caches
           console.log('Refreshing data from Monday.com...');
-          const result = await api.call('refreshMarketingDataFromMonday');
+          const result = await api.call('refreshMarketingDataFromMonday', force);
 
-          if (!result.success) {
+          // Check if sync was skipped (debounced)
+          if (result.skipped) {
+            console.log('Sync was skipped:', result.message);
+            setSyncStatus(prev => ({ ...prev, inProgress: false, message: result.message }));
+            // Still load the local data even if sync was skipped
+          } else if (!result.success) {
             console.error('Refresh from Monday failed:', result.message);
             setError('Failed to sync from Monday.com: ' + result.message);
+            setSyncStatus(prev => ({ ...prev, inProgress: false, message: result.message }));
             setLoading(false);
             return;
+          } else {
+            console.log('Monday sync complete, now loading fresh data...');
+            setSyncStatus(prev => ({ ...prev, message: 'Sync complete, loading data...' }));
           }
 
-          console.log('Monday sync complete, now loading fresh data...');
-
           // Then load the fresh data
-          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames] = await Promise.all([
+          const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames, partnerNames] = await Promise.all([
             api.call('getAllMarketingApprovals'),
             api.call('getAllMarketingCalendar'),
             api.call('getAll2026Approvals'),
@@ -3251,7 +3829,8 @@
             api.call('getAllPartnerActivitiesUnfiltered'),
             api.call('getAllPartnerHeatmapUnfiltered'),
             api.call('getAllInternalActivitiesUnfiltered'),
-            api.call('getInternalActivityBoardNames')
+            api.call('getInternalActivityBoardNames'),
+            api.call('getPartnerNamesFromSheet')
           ]);
 
           setApprovalsData(approvals || []);
@@ -3267,10 +3846,15 @@
           setPartnerHeatmapData(heatmap || []);
           setInternalActivitiesData(internalActs?.data || []);
           setInternalBoardNames(boardNames || []);
+          setPartnerNamesFromSheet(partnerNames || []);
+
+          // Update sync status after successful load
+          setSyncStatus(prev => ({ ...prev, inProgress: false, message: 'Data loaded successfully' }));
 
         } catch (err) {
           console.error('Error refreshing from Monday:', err);
           setError('Failed to refresh data from Monday.com. Please try again.');
+          setSyncStatus(prev => ({ ...prev, inProgress: false, message: 'Error: ' + err.message }));
         } finally {
           setLoading(false);
         }
@@ -3335,6 +3919,36 @@
         });
         console.log('Authorized board configs:', authorizedBoards);
         return authorizedBoards;
+      };
+
+      // Check if Marketing Activities main tab should be shown
+      const isMarketingTabAuthorized = () => {
+        // Only check boards that are visible subtabs: Marketing Calendar, 2026 Approvals, Activity Stats
+        const marketingBoards = ['MarketingCalendar', '2026MarketingApprovals', 'Activity Stats'];
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          return true; // backward compatibility
+        }
+        return marketingBoards.some(board => authorization.mondayBoards.includes(board));
+      };
+
+      // Check if Partner Activities main tab should be shown
+      const isPartnerTabAuthorized = () => {
+        const partnerBoards = ['PartnerActivites', 'PartnerHealthHeatmap'];
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          return true; // backward compatibility
+        }
+        return partnerBoards.some(board => authorization.mondayBoards.includes(board));
+      };
+
+      // Get count for Marketing Activities (sum of visible marketing subtabs)
+      const getMarketingCount = () => {
+        return filteredCalendarData.length + filteredApprovals2026Data.length;
+        // Note: Activity Stats doesn't have a count
+      };
+
+      // Get count for Partner Activities (sum of all partner subtabs)
+      const getPartnerCount = () => {
+        return filteredPartnerActivitiesData.length + filteredPartnerHeatmapData.length;
       };
 
       // Render view mode filter buttons based on role
@@ -3457,9 +4071,29 @@
                 <span className="text-white small">
                   {authorization.managerName || currentManager}
                 </span>
-                <button className="btn btn-light btn-sm" onClick={refreshFromMonday} disabled={loading}>
-                  {loading ? 'Syncing from Monday...' : 'Refresh Data'}
-                </button>
+                <div className="d-flex align-items-center gap-2">
+                  {syncStatus.inProgress && (
+                    <span className="badge bg-warning text-dark">
+                      <span className="spinner-border spinner-border-sm me-1" role="status"></span>
+                      Syncing...
+                    </span>
+                  )}
+                  {syncStatus.message && !syncStatus.inProgress && (
+                    <span className="text-white small" title={syncStatus.message}>
+                      {syncStatus.lastCompletedSecondsAgo !== null && syncStatus.lastCompletedSecondsAgo < 120
+                        ? `Synced ${syncStatus.lastCompletedSecondsAgo}s ago`
+                        : ''}
+                    </span>
+                  )}
+                  <button
+                    className="btn btn-light btn-sm"
+                    onClick={() => refreshFromMonday(false)}
+                    disabled={loading || syncStatus.inProgress}
+                    title={syncStatus.inProgress ? 'Sync in progress...' : 'Refresh data from Monday.com'}
+                  >
+                    {loading ? 'Loading...' : syncStatus.inProgress ? 'Syncing...' : 'Refresh Data'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -3472,73 +4106,33 @@
               </div>
             )}
 
-            {/* Tabs */}
+            {/* Main Tabs - 3 primary tabs */}
             <ul className="nav nav-tabs" style={{ flexWrap: 'wrap' }}>
-              {isBoardAuthorized('MarketingApprovals') && (
+              {isMarketingTabAuthorized() && (
                 <li className="nav-item">
                   <button
-                    className={`nav-link ${activeTab === 'approvals' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('approvals')}
+                    className={`nav-link ${activeMainTab === 'marketing' ? 'active' : ''}`}
+                    onClick={() => setActiveMainTab('marketing')}
                   >
-                    Marketing Approvals ({filteredApprovalsData.length})
+                    Marketing Activities ({getMarketingCount()})
                   </button>
                 </li>
               )}
-              {isBoardAuthorized('MarketingCalendar') && (
+              {isPartnerTabAuthorized() && (
                 <li className="nav-item">
                   <button
-                    className={`nav-link ${activeTab === 'calendar' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('calendar')}
+                    className={`nav-link ${activeMainTab === 'partner' ? 'active' : ''}`}
+                    onClick={() => setActiveMainTab('partner')}
                   >
-                    Marketing Calendar ({filteredCalendarData.length})
-                  </button>
-                </li>
-              )}
-              {isBoardAuthorized('2026MarketingApprovals') && (
-                <li className="nav-item">
-                  <button
-                    className={`nav-link ${activeTab === 'approvals2026' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('approvals2026')}
-                  >
-                    2026 Approvals ({filteredApprovals2026Data.length})
-                  </button>
-                </li>
-              )}
-              {isBoardAuthorized('Activity Stats') && (
-                <li className="nav-item">
-                  <button
-                    className={`nav-link ${activeTab === 'stats' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('stats')}
-                  >
-                    Activity Stats
-                  </button>
-                </li>
-              )}
-              {isBoardAuthorized('PartnerActivites') && (
-                <li className="nav-item">
-                  <button
-                    className={`nav-link ${activeTab === 'partnerActivities' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('partnerActivities')}
-                  >
-                    Partner Activities ({filteredPartnerActivitiesData.length})
-                  </button>
-                </li>
-              )}
-              {isBoardAuthorized('PartnerHealthHeatmap') && (
-                <li className="nav-item">
-                  <button
-                    className={`nav-link ${activeTab === 'heatmap' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('heatmap')}
-                  >
-                    Partner Heatmap ({filteredPartnerHeatmapData.length})
+                    Partner Activities ({getPartnerCount()})
                   </button>
                 </li>
               )}
               {isAnyInternalBoardAuthorized() && (
                 <li className="nav-item">
                   <button
-                    className={`nav-link ${activeTab === 'internalActivities' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('internalActivities')}
+                    className={`nav-link ${activeMainTab === 'internal' ? 'active' : ''}`}
+                    onClick={() => setActiveMainTab('internal')}
                   >
                     Internal Activities ({filteredInternalActivitiesData.length})
                   </button>
@@ -3555,56 +4149,199 @@
               </div>
             ) : (
               <div className="tab-content-container">
-                {activeTab === 'approvals' && isBoardAuthorized('MarketingApprovals') && (
-                  <MarketingApprovalsTab
-                    data={filteredApprovalsData}
-                    filterOptions={filterOptions.approvalFilters || {}}
-                    columns={approvalColumns}
-                    onRefresh={loadData}
-                    autoEditItemId={String(editBoardIdFromUrl) === MARKETING_APPROVAL_BOARD_ID ? autoEditItemId : null}
-                    onAutoEditHandled={handleAutoEditHandled}
-                  />
+                {/* Marketing Activities Main Tab */}
+                {activeMainTab === 'marketing' && isMarketingTabAuthorized() && (
+                  <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+                    {/* Vertical Subtabs on Left */}
+                    <div className="nav flex-column" style={{ minWidth: '180px', borderRight: '1px solid #dee2e6', paddingRight: '0.5rem', marginRight: '1rem' }}>
+                      {isBoardAuthorized('MarketingCalendar') && (
+                        <button
+                          onClick={() => setMarketingSubTab('calendar')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: marketingSubTab === 'calendar' ? '#00739d' : 'transparent',
+                            color: marketingSubTab === 'calendar' ? 'white' : '#00739d',
+                            fontWeight: marketingSubTab === 'calendar' ? '600' : '400',
+                            border: marketingSubTab === 'calendar' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          Marketing Calendar ({filteredCalendarData.length})
+                        </button>
+                      )}
+                      {isBoardAuthorized('2026MarketingApprovals') && (
+                        <button
+                          onClick={() => setMarketingSubTab('approvals2026')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: marketingSubTab === 'approvals2026' ? '#00739d' : 'transparent',
+                            color: marketingSubTab === 'approvals2026' ? 'white' : '#00739d',
+                            fontWeight: marketingSubTab === 'approvals2026' ? '600' : '400',
+                            border: marketingSubTab === 'approvals2026' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          2026 Approvals ({filteredApprovals2026Data.length})
+                        </button>
+                      )}
+                      {isBoardAuthorized('Activity Stats') && (
+                        <button
+                          onClick={() => setMarketingSubTab('stats')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: marketingSubTab === 'stats' ? '#00739d' : 'transparent',
+                            color: marketingSubTab === 'stats' ? 'white' : '#00739d',
+                            fontWeight: marketingSubTab === 'stats' ? '600' : '400',
+                            border: marketingSubTab === 'stats' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          Activity Stats
+                        </button>
+                      )}
+                    </div>
+                    {/* Marketing Subtab Content */}
+                    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                      {marketingSubTab === 'calendar' && isBoardAuthorized('MarketingCalendar') && (
+                        <MarketingCalendarTab
+                          data={filteredCalendarData}
+                          filterOptions={filterOptions.calendarFilters || {}}
+                          columns={calendarColumns}
+                          onRefresh={loadData}
+                          autoEditItemId={String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID ? autoEditItemId : null}
+                          onAutoEditHandled={handleAutoEditHandled}
+                          partnerNamesFromSheet={partnerNamesFromSheet}
+                        />
+                      )}
+                      {marketingSubTab === 'approvals2026' && isBoardAuthorized('2026MarketingApprovals') && (
+                        <Approvals2026Tab
+                          data={filteredApprovals2026Data}
+                          filterOptions={filterOptions.approvals2026Filters || {}}
+                          columns={approvals2026Columns}
+                          flowConfig={flowConfig2026}
+                          onRefresh={loadData}
+                          autoEditItemId={String(editBoardIdFromUrl) === APPROVALS_2026_BOARD_ID ? autoEditItemId : null}
+                          onAutoEditHandled={handleAutoEditHandled}
+                          partnerNamesFromSheet={partnerNamesFromSheet}
+                        />
+                      )}
+                      {marketingSubTab === 'stats' && isBoardAuthorized('Activity Stats') && (
+                        <MarketingStatsTab
+                          chartData={chartData}
+                          onRefresh={loadData}
+                        />
+                      )}
+                    </div>
+                  </div>
                 )}
-                {activeTab === 'calendar' && isBoardAuthorized('MarketingCalendar') && (
-                  <MarketingCalendarTab
-                    data={filteredCalendarData}
-                    filterOptions={filterOptions.calendarFilters || {}}
-                    columns={calendarColumns}
-                    onRefresh={loadData}
-                    autoEditItemId={String(editBoardIdFromUrl) === MARKETING_CALENDAR_BOARD_ID ? autoEditItemId : null}
-                    onAutoEditHandled={handleAutoEditHandled}
-                  />
+
+                {/* Partner Activities Main Tab */}
+                {activeMainTab === 'partner' && isPartnerTabAuthorized() && (
+                  <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+                    {/* Vertical Subtabs on Left */}
+                    <div className="nav flex-column" style={{ minWidth: '180px', borderRight: '1px solid #dee2e6', paddingRight: '0.5rem', marginRight: '1rem' }}>
+                      {isBoardAuthorized('PartnerActivites') && (
+                        <button
+                          onClick={() => setPartnerSubTab('tasksDueNow')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: partnerSubTab === 'tasksDueNow' ? '#00739d' : 'transparent',
+                            color: partnerSubTab === 'tasksDueNow' ? 'white' : '#00739d',
+                            fontWeight: partnerSubTab === 'tasksDueNow' ? '600' : '400',
+                            border: partnerSubTab === 'tasksDueNow' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          Tasks Due Now ({tasksDueNowCount})
+                        </button>
+                      )}
+                      {isBoardAuthorized('PartnerActivites') && (
+                        <button
+                          onClick={() => setPartnerSubTab('partnerActivities')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: partnerSubTab === 'partnerActivities' ? '#00739d' : 'transparent',
+                            color: partnerSubTab === 'partnerActivities' ? 'white' : '#00739d',
+                            fontWeight: partnerSubTab === 'partnerActivities' ? '600' : '400',
+                            border: partnerSubTab === 'partnerActivities' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          Partner Activities ({filteredPartnerActivitiesData.length})
+                        </button>
+                      )}
+                      {isBoardAuthorized('PartnerHealthHeatmap') && (
+                        <button
+                          onClick={() => setPartnerSubTab('heatmap')}
+                          type="button"
+                          className="text-start mb-1"
+                          style={{
+                            backgroundColor: partnerSubTab === 'heatmap' ? '#00739d' : 'transparent',
+                            color: partnerSubTab === 'heatmap' ? 'white' : '#00739d',
+                            fontWeight: partnerSubTab === 'heatmap' ? '600' : '400',
+                            border: partnerSubTab === 'heatmap' ? '1px solid #00739d' : '1px solid #dee2e6',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            transition: 'all 0.15s ease-in-out'
+                          }}
+                        >
+                          Partner Heatmap ({filteredPartnerHeatmapData.length})
+                        </button>
+                      )}
+                    </div>
+                    {/* Partner Subtab Content */}
+                    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                      {partnerSubTab === 'tasksDueNow' && isBoardAuthorized('PartnerActivites') && (
+                        <TasksDueNowTab
+                          data={filteredPartnerActivitiesData}
+                          onRefresh={loadData}
+                        />
+                      )}
+                      {partnerSubTab === 'partnerActivities' && isBoardAuthorized('PartnerActivites') && (
+                        <PartnerActivitiesTab
+                          data={filteredPartnerActivitiesData}
+                          onRefresh={loadData}
+                        />
+                      )}
+                      {partnerSubTab === 'heatmap' && isBoardAuthorized('PartnerHealthHeatmap') && (
+                        <PartnerHeatmapTab
+                          data={filteredPartnerHeatmapData}
+                          onRefresh={loadData}
+                        />
+                      )}
+                    </div>
+                  </div>
                 )}
-                {activeTab === 'approvals2026' && isBoardAuthorized('2026MarketingApprovals') && (
-                  <Approvals2026Tab
-                    data={filteredApprovals2026Data}
-                    filterOptions={filterOptions.approvals2026Filters || {}}
-                    columns={approvals2026Columns}
-                    flowConfig={flowConfig2026}
-                    onRefresh={loadData}
-                    autoEditItemId={String(editBoardIdFromUrl) === APPROVALS_2026_BOARD_ID ? autoEditItemId : null}
-                    onAutoEditHandled={handleAutoEditHandled}
-                  />
-                )}
-                {activeTab === 'stats' && isBoardAuthorized('Activity Stats') && (
-                  <MarketingStatsTab
-                    chartData={chartData}
-                    onRefresh={loadData}
-                  />
-                )}
-                {activeTab === 'partnerActivities' && isBoardAuthorized('PartnerActivites') && (
-                  <PartnerActivitiesTab
-                    data={filteredPartnerActivitiesData}
-                    onRefresh={loadData}
-                  />
-                )}
-                {activeTab === 'heatmap' && isBoardAuthorized('PartnerHealthHeatmap') && (
-                  <PartnerHeatmapTab
-                    data={filteredPartnerHeatmapData}
-                    onRefresh={loadData}
-                  />
-                )}
-                {activeTab === 'internalActivities' && isAnyInternalBoardAuthorized() && (
+
+                {/* Internal Activities Main Tab - uses existing component with built-in subtabs */}
+                {activeMainTab === 'internal' && isAnyInternalBoardAuthorized() && (
                   <InternalActivitiesTab
                     data={filteredInternalActivitiesData}
                     boardConfigs={getAuthorizedInternalBoardConfigs()}

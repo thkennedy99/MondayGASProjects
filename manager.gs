@@ -723,3 +723,71 @@ function getManagerReportsEmails(managerEmail) {
     return [];
   }
 }
+
+/**
+ * Get list of partners managed by a specific manager (exposed to client)
+ * Reads from Partner sheet and matches by Account Owner
+ * @param {string} managerEmail - Manager's email address
+ * @returns {string[]} Array of partner names (Account Name values)
+ */
+function getManagedPartners(managerEmail) {
+  try {
+    if (!managerEmail) return [];
+
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const partnerSheet = spreadsheet.getSheetByName('Partner');
+
+    if (!partnerSheet) {
+      console.log('Partner sheet not found');
+      return [];
+    }
+
+    // Get manager's name for matching
+    const authorization = getManagerAuthorization(managerEmail);
+    const managerName = authorization.managerName || '';
+
+    if (!managerName) {
+      console.log('Manager name not found for:', managerEmail);
+      return [];
+    }
+
+    // Get all partner data
+    const lastRow = partnerSheet.getLastRow();
+    const lastCol = partnerSheet.getLastColumn();
+    if (lastRow < 2) return [];
+
+    const headers = partnerSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    const data = partnerSheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+
+    const accountNameIndex = headers.indexOf('Account Name');
+    const accountOwnerIndex = headers.indexOf('Account Owner');
+
+    if (accountNameIndex === -1 || accountOwnerIndex === -1) {
+      console.log('Required columns not found in Partner sheet');
+      return [];
+    }
+
+    const managerNameLower = managerName.toLowerCase();
+    const managerFirstName = managerNameLower.split(' ')[0];
+
+    // Filter partners by Account Owner matching manager name
+    const managedPartners = data
+      .filter(row => {
+        const accountOwner = row[accountOwnerIndex] ? row[accountOwnerIndex].toString().trim().toLowerCase() : '';
+        // Check if Account Owner matches manager name (full or first name)
+        return accountOwner === managerNameLower ||
+               accountOwner.includes(managerNameLower) ||
+               managerNameLower.includes(accountOwner) ||
+               accountOwner.includes(managerFirstName);
+      })
+      .map(row => row[accountNameIndex] ? row[accountNameIndex].toString().trim() : '')
+      .filter(name => name !== '');
+
+    console.log(`Found ${managedPartners.length} managed partners for ${managerName}:`, managedPartners);
+    return managedPartners;
+
+  } catch (error) {
+    console.error('Error in getManagedPartners:', error);
+    return [];
+  }
+}
