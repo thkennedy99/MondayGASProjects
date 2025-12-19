@@ -736,7 +736,7 @@
                   const validColumns = {};
                   columns.forEach(col => {
                     if (formData.hasOwnProperty(col.title) &&
-                        !['Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name',
+                        !['Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name', 'Name',
                           'daysWaiting', 'urgencyLevel', 'status', 'healthScore', 'healthStatus',
                           'Overdue items', 'Stuck or Blocked items', 'Not Started items',
                           'Completed Last 30 Days', 'Formula', 'Long text',
@@ -2616,66 +2616,56 @@
                       });
                     }
 
-                    // First get all configured board names (including empty boards)
                     google.script.run
-                      .withSuccessHandler(configuredBoardNames => {
-                        console.log('Configured internal board names:', configuredBoardNames);
+                      .withSuccessHandler(data => {
+                        console.log('Internal activities response:', data);
+                        const acts = data?.data || [];
+                        setActivities(acts);
 
-                        // Then get the activities data
-                        google.script.run
-                          .withSuccessHandler(data => {
-                            console.log('Internal activities response:', data);
-                            const acts = data?.data || [];
-                            setActivities(acts);
+                        // Extract filter options and available boards from the data
+                        const boardsSet = new Set();
+                        const statusesSet = new Set();
+                        const prioritiesSet = new Set();
+                        const boardsMap = new Map(); // Map of boardName -> boardId
 
-                            // Extract filter options from the data
-                            const statusesSet = new Set();
-                            const prioritiesSet = new Set();
-                            const boardsMap = new Map(); // Map of boardName -> boardId
-
-                            acts.forEach(act => {
-                              // Store board name -> board ID mapping from data
-                              if (act['Board Name'] && act['Board ID']) {
-                                boardsMap.set(act['Board Name'], act['Board ID']);
-                              }
-                              if (act['Activity Status']) statusesSet.add(act['Activity Status']);
-                              if (act['Importance']) prioritiesSet.add(act['Importance']);
-                            });
-
-                            // Use configured board names (always shows all boards)
-                            setFilterOptions({
-                              boards: configuredBoardNames || [],
-                              statuses: Array.from(statusesSet).sort(),
-                              priorities: Array.from(prioritiesSet).sort()
-                            });
-
-                            // Build available boards list for Add Activity
-                            const boards = Array.from(boardsMap.entries())
-                              .map(([boardName, boardId]) => ({ boardName, boardId }))
-                              .sort((a, b) => a.boardName.localeCompare(b.boardName));
-                            setAvailableBoards(boards);
-                            console.log('Available boards for Internal Activities:', boards);
-
-                            setLoading(false);
-
-                            // Load column metadata for the first board ID we find
-                            if (acts.length > 0 && acts[0]['Board ID']) {
-                              loadColumnMetadata(acts[0]['Board ID']);
+                        acts.forEach(act => {
+                          if (act['Board Name']) {
+                            boardsSet.add(act['Board Name']);
+                            // Store board name -> board ID mapping
+                            if (act['Board ID']) {
+                              boardsMap.set(act['Board Name'], act['Board ID']);
                             }
-                          })
-                          .withFailureHandler(error => {
-                            console.error('Error loading internal activities:', error);
-                            setError(error.message);
-                            setLoading(false);
-                          })
-                          .getInternalActivities(manager, {}, {}, { page: 1, pageSize: 200 });
+                          }
+                          if (act['Activity Status']) statusesSet.add(act['Activity Status']);
+                          if (act['Importance']) prioritiesSet.add(act['Importance']);
+                        });
+
+                        setFilterOptions({
+                          boards: Array.from(boardsSet).sort(),
+                          statuses: Array.from(statusesSet).sort(),
+                          priorities: Array.from(prioritiesSet).sort()
+                        });
+
+                        // Build available boards list for Add Activity
+                        const boards = Array.from(boardsMap.entries())
+                          .map(([boardName, boardId]) => ({ boardName, boardId }))
+                          .sort((a, b) => a.boardName.localeCompare(b.boardName));
+                        setAvailableBoards(boards);
+                        console.log('Available boards for Internal Activities:', boards);
+
+                        setLoading(false);
+
+                        // Load column metadata for the first board ID we find
+                        if (acts.length > 0 && acts[0]['Board ID']) {
+                          loadColumnMetadata(acts[0]['Board ID']);
+                        }
                       })
                       .withFailureHandler(error => {
-                        console.error('Error loading board names:', error);
-                        // Continue without configured boards, fall back to extracting from data
+                        console.error('Error loading internal activities:', error);
+                        setError(error.message);
                         setLoading(false);
                       })
-                      .getInternalActivityBoardNames();
+                      .getInternalActivities(manager, {}, {}, { page: 1, pageSize: 200 });
                   } catch (error) {
                     console.error('Error in loadActivities:', error);
                     setError('Failed to load activities: ' + error.message);

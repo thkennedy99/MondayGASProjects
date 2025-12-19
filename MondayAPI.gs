@@ -318,7 +318,8 @@ class MondayAPI {
         console.log(`Debug: Labels in settings: ${settings && settings.labels ? JSON.stringify(settings.labels) : 'none'}`);
 
         if (settings && settings.labels) {
-          const deactivatedLabels = settings.deactivated_labels || [];
+          // Convert deactivated_labels to integers for consistent comparison
+          const deactivatedLabels = (settings.deactivated_labels || []).map(id => parseInt(id));
           console.log(`Debug: Deactivated labels: ${JSON.stringify(deactivatedLabels)}`);
 
           // Find all label IDs that match this label name
@@ -327,33 +328,22 @@ class MondayAPI {
           );
           console.log(`Debug: Matching label IDs for "${value}": ${JSON.stringify(matchingLabelIds)}`);
 
-          // If there are multiple matches, filter out deactivated ones
-          if (matchingLabelIds.length > 1) {
-            const activeLabelId = matchingLabelIds.find(id => !deactivatedLabels.includes(id));
+          // Filter out deactivated labels from matches (compare as integers)
+          const activeLabelIds = matchingLabelIds.filter(id => !deactivatedLabels.includes(parseInt(id)));
+          console.log(`Debug: Active (non-deactivated) label IDs: ${JSON.stringify(activeLabelIds)}`);
 
-            if (activeLabelId) {
-              console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${deactivatedLabels.length} deactivated)`);
-              // MUST use index format when there are duplicate labels (one deactivated, one active)
-              // Using label format would match the deactivated one first
-              const result = { index: parseInt(activeLabelId) };
-              console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
-              return result;
-            } else {
-              console.warn(`All matching labels for "${value}" are deactivated`);
-              return null;
-            }
-          } else if (matchingLabelIds.length === 1) {
-            const labelId = matchingLabelIds[0];
-            // Check if this label is deactivated
-            if (deactivatedLabels.includes(labelId)) {
-              console.warn(`Label "${value}" (ID: ${labelId}) is deactivated`);
-              return null;
-            }
-            // Single match and not deactivated - safe to use label format
-            console.log(`Debug: Using label "${value}" (ID: ${labelId}) for status column`);
-            const result = { label: value };
+          if (activeLabelIds.length > 0) {
+            // Use the first active label
+            const activeLabelId = activeLabelIds[0];
+            console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${activeLabelIds.length} active)`);
+            // Use index format to ensure we select the exact label ID
+            const result = { index: parseInt(activeLabelId) };
             console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
             return result;
+          } else if (matchingLabelIds.length > 0) {
+            // All matching labels are deactivated
+            console.warn(`All matching labels for "${value}" are deactivated: ${JSON.stringify(matchingLabelIds)}`);
+            return null;
           } else {
             console.warn(`Label "${value}" not found in column settings. Available labels: ${JSON.stringify(Object.values(settings.labels))}`);
             return null;
@@ -741,9 +731,13 @@ function deleteMondayItem(itemId, boardId) {
         } else if (GW_BOARD_IDS.includes(boardId)) {
           // Sync only the specific GW board that was affected
           console.log(`Syncing single GW board ${boardId} after item deletion...`);
+          // Add a short delay to allow Monday to process the deletion (eventual consistency)
+          Utilities.sleep(1500);
           syncSingleGWBoard(boardId);
           // GWMondayData auto-updates via formula
-          console.log('GW board sync complete');
+          // Clear internal activity caches so UI gets fresh data
+          clearInternalActivityCaches();
+          console.log('GW board sync and cache clear complete');
         } else if (boardId === PARTNER_BOARD_ID) {
           // For partner board, sync just the partner activities
           console.log('Syncing Partner Activities board after item deletion...');
@@ -820,11 +814,18 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
       columnMap[col.title] = col;
     });
 
+    // Check if Name column is being updated - it requires a separate API call
+    let newItemName = null;
+    if (updates['Name'] !== undefined && updates['Name'] !== null && updates['Name'] !== '') {
+      newItemName = updates['Name'];
+      console.log(`Debug: Item name will be updated separately to: "${newItemName}"`);
+    }
+
     // Build the column values object with proper formatting
     const columnValues = {};
 
     // Non-updatable column types
-    const nonUpdatableTypes = ['formula', 'mirror', 'board-relation', 'dependency', 'file', 'subtasks', 'auto-number'];
+    const nonUpdatableTypes = ['formula', 'mirror', 'board-relation', 'dependency', 'file', 'subtasks', 'auto-number', 'name'];
 
     // Non-updatable column ID patterns
     const nonUpdatablePatterns = ['formula_', 'files_', 'subtasks_', 'subitems', 'link_to_item'];
@@ -919,13 +920,24 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
 
     console.log('Debug Updating item:', itemId, 'with values:', JSON.stringify(columnValues));
 
-    // Check if we have any values to update
-    if (Object.keys(columnValues).length === 0) {
-      console.log('No valid columns to update');
-      return { success: true, message: 'No columns to update' };
+    // Update item name first if it was changed (requires separate API call)
+    if (newItemName) {
+      console.log(`Updating item name to: "${newItemName}"`);
+      const nameResult = updateMondayItemName(boardId, itemId, newItemName);
+      if (!nameResult.success) {
+        console.error('Failed to update item name:', nameResult.error);
+      } else {
+        console.log('Item name updated successfully');
+      }
     }
 
-    // Update using the Monday API
+    // Check if we have any other column values to update
+    if (Object.keys(columnValues).length === 0) {
+      console.log('No other columns to update');
+      return { success: true, message: newItemName ? 'Name updated' : 'No columns to update' };
+    }
+
+    // Update other columns using the Monday API
     const result = monday.updateMultipleColumns(boardId, itemId, columnValues);
 
     // Full sync of the board from Monday.com to spreadsheet after item update
@@ -948,9 +960,13 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
       } else if (GW_BOARD_IDS.includes(boardId)) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item update...`);
+        // Add a short delay to allow Monday to process the update (eventual consistency)
+        Utilities.sleep(1500);
         syncSingleGWBoard(boardId);
         // GWMondayData auto-updates via formula
-        console.log('GW board sync complete');
+        // Clear internal activity caches so UI gets fresh data
+        clearInternalActivityCaches();
+        console.log('GW board sync and cache clear complete');
       } else if (boardId === PARTNER_BOARD_ID) {
         // For partner board, sync just the partner activities
         console.log('Syncing Partner Activities board after item update...');
@@ -972,19 +988,21 @@ function updateMondayItemMultipleColumns(boardId, itemId, updates, columnMetadat
 
 /**
  * Update item name (exposed to client)
+ * Per Monday API docs, item name must be updated via change_multiple_column_values
+ * with a JSON string: {"name": "New Name"}
  */
 function updateMondayItemName(boardId, itemId, newName) {
   try {
     const monday = new MondayAPI();
 
-    // Use change_simple_column_value for the name column
+    // Use change_multiple_column_values with JSON format for the name column
+    // This is the documented way to update item names in Monday.com API
     const graphqlQuery = `
-      mutation UpdateItemName($boardId: ID!, $itemId: ID!, $newName: String!) {
-        change_simple_column_value(
+      mutation UpdateItemName($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+        change_multiple_column_values(
           board_id: $boardId,
           item_id: $itemId,
-          column_id: "name",
-          value: $newName
+          column_values: $columnValues
         ) {
           id
           name
@@ -992,10 +1010,14 @@ function updateMondayItemName(boardId, itemId, newName) {
       }
     `;
 
+    // Name must be passed as JSON object with "name" key
+    const columnValues = { name: String(newName) };
+    console.log(`Updating item ${itemId} name to: "${newName}" via change_multiple_column_values`);
+
     const result = monday.query(graphqlQuery, {
       boardId: String(boardId),
       itemId: String(itemId),
-      newName: String(newName)
+      columnValues: JSON.stringify(columnValues)
     });
 
     return { success: true, result: DataService.ensureSerializable(result) };
@@ -1402,9 +1424,13 @@ function createMondayItem(boardId, itemName, columnValues, columnMetadata) {
       } else if (GW_BOARD_IDS.includes(boardId)) {
         // Sync only the specific GW board that was affected
         console.log(`Syncing single GW board ${boardId} after item creation...`);
+        // Add a short delay to allow Monday to process the creation (eventual consistency)
+        Utilities.sleep(1500);
         syncSingleGWBoard(boardId);
         // GWMondayData auto-updates via formula
-        console.log('GW board sync complete');
+        // Clear internal activity caches so UI gets fresh data
+        clearInternalActivityCaches();
+        console.log('GW board sync and cache clear complete');
       } else if (boardId === PARTNER_BOARD_ID) {
         // For partner board, sync just the partner activities
         console.log('Syncing Partner Activities board after item creation...');
@@ -1999,11 +2025,16 @@ function syncSingleGWBoard(boardId, overrideBoardName, overrideSheetName) {
         item.boardId = boardId;
       });
 
+      console.log(`Writing ${items.length} items to sheet ${sheetName}...`);
       writeDataToSheet(targetSheet, boardStructure, items, true, {
         boardName: boardName,
         boardId: boardId,
         targetSheetName: sheetName
       });
+
+      // Verify data was written
+      const rowCount = targetSheet.getLastRow();
+      console.log(`Sheet ${sheetName} now has ${rowCount} rows (including header)`);
     }
 
     console.log(`GW board ${boardId} sync complete - ${items.length} items`);

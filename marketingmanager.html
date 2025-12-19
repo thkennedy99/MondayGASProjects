@@ -376,7 +376,7 @@
     }
 
     // Edit Item Modal Component
-    function EditItemModal({ item, boardId, columns, onClose, onSave, partnerOptions, allianceManagerOptions }) {
+    function EditItemModal({ item, boardId, columns, onClose, onSave, partnerOptions, allianceManagerOptions, readOnlyFields }) {
       const [formData, setFormData] = useState({});
       const [itemName, setItemName] = useState('');
       const [saving, setSaving] = useState(false);
@@ -394,6 +394,8 @@
       }, [item]);
 
       const handleChange = (columnTitle, value) => {
+        // Don't allow changes to read-only fields
+        if (readOnlyFields && readOnlyFields.includes(columnTitle)) return;
         setFormData(prev => ({ ...prev, [columnTitle]: value }));
       };
 
@@ -406,7 +408,7 @@
           const validColumns = {};
           columns.forEach(col => {
             if (formData.hasOwnProperty(col.title) &&
-                !['Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name',
+                !['Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name', 'Name',
                   'daysWaiting', 'urgencyLevel', 'status', 'healthScore', 'healthStatus',
                   'Overdue items', 'Stuck or Blocked items', 'Not Started items',
                   'Completed Last 30 Days', 'Formula', 'Long text', 'Week', 'Month',
@@ -444,6 +446,7 @@
       const renderFormControl = (column) => {
         const { title, type, settings } = column;
         const value = formData[title] || '';
+        const isReadOnly = readOnlyFields && readOnlyFields.includes(title);
 
         const skipColumns = [
           'Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name', 'Name',
@@ -455,6 +458,16 @@
 
         if (skipColumns.includes(title)) return null;
         if (type === 'formula' || type === 'mirror' || type === 'board-relation') return null;
+
+        // For read-only fields, show as disabled text input
+        if (isReadOnly) {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <input type="text" className="form-control" value={value} disabled style={{ backgroundColor: '#e9ecef' }} />
+            </div>
+          );
+        }
 
         // Create Date is display-only
         if (title === 'Create Date') {
@@ -492,16 +505,23 @@
           );
         }
 
-        // Status/color columns
+        // Status/color columns - filter out deactivated labels
         if (type === 'status' || type === 'color') {
           const labels = settings?.labels || {};
-          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          const deactivatedLabels = settings?.deactivated_labels || [];
+          // Filter out deactivated labels - only show active status options
+          const options = Object.entries(labels)
+            .filter(([key, val]) => !deactivatedLabels.includes(parseInt(key)))
+            .map(([key, val]) => typeof val === 'string' ? val : val?.name)
+            .filter(Boolean);
+          // Remove duplicates
+          const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={title}>
               <label className="form-label">{title}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
-                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+                {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
               </select>
             </div>
           );
@@ -580,22 +600,24 @@
     }
 
     // Add Item Modal Component
-    function AddItemModal({ boardId, columns, onClose, onCreate, partnerOptions, allianceManagerOptions }) {
+    function AddItemModal({ boardId, columns, onClose, onCreate, partnerOptions, allianceManagerOptions, initialValues, readOnlyFields }) {
       const [formData, setFormData] = useState({});
       const [itemName, setItemName] = useState('');
       const [creating, setCreating] = useState(false);
       const [error, setError] = useState(null);
 
       useEffect(() => {
-        // Set default values
-        const defaults = {};
+        // Set default values, including any initialValues passed in
+        const defaults = { ...(initialValues || {}) };
         if (boardId === MARKETING_APPROVAL_BOARD_ID) {
           defaults['Overall Status'] = 'Submitted';
         }
         setFormData(defaults);
-      }, [boardId]);
+      }, [boardId, initialValues]);
 
       const handleChange = (columnTitle, value) => {
+        // Don't allow changes to read-only fields
+        if (readOnlyFields && readOnlyFields.includes(columnTitle)) return;
         setFormData(prev => ({ ...prev, [columnTitle]: value }));
       };
 
@@ -626,6 +648,7 @@
       const renderFormControl = (column) => {
         const { title, type, settings } = column;
         const value = formData[title] || '';
+        const isReadOnly = readOnlyFields && readOnlyFields.includes(title);
 
         const skipColumns = [
           'Monday Item ID', 'Board ID', 'Board Name', 'Group', 'Item Name', 'Name',
@@ -637,6 +660,16 @@
 
         if (skipColumns.includes(title)) return null;
         if (type === 'formula' || type === 'mirror' || type === 'board-relation') return null;
+
+        // For read-only fields, show as disabled text input
+        if (isReadOnly) {
+          return (
+            <div className="mb-3" key={title}>
+              <label className="form-label">{title}</label>
+              <input type="text" className="form-control" value={value} disabled style={{ backgroundColor: '#e9ecef' }} />
+            </div>
+          );
+        }
 
         // Partner dropdown
         if (title === 'Partner' && partnerOptions && partnerOptions.length > 0) {
@@ -664,16 +697,23 @@
           );
         }
 
-        // Status/color columns
+        // Status/color columns - filter out deactivated labels
         if (type === 'status' || type === 'color') {
           const labels = settings?.labels || {};
-          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          const deactivatedLabels = settings?.deactivated_labels || [];
+          // Filter out deactivated labels - only show active status options
+          const options = Object.entries(labels)
+            .filter(([key, val]) => !deactivatedLabels.includes(parseInt(key)))
+            .map(([key, val]) => typeof val === 'string' ? val : val?.name)
+            .filter(Boolean);
+          // Remove duplicates
+          const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={title}>
               <label className="form-label">{title}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
-                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+                {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
               </select>
             </div>
           );
@@ -870,16 +910,23 @@
           );
         }
 
-        // Status/color columns
+        // Status/color columns - filter out deactivated labels
         if (type === 'status' || type === 'color') {
           const labels = settings?.labels || {};
-          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          const deactivatedLabels = settings?.deactivated_labels || [];
+          // Filter out deactivated labels - only show active status options
+          const options = Object.entries(labels)
+            .filter(([key, val]) => !deactivatedLabels.includes(parseInt(key)))
+            .map(([key, val]) => typeof val === 'string' ? val : val?.name)
+            .filter(Boolean);
+          // Remove duplicates
+          const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={column.id}>
               <label className="form-label">{title}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
-                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+                {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
               </select>
             </div>
           );
@@ -1125,16 +1172,23 @@
           );
         }
 
-        // Status/color columns
+        // Status/color columns - filter out deactivated labels
         if (type === 'status' || type === 'color') {
           const labels = settings?.labels || {};
-          const options = Object.values(labels).filter(v => typeof v === 'string' || (v && v.name)).map(v => typeof v === 'string' ? v : v.name);
+          const deactivatedLabels = settings?.deactivated_labels || [];
+          // Filter out deactivated labels - only show active status options
+          const options = Object.entries(labels)
+            .filter(([key, val]) => !deactivatedLabels.includes(parseInt(key)))
+            .map(([key, val]) => typeof val === 'string' ? val : val?.name)
+            .filter(Boolean);
+          // Remove duplicates
+          const uniqueOptions = [...new Set(options)];
           return (
             <div className="mb-3" key={column.id}>
               <label className="form-label">{title}</label>
               <select className="form-select" value={value} onChange={(e) => handleChange(title, e.target.value)}>
                 <option value="">Select...</option>
-                {options.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
+                {uniqueOptions.map((opt, idx) => <option key={idx} value={opt}>{opt}</option>)}
               </select>
             </div>
           );
@@ -2595,9 +2649,13 @@
     }
 
     // Internal Activities Tab Component
-    function InternalActivitiesTab({ data, boardNames, onRefresh }) {
+    // boardConfigs is array of {boardName, boardId, tab, permission} from InternalBoards sheet
+    function InternalActivitiesTab({ data, boardConfigs, onRefresh }) {
+      // Helper to get board name (handles both string and object formats)
+      const getBoardName = (board) => typeof board === 'string' ? board : board?.boardName || '';
+
       // Default to first board if available
-      const [selectedBoard, setSelectedBoard] = useState(boardNames[0] || '');
+      const [selectedBoard, setSelectedBoard] = useState(getBoardName(boardConfigs[0]) || '');
       const [filterStatus, setFilterStatus] = useState('');
       const [columnsByBoard, setColumnsByBoard] = useState({});
       const [editingItem, setEditingItem] = useState(null);
@@ -2605,12 +2663,12 @@
       const [showAddModal, setShowAddModal] = useState(false);
       const [selectedBoardIdForAdd, setSelectedBoardIdForAdd] = useState(null);
 
-      // Update selected board when boardNames loads
+      // Update selected board when boardConfigs loads
       useEffect(() => {
-        if (boardNames.length > 0 && !selectedBoard) {
-          setSelectedBoard(boardNames[0]);
+        if (boardConfigs.length > 0 && !selectedBoard) {
+          setSelectedBoard(getBoardName(boardConfigs[0]));
         }
-      }, [boardNames]);
+      }, [boardConfigs]);
 
       // Get unique statuses for selected board
       const statuses = useMemo(() => {
@@ -2634,20 +2692,50 @@
         return data.filter(d => (d['Board Name'] || '') === boardName).length;
       };
 
-      // Get board ID for selected board name
+      // Get board ID for selected board name from boardConfigs
       const getBoardIdForSelectedBoard = () => {
+        console.log('=== getBoardIdForSelectedBoard ===');
+        console.log('Looking for selectedBoard:', selectedBoard);
+        console.log('boardConfigs:', boardConfigs);
+
+        // First try to find in boardConfigs (from InternalBoards sheet)
+        const config = boardConfigs.find(b => getBoardName(b) === selectedBoard);
+        console.log('Found config:', config);
+
+        if (config && config.boardId) {
+          console.log('Returning boardId from config:', config.boardId);
+          return config.boardId;
+        }
+        // Fallback: try to find from data (for backward compatibility)
         const item = data.find(d => d['Board Name'] === selectedBoard);
+        console.log('Fallback - found item:', item);
         return item ? item['Board ID'] : null;
       };
 
       // Load column metadata for a board
       const loadColumnMetadata = async (boardId) => {
-        if (!boardId || columnsByBoard[boardId]) return;
+        // Ensure boardId is a string for consistent key handling
+        const boardIdStr = String(boardId);
+        console.log('=== loadColumnMetadata ===');
+        console.log('boardId:', boardId, 'type:', typeof boardId);
+        console.log('boardIdStr:', boardIdStr);
+        console.log('Already cached?', !!columnsByBoard[boardIdStr]);
+
+        if (!boardIdStr || columnsByBoard[boardIdStr]) return;
         try {
-          const cols = await api.call('getBoardColumnsStructure', boardId);
-          setColumnsByBoard(prev => ({ ...prev, [boardId]: cols || [] }));
+          console.log('Calling getBoardColumnsStructure for boardId:', boardIdStr);
+          const cols = await api.call('getBoardColumnsStructure', boardIdStr);
+          console.log('Received columns for board', boardIdStr, '- count:', cols?.length);
+
+          // Log Activity Status column specifically
+          const activityStatusCol = cols?.find(c => c.title === 'Activity Status');
+          if (activityStatusCol) {
+            console.log('Activity Status column labels:', activityStatusCol.settings?.labels);
+          }
+
+          setColumnsByBoard(prev => ({ ...prev, [boardIdStr]: cols || [] }));
         } catch (err) {
-          console.error('Error loading columns for board', boardId, err);
+          console.error('Error loading columns for board', boardIdStr, err);
         }
       };
 
@@ -2680,11 +2768,19 @@
       // Handle add new
       const handleAddNew = async () => {
         const boardId = getBoardIdForSelectedBoard();
-        if (boardId) {
-          if (!columnsByBoard[boardId]) {
-            await loadColumnMetadata(boardId);
+        const boardIdStr = boardId ? String(boardId) : null;
+        console.log('=== handleAddNew ===');
+        console.log('selectedBoard:', selectedBoard);
+        console.log('boardId:', boardId, 'boardIdStr:', boardIdStr);
+        console.log('columnsByBoard keys:', Object.keys(columnsByBoard));
+
+        if (boardIdStr) {
+          if (!columnsByBoard[boardIdStr]) {
+            console.log('Loading column metadata for boardId:', boardIdStr);
+            await loadColumnMetadata(boardIdStr);
           }
-          setSelectedBoardIdForAdd(boardId);
+          console.log('Columns for boardId', boardIdStr, ':', columnsByBoard[boardIdStr]);
+          setSelectedBoardIdForAdd(boardIdStr);
           setShowAddModal(true);
         } else {
           alert('Could not find board ID for selected board');
@@ -2702,27 +2798,30 @@
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           {/* Vertical Board Tabs on Left */}
           <div className="nav flex-column" style={{ minWidth: '180px', borderRight: '1px solid #dee2e6', paddingRight: '0.5rem', marginRight: '1rem' }}>
-            {boardNames.map((board) => (
-              <button
-                key={board}
-                onClick={() => { setSelectedBoard(board); setFilterStatus(''); }}
-                type="button"
-                className="text-start mb-1"
-                style={{
-                  backgroundColor: selectedBoard === board ? '#00739d' : 'transparent',
-                  color: selectedBoard === board ? 'white' : '#00739d',
-                  fontWeight: selectedBoard === board ? '600' : '400',
-                  border: selectedBoard === board ? '1px solid #00739d' : '1px solid #dee2e6',
-                  borderRadius: '4px',
-                  padding: '8px 12px',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  transition: 'all 0.15s ease-in-out'
-                }}
-              >
-                {board} ({getBoardCount(board)})
-              </button>
-            ))}
+            {boardConfigs.map((board) => {
+              const boardName = getBoardName(board);
+              return (
+                <button
+                  key={boardName}
+                  onClick={() => { setSelectedBoard(boardName); setFilterStatus(''); }}
+                  type="button"
+                  className="text-start mb-1"
+                  style={{
+                    backgroundColor: selectedBoard === boardName ? '#00739d' : 'transparent',
+                    color: selectedBoard === boardName ? 'white' : '#00739d',
+                    fontWeight: selectedBoard === boardName ? '600' : '400',
+                    border: selectedBoard === boardName ? '1px solid #00739d' : '1px solid #dee2e6',
+                    borderRadius: '4px',
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    transition: 'all 0.15s ease-in-out'
+                  }}
+                >
+                  {boardName} ({getBoardCount(boardName)})
+                </button>
+              );
+            })}
           </div>
 
           {/* Main Content Area */}
@@ -2787,7 +2886,7 @@
             </div>
           </div>
 
-          {/* Edit Modal */}
+          {/* Edit Modal - Tech Board Type is read-only for Internal Activities */}
           {editingItem && (
             <EditItemModal
               item={editingItem}
@@ -2795,6 +2894,7 @@
               columns={columnsByBoard[editingItem['Board ID']] || []}
               onClose={() => setEditingItem(null)}
               onSave={handleSaveEdit}
+              readOnlyFields={['Tech Board Type']}
             />
           )}
 
@@ -2808,13 +2908,15 @@
             />
           )}
 
-          {/* Add Modal */}
+          {/* Add Modal - Pre-set Tech Board Type based on selected subtab */}
           {showAddModal && selectedBoardIdForAdd && (
             <AddItemModal
               boardId={selectedBoardIdForAdd}
               columns={columnsByBoard[selectedBoardIdForAdd] || []}
               onClose={() => { setShowAddModal(false); setSelectedBoardIdForAdd(null); }}
               onCreate={handleCreate}
+              initialValues={{ 'Tech Board Type': selectedBoard }}
+              readOnlyFields={['Tech Board Type']}
             />
           )}
         </div>
@@ -3105,6 +3207,7 @@
           setPartnerActivitiesData(partnerActs?.data || []);
           setPartnerHeatmapData(heatmap || []);
           setInternalActivitiesData(internalActs?.data || []);
+          console.log('=== Internal Board Names from API ===', boardNames);
           setInternalBoardNames(boardNames || []);
 
         } catch (err) {
@@ -3185,34 +3288,53 @@
         return isAuthorized;
       };
 
-      // Mapping from MondayBoards authorization values to Internal Activities board names
-      const internalBoardAuthMapping = {
-        'PartnerManagement': 'Partner Management Tracker',
-        'SolutionOps': 'Solution Ops Tracker',
-        'MarketingProjects': 'Marketing Projects',
-        'Compliance': 'Compliance'
-      };
-
       // Check if any internal board is authorized (for showing the Internal Activities tab)
+      // Now uses permission field from InternalBoards sheet config
       const isAnyInternalBoardAuthorized = () => {
+        console.log('=== isAnyInternalBoardAuthorized ===');
+        console.log('internalBoardNames:', internalBoardNames);
+        console.log('authorization.mondayBoards:', authorization.mondayBoards);
+
         if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
-          return true; // backward compatibility
+          const result = internalBoardNames.length > 0;
+          console.log('No mondayBoards permissions, returning:', result);
+          return result; // show if any boards configured
         }
-        const internalAuthKeys = Object.keys(internalBoardAuthMapping);
-        return internalAuthKeys.some(key => authorization.mondayBoards.includes(key));
+        // Check if user has permission for any configured internal board
+        const hasAny = internalBoardNames.some(board => {
+          if (!board.permission) return true; // no permission required
+          return authorization.mondayBoards.includes(board.permission);
+        });
+        console.log('isAnyInternalBoardAuthorized result:', hasAny);
+        return hasAny;
       };
 
-      // Filter internal board names to only show authorized ones
-      const getAuthorizedInternalBoardNames = () => {
-        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
-          return internalBoardNames; // show all for backward compatibility
+      // Filter internal board configs to only show authorized ones
+      // Now uses permission field from InternalBoards sheet
+      // Returns full config objects (with boardId) for Add New functionality
+      const getAuthorizedInternalBoardConfigs = () => {
+        console.log('=== getAuthorizedInternalBoardConfigs ===');
+        console.log('internalBoardNames:', internalBoardNames);
+
+        if (!internalBoardNames || internalBoardNames.length === 0) {
+          console.log('No internal board configs, returning []');
+          return [];
         }
-        // Get the authorized board display names
-        const authorizedDisplayNames = Object.entries(internalBoardAuthMapping)
-          .filter(([authKey, displayName]) => authorization.mondayBoards.includes(authKey))
-          .map(([authKey, displayName]) => displayName);
-        // Filter internalBoardNames to only include authorized ones
-        return internalBoardNames.filter(name => authorizedDisplayNames.includes(name));
+        if (!authorization.mondayBoards || authorization.mondayBoards.length === 0) {
+          // Backward compatibility: show all boards if no permissions defined
+          console.log('No mondayBoards permissions, returning all configs');
+          return internalBoardNames;
+        }
+        // Filter boards where user has the required permission
+        const authorizedBoards = internalBoardNames.filter(board => {
+          if (typeof board === 'string') return true; // old format, allow
+          if (!board.permission) return true; // no permission required
+          const hasPermission = authorization.mondayBoards.includes(board.permission);
+          console.log(`Board "${board.boardName}" permission "${board.permission}": ${hasPermission}`);
+          return hasPermission;
+        });
+        console.log('Authorized board configs:', authorizedBoards);
+        return authorizedBoards;
       };
 
       // Render view mode filter buttons based on role
@@ -3485,7 +3607,7 @@
                 {activeTab === 'internalActivities' && isAnyInternalBoardAuthorized() && (
                   <InternalActivitiesTab
                     data={filteredInternalActivitiesData}
-                    boardNames={getAuthorizedInternalBoardNames()}
+                    boardConfigs={getAuthorizedInternalBoardConfigs()}
                     onRefresh={loadData}
                   />
                 )}
