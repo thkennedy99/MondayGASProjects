@@ -3412,6 +3412,53 @@
       // Partner names from Partner sheet (Account Name column) for dropdowns
       const [partnerNamesFromSheet, setPartnerNamesFromSheet] = useState([]);
 
+      // Sync status state for showing sync progress
+      const [syncStatus, setSyncStatus] = useState({
+        inProgress: false,
+        lastCompletedSecondsAgo: null,
+        message: ''
+      });
+
+      // Ref for debounced refresh timer
+      const refreshTimerRef = React.useRef(null);
+      const lastRefreshRef = React.useRef(0);
+      const REFRESH_DEBOUNCE_MS = 3000; // Wait 3 seconds after last edit before refreshing
+
+      // Debounced loadData - waits for a quiet period before refreshing
+      const debouncedLoadData = React.useCallback(() => {
+        // Clear any existing timer
+        if (refreshTimerRef.current) {
+          clearTimeout(refreshTimerRef.current);
+        }
+
+        // Set new timer
+        refreshTimerRef.current = setTimeout(() => {
+          const now = Date.now();
+          const timeSinceLastRefresh = now - lastRefreshRef.current;
+
+          // Only refresh if enough time has passed since last refresh
+          if (timeSinceLastRefresh >= REFRESH_DEBOUNCE_MS) {
+            console.log('Debounced refresh triggered');
+            lastRefreshRef.current = now;
+            loadData();
+          } else {
+            console.log('Skipping refresh - too recent (' + timeSinceLastRefresh + 'ms ago)');
+          }
+        }, REFRESH_DEBOUNCE_MS);
+      }, []);
+
+      // Check sync status periodically when sync might be in progress
+      const checkSyncStatus = React.useCallback(async () => {
+        try {
+          const status = await api.call('getSyncStatus');
+          setSyncStatus(status);
+          return status;
+        } catch (err) {
+          console.error('Error checking sync status:', err);
+          return null;
+        }
+      }, []);
+
       // Load authorization data on mount
       useEffect(() => {
         console.log('=== Authorization Load Debug ===');
@@ -3706,23 +3753,40 @@
       };
 
       // Refresh data from Monday.com (sync boards, clear caches, then reload)
-      const refreshFromMonday = async () => {
+      const refreshFromMonday = async (force = false) => {
+        // First check sync status
+        const currentStatus = await checkSyncStatus();
+
+        if (currentStatus && currentStatus.inProgress) {
+          console.log('Sync already in progress, skipping...');
+          setError('A sync is already in progress. Please wait for it to complete.');
+          return;
+        }
+
         setLoading(true);
         setError(null);
+        setSyncStatus(prev => ({ ...prev, inProgress: true, message: 'Starting sync...' }));
 
         try {
           // First, sync from Monday.com and clear caches
           console.log('Refreshing data from Monday.com...');
-          const result = await api.call('refreshMarketingDataFromMonday');
+          const result = await api.call('refreshMarketingDataFromMonday', force);
 
-          if (!result.success) {
+          // Check if sync was skipped (debounced)
+          if (result.skipped) {
+            console.log('Sync was skipped:', result.message);
+            setSyncStatus(prev => ({ ...prev, inProgress: false, message: result.message }));
+            // Still load the local data even if sync was skipped
+          } else if (!result.success) {
             console.error('Refresh from Monday failed:', result.message);
             setError('Failed to sync from Monday.com: ' + result.message);
+            setSyncStatus(prev => ({ ...prev, inProgress: false, message: result.message }));
             setLoading(false);
             return;
+          } else {
+            console.log('Monday sync complete, now loading fresh data...');
+            setSyncStatus(prev => ({ ...prev, message: 'Sync complete, loading data...' }));
           }
-
-          console.log('Monday sync complete, now loading fresh data...');
 
           // Then load the fresh data
           const [approvals, calendar, approvals2026, filters, approvalCols, calendarCols, approvals2026Cols, statsData, flowConfig, partnerActs, heatmap, internalActs, boardNames, partnerNames] = await Promise.all([
@@ -3757,9 +3821,13 @@
           setInternalBoardNames(boardNames || []);
           setPartnerNamesFromSheet(partnerNames || []);
 
+          // Update sync status after successful load
+          setSyncStatus(prev => ({ ...prev, inProgress: false, message: 'Data loaded successfully' }));
+
         } catch (err) {
           console.error('Error refreshing from Monday:', err);
           setError('Failed to refresh data from Monday.com. Please try again.');
+          setSyncStatus(prev => ({ ...prev, inProgress: false, message: 'Error: ' + err.message }));
         } finally {
           setLoading(false);
         }
@@ -3976,9 +4044,29 @@
                 <span className="text-white small">
                   {authorization.managerName || currentManager}
                 </span>
-                <button className="btn btn-light btn-sm" onClick={refreshFromMonday} disabled={loading}>
-                  {loading ? 'Syncing from Monday...' : 'Refresh Data'}
-                </button>
+                <div className="d-flex align-items-center gap-2">
+                  {syncStatus.inProgress && (
+                    <span className="badge bg-warning text-dark">
+                      <span className="spinner-border spinner-border-sm me-1" role="status"></span>
+                      Syncing...
+                    </span>
+                  )}
+                  {syncStatus.message && !syncStatus.inProgress && (
+                    <span className="text-white small" title={syncStatus.message}>
+                      {syncStatus.lastCompletedSecondsAgo !== null && syncStatus.lastCompletedSecondsAgo < 120
+                        ? `Synced ${syncStatus.lastCompletedSecondsAgo}s ago`
+                        : ''}
+                    </span>
+                  )}
+                  <button
+                    className="btn btn-light btn-sm"
+                    onClick={() => refreshFromMonday(false)}
+                    disabled={loading || syncStatus.inProgress}
+                    title={syncStatus.inProgress ? 'Sync in progress...' : 'Refresh data from Monday.com'}
+                  >
+                    {loading ? 'Loading...' : syncStatus.inProgress ? 'Syncing...' : 'Refresh Data'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

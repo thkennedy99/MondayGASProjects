@@ -430,13 +430,25 @@ function clearMarketingCaches() {
  * This syncs ALL boards to spreadsheets and clears ALL caches
  * Called by the Marketing Manager Portal "Refresh Data" button
  */
-function refreshMarketingDataFromMonday() {
+function refreshMarketingDataFromMonday(force) {
   try {
     console.log('Starting full data refresh from Monday.com...');
 
     // Step 1: Sync all Monday data (Dashboard, Partner Activities, Marketing, Guidewire)
     console.log('Step 1: Syncing all Monday.com boards...');
-    syncMondayData();
+    const syncResult = syncMondayData(force);
+
+    // If sync was skipped (debounced or already in progress), return early with that info
+    if (syncResult && syncResult.skipped) {
+      console.log('Sync was skipped:', syncResult.message);
+      return { success: true, message: syncResult.message, skipped: true };
+    }
+
+    // If sync failed, return the error
+    if (syncResult && !syncResult.success) {
+      console.log('Sync failed:', syncResult.message);
+      return { success: false, message: syncResult.message, skipped: false };
+    }
 
     // Step 2: Sync 2026 Approvals board
     console.log('Step 2: Syncing 2026 Approvals board...');
@@ -455,11 +467,11 @@ function refreshMarketingDataFromMonday() {
     clear2026ApprovalsCaches();
 
     console.log('Full data refresh completed successfully');
-    return { success: true, message: 'All data refreshed from Monday.com' };
+    return { success: true, message: 'All data refreshed from Monday.com', skipped: false };
 
   } catch (error) {
     console.error('Error refreshing data from Monday:', error);
-    return { success: false, message: error.toString() };
+    return { success: false, message: error.toString(), skipped: false };
   }
 }
 
@@ -648,6 +660,112 @@ function clearHeatmapCaches() {
   }
 }
 
+// ============================================
+// SYNC LOCK AND DEBOUNCE FUNCTIONS
+// Prevent concurrent syncs and rapid re-syncs
+// ============================================
+
+/**
+ * Check if a sync can start (not already running, not recently completed)
+ * @param {number} debounceSeconds - Minimum seconds between syncs (default 60)
+ * @returns {Object} { canStart: boolean, reason: string, syncInProgress: boolean, lastSyncAge: number }
+ */
+function canStartSync(debounceSeconds) {
+  debounceSeconds = debounceSeconds || 60;
+  const cache = CacheService.getScriptCache();
+  const syncInProgress = cache.get('SYNC_IN_PROGRESS');
+  const lastSyncTime = cache.get('LAST_SYNC_COMPLETED');
+
+  // Check if sync is already running
+  if (syncInProgress === 'true') {
+    return {
+      canStart: false,
+      reason: 'Sync already in progress',
+      syncInProgress: true,
+      lastSyncAge: null
+    };
+  }
+
+  // Check if sync completed recently (within debounce window)
+  if (lastSyncTime) {
+    const elapsed = Date.now() - parseInt(lastSyncTime);
+    const elapsedSeconds = Math.round(elapsed / 1000);
+    if (elapsed < debounceSeconds * 1000) {
+      return {
+        canStart: false,
+        reason: 'Recent sync completed ' + elapsedSeconds + 's ago (waiting ' + debounceSeconds + 's)',
+        syncInProgress: false,
+        lastSyncAge: elapsedSeconds
+      };
+    }
+  }
+
+  return { canStart: true, reason: 'Ready to sync', syncInProgress: false, lastSyncAge: null };
+}
+
+/**
+ * Set the sync lock to prevent concurrent syncs
+ */
+function setSyncLock() {
+  const cache = CacheService.getScriptCache();
+  cache.put('SYNC_IN_PROGRESS', 'true', 600); // 10 min max lock (safety timeout)
+  cache.put('SYNC_STARTED_AT', String(Date.now()), 600);
+  console.log('Sync lock acquired');
+}
+
+/**
+ * Clear the sync lock and record completion time
+ */
+function clearSyncLock() {
+  const cache = CacheService.getScriptCache();
+  cache.remove('SYNC_IN_PROGRESS');
+  cache.put('LAST_SYNC_COMPLETED', String(Date.now()), 600); // Remember for 10 minutes
+  console.log('Sync lock released, completion time recorded');
+}
+
+/**
+ * Get current sync status for UI display
+ * @returns {Object} { inProgress: boolean, lastCompleted: number|null, canSync: boolean, message: string }
+ */
+function getSyncStatus() {
+  const cache = CacheService.getScriptCache();
+  const syncInProgress = cache.get('SYNC_IN_PROGRESS') === 'true';
+  const lastSyncTime = cache.get('LAST_SYNC_COMPLETED');
+  const syncStartedAt = cache.get('SYNC_STARTED_AT');
+
+  let lastCompletedAge = null;
+  let syncDuration = null;
+
+  if (lastSyncTime) {
+    lastCompletedAge = Math.round((Date.now() - parseInt(lastSyncTime)) / 1000);
+  }
+
+  if (syncInProgress && syncStartedAt) {
+    syncDuration = Math.round((Date.now() - parseInt(syncStartedAt)) / 1000);
+  }
+
+  const checkResult = canStartSync(60);
+
+  return {
+    inProgress: syncInProgress,
+    lastCompletedSecondsAgo: lastCompletedAge,
+    syncDurationSeconds: syncDuration,
+    canSync: checkResult.canStart,
+    message: checkResult.reason
+  };
+}
+
+/**
+ * Force clear sync lock (for admin/debugging purposes)
+ */
+function forceClearSyncLock() {
+  const cache = CacheService.getScriptCache();
+  cache.remove('SYNC_IN_PROGRESS');
+  cache.remove('SYNC_STARTED_AT');
+  console.log('Sync lock force cleared');
+  return { success: true, message: 'Sync lock cleared' };
+}
+
 /**
  * Clear ALL data caches (marketing, activities, heatmap)
  * Call this for comprehensive cache invalidation
@@ -662,8 +780,30 @@ function clearAllDataCaches() {
 
 /**
  * Main function to sync Monday.com data to Google Sheets (Dashboard first, then Data)
+ * @param {boolean} force - If true, skip the debounce check (but still respect the lock)
+ * @returns {Object} { success: boolean, message: string, skipped: boolean }
  */
-function syncMondayData() {
+function syncMondayData(force) {
+  // Check if we can start a sync
+  const syncCheck = canStartSync(60); // 60 second debounce
+
+  if (!syncCheck.canStart) {
+    // If sync is in progress, always skip
+    if (syncCheck.syncInProgress) {
+      console.log('Sync skipped: ' + syncCheck.reason);
+      return { success: false, message: syncCheck.reason, skipped: true };
+    }
+    // If just debounced, skip unless forced
+    if (!force) {
+      console.log('Sync skipped: ' + syncCheck.reason);
+      return { success: false, message: syncCheck.reason, skipped: true };
+    }
+    console.log('Sync debounce overridden by force flag');
+  }
+
+  // Acquire the sync lock
+  setSyncLock();
+
   try {
     console.log('Starting Monday.com multi-stage sync...');
 
@@ -798,9 +938,16 @@ function syncMondayData() {
     clearActivityCaches();
     clearHeatmapCaches();
 
+    // Release sync lock and record completion
+    clearSyncLock();
+
+    return { success: true, message: 'Sync completed successfully', skipped: false };
+
   } catch (error) {
     console.error('Error syncing Monday data:', error);
-  //  SpreadsheetApp.getUi().alert('Error: ' + error.toString());
+    // Release sync lock even on error
+    clearSyncLock();
+    return { success: false, message: 'Sync error: ' + String(error), skipped: false };
   }
 }
 
