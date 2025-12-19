@@ -2442,8 +2442,8 @@
 
     // Partner Activities Tab Component
     function PartnerActivitiesTab({ data, onRefresh }) {
-      const [filterPartner, setFilterPartner] = useState('');
-      const [filterStatus, setFilterStatus] = useState('');
+      const [filterPartner, setFilterPartner] = useState([]);
+      const [filterStatus, setFilterStatus] = useState([]);
       const [columnsByBoard, setColumnsByBoard] = useState({});
       const [editingItem, setEditingItem] = useState(null);
       const [deletingItem, setDeletingItem] = useState(null);
@@ -2464,8 +2464,8 @@
         return data.filter(item => {
           const partner = item['Partner Name'] || item['Partner'] || '';
           const status = item['Activity Status'] || item['Status'] || '';
-          if (filterPartner && partner !== filterPartner) return false;
-          if (filterStatus && status !== filterStatus) return false;
+          if (filterPartner.length > 0 && !filterPartner.includes(partner)) return false;
+          if (filterStatus.length > 0 && !filterStatus.includes(status)) return false;
           return true;
         });
       }, [data, filterPartner, filterStatus]);
@@ -2581,18 +2581,10 @@
           <div className="filter-section">
             <div className="row g-2 align-items-end">
               <div className="col-md-3">
-                <label className="form-label">Partner</label>
-                <select className="form-select form-select-sm" value={filterPartner} onChange={e => setFilterPartner(e.target.value)}>
-                  <option value="">All Partners</option>
-                  {partners.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <MultiSelectFilter label="Partner" options={partners} selected={filterPartner} onChange={setFilterPartner} />
               </div>
               <div className="col-md-3">
-                <label className="form-label">Status</label>
-                <select className="form-select form-select-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                  <option value="">All Statuses</option>
-                  {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <MultiSelectFilter label="Status" options={statuses} selected={filterStatus} onChange={setFilterStatus} />
               </div>
               <div className="col-md-3">
                 <span className="text-muted">Showing {filteredData.length} of {data.length}</span>
