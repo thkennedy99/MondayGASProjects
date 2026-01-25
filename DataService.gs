@@ -1227,6 +1227,21 @@ sortData(data, field, order = 'asc') {
       }
     }
 
+    // Check if it's a string that looks like a Date.toString() output
+    // e.g., "Wed Jan 14 2026 00:00:00 GMT-0600 (Central Standard Time)"
+    if (typeof value === 'string') {
+      const dateStringMatch = value.match(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{4})/);
+      if (dateStringMatch) {
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = String(monthNames.indexOf(dateStringMatch[2]) + 1).padStart(2, '0');
+        const day = String(dateStringMatch[3]).padStart(2, '0');
+        const year = dateStringMatch[4];
+        return `${year}-${month}-${day}`;
+      }
+      // Return other strings as-is
+      return value;
+    }
+
     // Handle booleans
     if (typeof value === 'boolean') {
       return value ? 'true' : 'false';
