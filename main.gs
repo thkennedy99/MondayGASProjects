@@ -34,7 +34,7 @@ const GW_BOARD_3_ID = '18374691224';
 const GW_BOARD_3_NAME = 'Marketing Activities';
 const GW_BOARD_3_SHEET = 'GW_MarketingActivities';
 const GW_BOARD_4_ID = '18375013360';
-const GW_BOARD_4_NAME = 'Integration Compliance Activities';
+const GW_BOARD_4_NAME = 'Marketplace Activities';
 const GW_BOARD_4_SHEET = 'GW_IntegrationComplianceActivities';
 const GW_MONDAY_SHEET_NAME = 'GWMondayData';
 
@@ -61,6 +61,48 @@ const GW_BOARD_NAME_MAP = {
 const PARTNER_BOARD_ID = '8463767815';
 
 const MONDAY_API_URL = 'https://api.monday.com/v2';
+
+/**
+ * Debug utility: Log column structure for all 4 GW boards
+ * Run this function from Apps Script editor to see column names
+ */
+function logGWBoardColumns() {
+  const boards = [
+    { id: GW_BOARD_1_ID, name: GW_BOARD_1_NAME },
+    { id: GW_BOARD_2_ID, name: GW_BOARD_2_NAME },
+    { id: GW_BOARD_3_ID, name: GW_BOARD_3_NAME },
+    { id: GW_BOARD_4_ID, name: GW_BOARD_4_NAME }
+  ];
+
+  console.log('='.repeat(80));
+  console.log('GW BOARD COLUMN STRUCTURES');
+  console.log('='.repeat(80));
+
+  boards.forEach((board, boardIndex) => {
+    try {
+      console.log(`\n${'─'.repeat(60)}`);
+      console.log(`BOARD ${boardIndex + 1}: ${board.name}`);
+      console.log(`Board ID: ${board.id}`);
+      console.log('─'.repeat(60));
+
+      const structure = getBoardStructure(board.id);
+
+      console.log(`Total columns: ${structure.columns.length}`);
+      console.log('\nColumns (in order):');
+
+      structure.columns.forEach((col, index) => {
+        console.log(`  ${(index + 1).toString().padStart(2, ' ')}. "${col.title}" (ID: ${col.id}, Type: ${col.type})`);
+      });
+
+    } catch (error) {
+      console.error(`Error fetching board ${board.name}:`, error);
+    }
+  });
+
+  console.log('\n' + '='.repeat(80));
+  console.log('END OF COLUMN STRUCTURES');
+  console.log('='.repeat(80));
+}
 
 /**
  * Get marketing board configurations

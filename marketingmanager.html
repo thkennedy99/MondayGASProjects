@@ -3307,7 +3307,7 @@
                         <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
                         <td>{item['Owner'] || ''}</td>
                         <td>{item['Importance'] || item['Priority'] || ''}</td>
-                        <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+                        <td>{item['Date Due'] || item['Due Date'] || item['Deadline'] || ''}</td>
                         <td>
                           <div className="action-buttons">
                             <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
@@ -3387,6 +3387,7 @@
         managerName: ''
       });
       const [authLoading, setAuthLoading] = useState(true);
+      const [authRefreshing, setAuthRefreshing] = useState(false);
 
       // Managed partners for the current user (partners where Account Owner matches current manager)
       const [managedPartners, setManagedPartners] = useState([]);
@@ -3520,6 +3521,28 @@
         }
       }, [currentManager]);
 
+      // Refresh authorization (clears cache and reloads fresh permissions)
+      const handleRefreshAuthorization = async () => {
+        setAuthRefreshing(true);
+        try {
+          console.log('Refreshing authorization (clearing cache)...');
+          const result = await api.call('refreshMyAuthorization');
+          if (result.success && result.authorization) {
+            console.log('Refreshed authorization:', result.authorization);
+            setAuthorization(result.authorization);
+            alert('Permissions refreshed successfully!');
+          } else {
+            console.error('Failed to refresh authorization:', result.error);
+            alert('Failed to refresh permissions: ' + (result.error || 'Unknown error'));
+          }
+        } catch (error) {
+          console.error('Error refreshing authorization:', error);
+          alert('Error refreshing permissions: ' + error.message);
+        } finally {
+          setAuthRefreshing(false);
+        }
+      };
+
       // Set activeMainTab to first authorized main tab after authorization loads
       useEffect(() => {
         if (!authLoading && authorization.mondayBoards && authorization.mondayBoards.length > 0) {
@@ -3536,7 +3559,7 @@
             { board: 'PartnerManagement', mainTab: 'internal', subTab: null },
             { board: 'SolutionOps', mainTab: 'internal', subTab: null },
             { board: 'MarketingProjects', mainTab: 'internal', subTab: null },
-            { board: 'Compliance', mainTab: 'internal', subTab: null }
+            { board: 'Marketplace', mainTab: 'internal', subTab: null }
           ];
 
           // Find the first authorized main tab
@@ -4071,6 +4094,19 @@
                 <span className="text-white small">
                   {authorization.managerName || currentManager}
                 </span>
+                <button
+                  className="btn btn-sm btn-outline-light"
+                  onClick={handleRefreshAuthorization}
+                  disabled={authRefreshing}
+                  title="Refresh permissions from TechAllianceManager sheet (clears cache)"
+                  style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}
+                >
+                  {authRefreshing ? (
+                    <span className="spinner-border spinner-border-sm" role="status"></span>
+                  ) : (
+                    <i className="bi bi-arrow-clockwise"></i>
+                  )}
+                </button>
                 <div className="d-flex align-items-center gap-2">
                   {syncStatus.inProgress && (
                     <span className="badge bg-warning text-dark">

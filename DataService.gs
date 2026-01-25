@@ -26,9 +26,12 @@ static ensureSerializable(data) {
     const result = {};
     for (const key in data) {
       const value = data[key];
-      // Convert dates to strings
+      // Convert dates to strings using local timezone
       if (value instanceof Date) {
-        result[key] = value.toISOString();
+        const year = value.getFullYear();
+        const month = String(value.getMonth() + 1).padStart(2, '0');
+        const day = String(value.getDate()).padStart(2, '0');
+        result[key] = `${year}-${month}-${day}`;
       } else if (typeof value === 'function') {
         // Skip functions
         continue;
@@ -96,18 +99,13 @@ getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
         sanitized['Name'] = this.convertToString(row['Item Name']);
       }
 
-      // For internal activities, map "Assigned To" to "Assigned By"
-      if (type === 'internal' && row['Assigned To'] !== undefined) {
-        sanitized['Assigned By'] = this.convertToString(row['Assigned To']);
-      }
+      // Note: "Assigned To" is kept as-is (not renamed to "Assigned By")
+      // This matches the Monday.com column name and allows edit modal to work correctly
 
       // Then add all other fields
       for (const key in row) {
         if (key === 'Item Name') {
           // Skip Item Name as we've already added it as Name
-          continue;
-        } else if (type === 'internal' && key === 'Assigned To') {
-          // Skip Assigned To as we've already added it as Assigned By
           continue;
         } else {
           sanitized[key] = this.convertToString(row[key]);
@@ -1004,13 +1002,13 @@ getPartnerHeatmap(managerEmail) {
       const data = this.getSheetData(internalSheet);
       const pending = data.filter(row => {
         const owner = row['Owner'];
-        const assignedBy = row['Assigned By'];
-        const matchesManager = owner === managerEmail || 
+        const assignedTo = row['Assigned To'];
+        const matchesManager = owner === managerEmail ||
                               owner === managerName ||
-                              assignedBy === managerEmail ||
-                              assignedBy === managerName ||
+                              assignedTo === managerEmail ||
+                              assignedTo === managerName ||
                               (owner && owner.includes(managerName.split(' ')[0])) ||
-                              (assignedBy && assignedBy.includes(managerName.split(' ')[0]));
+                              (assignedTo && assignedTo.includes(managerName.split(' ')[0]));
         
         // Check for approval required status
         const activityStatus = row['Activity Status'];
@@ -1080,7 +1078,11 @@ getPartnerHeatmap(managerEmail) {
     }
     
     if (obj instanceof Date) {
-      return obj.toISOString().split('T')[0]; // Return YYYY-MM-DD format
+      // Use local date components to avoid timezone shift
+      const year = obj.getFullYear();
+      const month = String(obj.getMonth() + 1).padStart(2, '0');
+      const day = String(obj.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     }
     
     if (typeof obj === 'boolean' || typeof obj === 'number') {
@@ -1207,33 +1209,65 @@ sortData(data, field, order = 'asc') {
    * Convert any value to string for UI compatibility
    */
   convertToString(value) {
-    // Handle dates
+    // Handle null/undefined first
+    if (value === null || value === undefined) {
+      return '';
+    }
+
+    // Handle dates - check multiple ways since Google Sheets dates may not pass instanceof
     if (value instanceof Date) {
       const year = value.getFullYear();
       const month = String(value.getMonth() + 1).padStart(2, '0');
       const day = String(value.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     }
-    
-    // Handle null/undefined
-    if (value === null || value === undefined) {
-      return '';
+
+    // Check if it's a date-like object from Google Sheets (has getTime method)
+    if (typeof value === 'object' && typeof value.getTime === 'function') {
+      try {
+        const year = value.getFullYear();
+        const month = String(value.getMonth() + 1).padStart(2, '0');
+        const day = String(value.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      } catch (e) {
+        // Fall through to other handlers
+      }
     }
-    
+
+    // Check if it's a string that looks like a Date.toString() output
+    // e.g., "Wed Jan 14 2026 00:00:00 GMT-0600 (Central Standard Time)"
+    if (typeof value === 'string') {
+      const dateStringMatch = value.match(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{4})/);
+      if (dateStringMatch) {
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = String(monthNames.indexOf(dateStringMatch[2]) + 1).padStart(2, '0');
+        const day = String(dateStringMatch[3]).padStart(2, '0');
+        const year = dateStringMatch[4];
+        return `${year}-${month}-${day}`;
+      }
+      // Return other strings as-is
+      return value;
+    }
+
     // Handle booleans
     if (typeof value === 'boolean') {
       return value ? 'true' : 'false';
     }
-    
-    // Handle objects
+
+    // Handle other objects (but not dates)
     if (typeof value === 'object') {
       try {
-        return JSON.stringify(value);
+        // Check if it serializes to an empty object (common with failed Date serialization)
+        const serialized = JSON.stringify(value);
+        if (serialized === '{}') {
+          return ''; // Return empty string for empty objects
+        }
+        return serialized;
       } catch (e) {
         return '';
       }
     }
-    
+
     // Everything else: convert to string
     return String(value);
   }
@@ -1617,7 +1651,11 @@ function getPartnerHeatmap(managerEmail) {
         if (value === null || value === undefined) {
           clean[key] = '';
         } else if (value instanceof Date) {
-          clean[key] = value.toISOString().split('T')[0];
+          // Use local date components to avoid timezone shift
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          clean[key] = `${year}-${month}-${day}`;
         } else if (typeof value === 'boolean') {
           clean[key] = value ? 'true' : 'false';
         } else if (typeof value === 'object') {
@@ -1724,7 +1762,11 @@ function getAllPartnerHeatmapUnfiltered() {
         if (value === null || value === undefined) {
           clean[key] = '';
         } else if (value instanceof Date) {
-          clean[key] = value.toISOString().split('T')[0];
+          // Use local date components to avoid timezone shift
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          clean[key] = `${year}-${month}-${day}`;
         } else if (typeof value === 'boolean') {
           clean[key] = value ? 'true' : 'false';
         } else if (typeof value === 'object') {
@@ -1791,11 +1833,9 @@ function getAllInternalActivitiesUnfiltered(boardFilter, filters, sort, paginati
       if (row['Item Name'] !== undefined) {
         sanitized['Name'] = service.convertToString(row['Item Name']);
       }
-      if (row['Assigned To'] !== undefined) {
-        sanitized['Assigned By'] = service.convertToString(row['Assigned To']);
-      }
+      // Note: "Assigned To" is kept as-is (not renamed to "Assigned By")
       for (const key in row) {
-        if (key === 'Item Name' || key === 'Assigned To') continue;
+        if (key === 'Item Name') continue;
         sanitized[key] = service.convertToString(row[key]);
       }
       return sanitized;
@@ -2242,7 +2282,7 @@ function getInternalActivityFilterOptions(managerEmail) {
     const statusIndex = headers.indexOf('Activity Status');
     const priorityIndex = headers.indexOf('Importance');
     const ownerIndex = headers.indexOf('Owner');
-    const assignedByIndex = headers.indexOf('Assigned By');
+    const assignedToIndex = headers.indexOf('Assigned To');
 
     if (boardIndex === -1 || statusIndex === -1) {
       console.error('Required columns not found');
@@ -2260,16 +2300,16 @@ function getInternalActivityFilterOptions(managerEmail) {
     for (let i = 1; i < values.length; i++) {
       const row = values[i];
       const owner = row[ownerIndex];
-      const assignedBy = row[assignedByIndex];
+      const assignedTo = row[assignedToIndex];
 
-      // Filter by manager - check if manager is owner or assignedBy
+      // Filter by manager - check if manager is owner or assignedTo
       const isManagerActivity =
         owner === managerEmail ||
         owner === managerName ||
         (owner && owner.toString().includes(managerName.split(' ')[0])) ||
-        assignedBy === managerEmail ||
-        assignedBy === managerName ||
-        (assignedBy && assignedBy.toString().includes(managerName.split(' ')[0]));
+        assignedTo === managerEmail ||
+        assignedTo === managerName ||
+        (assignedTo && assignedTo.toString().includes(managerName.split(' ')[0]));
 
       if (isManagerActivity) {
         // Collect unique values
@@ -2374,7 +2414,11 @@ function getFilteredInternalActivities(managerEmail, filters = {}) {
       for (const key in row) {
         const value = row[key];
         if (value instanceof Date) {
-          clean[key] = value.toISOString().split('T')[0];
+          // Use local date components to avoid timezone shift
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          clean[key] = `${year}-${month}-${day}`;
         } else if (value === null || value === undefined) {
           clean[key] = '';
         } else {
@@ -2454,7 +2498,11 @@ function getFilteredPartnerActivities(managerEmail, filters = {}) {
       for (const key in row) {
         const value = row[key];
         if (value instanceof Date) {
-          clean[key] = value.toISOString().split('T')[0];
+          // Use local date components to avoid timezone shift
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          clean[key] = `${year}-${month}-${day}`;
         } else if (value === null || value === undefined) {
           clean[key] = '';
         } else {
@@ -2588,9 +2636,12 @@ function getSheetDataAsObjects(sheet) {
  * @returns {*} Parsed value
  */
 function parseValue(value) {
-  // Handle dates
+  // Handle dates - use local timezone to avoid date shift
   if (value instanceof Date) {
-    return value.toISOString();
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
   
   // Handle numbers
@@ -3884,4 +3935,47 @@ function get2026FlowConfig() {
     console.error('Stack:', error.stack);
     return { groups: [], columns: [], error: error.message };
   }
+}
+
+/**
+ * Debug function to verify Internal Activities data structure
+ * Run this to see what keys are returned in the data
+ */
+function debugInternalActivitiesData() {
+  console.log('=== DEBUG: Internal Activities Data Structure ===');
+
+  const service = new DataService();
+  const result = service.getActivityData('internal', null, {}, {}, { page: 1, pageSize: 5 });
+
+  console.log('Total items:', result.total);
+
+  if (result.data && result.data.length > 0) {
+    const firstRow = result.data[0];
+    const keys = Object.keys(firstRow);
+
+    console.log('\n--- ALL KEYS in data (total: ' + keys.length + ') ---');
+    keys.forEach(key => {
+      console.log('  "' + key + '": "' + firstRow[key] + '"');
+    });
+
+    console.log('\n--- KEY FIELDS CHECK ---');
+    console.log('Has "Date Due":', keys.includes('Date Due') ? 'YES' : 'NO');
+    console.log('Has "Due Date":', keys.includes('Due Date') ? 'YES' : 'NO');
+    console.log('Has "Assigned To":', keys.includes('Assigned To') ? 'YES' : 'NO');
+    console.log('Has "Assigned By":', keys.includes('Assigned By') ? 'YES' : 'NO');
+    console.log('Has "Name":', keys.includes('Name') ? 'YES' : 'NO');
+    console.log('Has "Item Name":', keys.includes('Item Name') ? 'YES' : 'NO');
+
+    // Show sample values for key fields
+    console.log('\n--- SAMPLE VALUES ---');
+    console.log('Date Due value:', firstRow['Date Due']);
+    console.log('Assigned To value:', firstRow['Assigned To']);
+    console.log('Name value:', firstRow['Name']);
+    console.log('Activity Status:', firstRow['Activity Status']);
+    console.log('Board Name:', firstRow['Board Name']);
+  } else {
+    console.log('No data returned');
+  }
+
+  return 'Check the Logs (View > Logs) for output';
 }

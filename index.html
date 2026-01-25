@@ -2211,7 +2211,7 @@
               { key: 'Activity Status', label: 'Status' },
               { key: 'Owner', label: 'Owner' },
               { key: 'Importance', label: 'Priority' },
-              { key: 'Date Due', label: 'Due Date' },
+              { key: 'Date Due', label: 'Date Due' },
               { key: 'Date Created', label: 'Created' },
               { key: 'actions', label: 'Actions' }
             ];
@@ -2559,6 +2559,11 @@
             );
           }
               function InternalActivities({ manager, viewMode, authorization }) {
+                console.log('=== InternalActivities MOUNT ===');
+                console.log('manager:', manager);
+                console.log('viewMode:', viewMode);
+                console.log('authorization:', authorization);
+
                 const [activities, setActivities] = React.useState([]);
                 const [loading, setLoading] = React.useState(false);
                 const [error, setError] = React.useState(null);
@@ -2589,11 +2594,18 @@
                 const [availableBoards, setAvailableBoards] = React.useState([]);
 
                 React.useEffect(() => {
+                  console.log('=== InternalActivities useEffect triggered ===');
+                  console.log('manager in useEffect:', manager);
                   loadActivities();
                 }, [manager]);
 
                 const loadActivities = async (syncFirst = false) => {
-                  if (!manager) return;
+                  console.log('=== loadActivities called ===');
+                  console.log('manager:', manager, 'syncFirst:', syncFirst);
+                  if (!manager) {
+                    console.log('No manager - returning early');
+                    return;
+                  }
 
                   setLoading(true);
                   setError(null);
@@ -2620,6 +2632,16 @@
                       .withSuccessHandler(data => {
                         console.log('Internal activities response:', data);
                         const acts = data?.data || [];
+
+                        // DEBUG: Check Date Due field
+                        if (acts.length > 0) {
+                          console.log('=== DATE DUE DEBUG ===');
+                          console.log('First activity keys:', Object.keys(acts[0]));
+                          console.log('Has "Date Due":', acts[0].hasOwnProperty('Date Due'));
+                          console.log('Date Due value:', acts[0]['Date Due']);
+                          console.log('First activity full:', acts[0]);
+                        }
+
                         setActivities(acts);
 
                         // Extract filter options and available boards from the data
@@ -2931,13 +2953,23 @@
                   { key: 'Board Name', label: 'Board' },
                   { key: 'Activity Status', label: 'Status' },
                   { key: 'Owner', label: 'Owner' },
-                  { key: 'Assigned By', label: 'Assigned To' },
-                  { key: 'Date Due', label: 'Due Date' },
+                  { key: 'Assigned To', label: 'Assigned To' },
+                  { key: 'Date Due', label: 'Date Due' },
                   { key: 'Importance', label: 'Priority' },
                   { key: 'actions', label: 'Actions' }
                 ];
 
                 const renderRow = (activity, index) => {
+                  // DEBUG: Log each row's Date Due value
+                  if (index < 3) {
+                    console.log(`=== ROW ${index} DEBUG ===`);
+                    console.log('Activity Name:', activity['Name'] || activity['Item Name']);
+                    console.log('Date Due raw value:', activity['Date Due']);
+                    console.log('Date Due type:', typeof activity['Date Due']);
+                    console.log('Date Due is object:', activity['Date Due'] && typeof activity['Date Due'] === 'object');
+                    console.log('All keys:', Object.keys(activity));
+                  }
+
                   const isOverdue = activity['Date Due'] && new Date(activity['Date Due']) < new Date();
 
                   return React.createElement('tr', {
@@ -2977,8 +3009,8 @@
                       React.createElement('div', {
                         className: 'text-truncate',
                         style: { maxWidth: '120px' },
-                        title: activity['Assigned By']
-                      }, activity['Assigned By'] || '-')
+                        title: activity['Assigned To']
+                      }, activity['Assigned To'] || '-')
                     ),
                     React.createElement('td', null,
                       React.createElement('span', {
