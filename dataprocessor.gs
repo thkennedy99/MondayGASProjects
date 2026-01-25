@@ -232,7 +232,7 @@ const GW_STANDARD_COLUMNS = [
   'Board ID',
   'Activity Status',
   'Owner',
-  'Assigned By',  // Monday.com column name (UI maps this to "Assigned To" for display)
+  'Assigned To',  // Actual Monday.com column name (was incorrectly "Assigned By")
   'Importance',
   'Activity Type',
   'Date Created',
@@ -241,6 +241,7 @@ const GW_STANDARD_COLUMNS = [
   'Files',
   'Comments/Notes',
   'Subitems',
+  'Tech Board Type',  // Added - exists on all GW boards
   'Alliance Manager'
 ];
 
