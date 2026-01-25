@@ -34,7 +34,7 @@ const GW_BOARD_3_ID = '18374691224';
 const GW_BOARD_3_NAME = 'Marketing Activities';
 const GW_BOARD_3_SHEET = 'GW_MarketingActivities';
 const GW_BOARD_4_ID = '18375013360';
-const GW_BOARD_4_NAME = 'Integration Compliance Activities';
+const GW_BOARD_4_NAME = 'Marketplace Activities';
 const GW_BOARD_4_SHEET = 'GW_IntegrationComplianceActivities';
 const GW_MONDAY_SHEET_NAME = 'GWMondayData';
 

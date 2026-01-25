@@ -2354,7 +2354,7 @@ function setupIndividualGWBoardSheets() {
       { boardId: GW_BOARD_1_ID, sheetName: GW_BOARD_1_SHEET, name: 'Partner Management' },
       { boardId: GW_BOARD_2_ID, sheetName: GW_BOARD_2_SHEET, name: 'Solution Ops' },
       { boardId: GW_BOARD_3_ID, sheetName: GW_BOARD_3_SHEET, name: 'Marketing' },
-      { boardId: GW_BOARD_4_ID, sheetName: GW_BOARD_4_SHEET, name: 'Compliance' }
+      { boardId: GW_BOARD_4_ID, sheetName: GW_BOARD_4_SHEET, name: 'Marketplace' }
     ];
 
     console.log('Creating/syncing individual GW board sheets...');
