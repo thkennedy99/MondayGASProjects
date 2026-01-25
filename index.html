@@ -2559,6 +2559,11 @@
             );
           }
               function InternalActivities({ manager, viewMode, authorization }) {
+                console.log('=== InternalActivities MOUNT ===');
+                console.log('manager:', manager);
+                console.log('viewMode:', viewMode);
+                console.log('authorization:', authorization);
+
                 const [activities, setActivities] = React.useState([]);
                 const [loading, setLoading] = React.useState(false);
                 const [error, setError] = React.useState(null);
@@ -2589,11 +2594,18 @@
                 const [availableBoards, setAvailableBoards] = React.useState([]);
 
                 React.useEffect(() => {
+                  console.log('=== InternalActivities useEffect triggered ===');
+                  console.log('manager in useEffect:', manager);
                   loadActivities();
                 }, [manager]);
 
                 const loadActivities = async (syncFirst = false) => {
-                  if (!manager) return;
+                  console.log('=== loadActivities called ===');
+                  console.log('manager:', manager, 'syncFirst:', syncFirst);
+                  if (!manager) {
+                    console.log('No manager - returning early');
+                    return;
+                  }
 
                   setLoading(true);
                   setError(null);
