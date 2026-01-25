@@ -26,9 +26,12 @@ static ensureSerializable(data) {
     const result = {};
     for (const key in data) {
       const value = data[key];
-      // Convert dates to strings
+      // Convert dates to strings using local timezone
       if (value instanceof Date) {
-        result[key] = value.toISOString();
+        const year = value.getFullYear();
+        const month = String(value.getMonth() + 1).padStart(2, '0');
+        const day = String(value.getDate()).padStart(2, '0');
+        result[key] = `${year}-${month}-${day}`;
       } else if (typeof value === 'function') {
         // Skip functions
         continue;
@@ -1075,7 +1078,11 @@ getPartnerHeatmap(managerEmail) {
     }
     
     if (obj instanceof Date) {
-      return obj.toISOString().split('T')[0]; // Return YYYY-MM-DD format
+      // Use local date components to avoid timezone shift
+      const year = obj.getFullYear();
+      const month = String(obj.getMonth() + 1).padStart(2, '0');
+      const day = String(obj.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     }
     
     if (typeof obj === 'boolean' || typeof obj === 'number') {
@@ -1644,7 +1651,11 @@ function getPartnerHeatmap(managerEmail) {
         if (value === null || value === undefined) {
           clean[key] = '';
         } else if (value instanceof Date) {
-          clean[key] = value.toISOString().split('T')[0];
+          // Use local date components to avoid timezone shift
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          clean[key] = `${year}-${month}-${day}`;
         } else if (typeof value === 'boolean') {
           clean[key] = value ? 'true' : 'false';
         } else if (typeof value === 'object') {
@@ -1751,7 +1762,11 @@ function getAllPartnerHeatmapUnfiltered() {
         if (value === null || value === undefined) {
           clean[key] = '';
         } else if (value instanceof Date) {
-          clean[key] = value.toISOString().split('T')[0];
+          // Use local date components to avoid timezone shift
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          clean[key] = `${year}-${month}-${day}`;
         } else if (typeof value === 'boolean') {
           clean[key] = value ? 'true' : 'false';
         } else if (typeof value === 'object') {
@@ -2399,7 +2414,11 @@ function getFilteredInternalActivities(managerEmail, filters = {}) {
       for (const key in row) {
         const value = row[key];
         if (value instanceof Date) {
-          clean[key] = value.toISOString().split('T')[0];
+          // Use local date components to avoid timezone shift
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          clean[key] = `${year}-${month}-${day}`;
         } else if (value === null || value === undefined) {
           clean[key] = '';
         } else {
@@ -2479,7 +2498,11 @@ function getFilteredPartnerActivities(managerEmail, filters = {}) {
       for (const key in row) {
         const value = row[key];
         if (value instanceof Date) {
-          clean[key] = value.toISOString().split('T')[0];
+          // Use local date components to avoid timezone shift
+          const year = value.getFullYear();
+          const month = String(value.getMonth() + 1).padStart(2, '0');
+          const day = String(value.getDate()).padStart(2, '0');
+          clean[key] = `${year}-${month}-${day}`;
         } else if (value === null || value === undefined) {
           clean[key] = '';
         } else {
@@ -2613,9 +2636,12 @@ function getSheetDataAsObjects(sheet) {
  * @returns {*} Parsed value
  */
 function parseValue(value) {
-  // Handle dates
+  // Handle dates - use local timezone to avoid date shift
   if (value instanceof Date) {
-    return value.toISOString();
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
   
   // Handle numbers
