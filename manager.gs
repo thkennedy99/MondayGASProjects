@@ -538,6 +538,36 @@ function clearManagerAuthorizationCache(managerEmail) {
 }
 
 /**
+ * Clear current user's authorization cache and return fresh authorization data
+ * Can be called from frontend to force refresh permissions after sheet updates
+ * @returns {Object} Fresh authorization data
+ */
+function refreshMyAuthorization() {
+  try {
+    const userEmail = Session.getActiveUser().getEmail();
+    console.log('Refreshing authorization for:', userEmail);
+
+    // Clear the cache for this user
+    clearManagerAuthorizationCache(userEmail);
+
+    // Fetch fresh authorization data (getManagerAuthorization will re-cache it)
+    const authorization = getManagerAuthorization(userEmail);
+
+    console.log('Refreshed authorization:', JSON.stringify(authorization));
+    return {
+      success: true,
+      authorization: authorization
+    };
+  } catch (error) {
+    console.error('Error refreshing authorization:', error);
+    return {
+      success: false,
+      error: error.toString()
+    };
+  }
+}
+
+/**
  * Nuclear option - clear ALL caches (manager list, all authorizations, email lookups)
  * Use this when you've made changes to TechAllianceManager or AllianceManager sheets
  * and want to ensure fresh data is loaded for everyone
