@@ -3878,3 +3878,46 @@ function get2026FlowConfig() {
     return { groups: [], columns: [], error: error.message };
   }
 }
+
+/**
+ * Debug function to verify Internal Activities data structure
+ * Run this to see what keys are returned in the data
+ */
+function debugInternalActivitiesData() {
+  console.log('=== DEBUG: Internal Activities Data Structure ===');
+
+  const service = new DataService();
+  const result = service.getActivityData('internal', null, {}, {}, { page: 1, pageSize: 5 });
+
+  console.log('Total items:', result.total);
+
+  if (result.data && result.data.length > 0) {
+    const firstRow = result.data[0];
+    const keys = Object.keys(firstRow);
+
+    console.log('\n--- ALL KEYS in data (total: ' + keys.length + ') ---');
+    keys.forEach(key => {
+      console.log('  "' + key + '": "' + firstRow[key] + '"');
+    });
+
+    console.log('\n--- KEY FIELDS CHECK ---');
+    console.log('Has "Date Due":', keys.includes('Date Due') ? 'YES' : 'NO');
+    console.log('Has "Due Date":', keys.includes('Due Date') ? 'YES' : 'NO');
+    console.log('Has "Assigned To":', keys.includes('Assigned To') ? 'YES' : 'NO');
+    console.log('Has "Assigned By":', keys.includes('Assigned By') ? 'YES' : 'NO');
+    console.log('Has "Name":', keys.includes('Name') ? 'YES' : 'NO');
+    console.log('Has "Item Name":', keys.includes('Item Name') ? 'YES' : 'NO');
+
+    // Show sample values for key fields
+    console.log('\n--- SAMPLE VALUES ---');
+    console.log('Date Due value:', firstRow['Date Due']);
+    console.log('Assigned To value:', firstRow['Assigned To']);
+    console.log('Name value:', firstRow['Name']);
+    console.log('Activity Status:', firstRow['Activity Status']);
+    console.log('Board Name:', firstRow['Board Name']);
+  } else {
+    console.log('No data returned');
+  }
+
+  return 'Check the Logs (View > Logs) for output';
+}
