@@ -232,7 +232,7 @@ const GW_STANDARD_COLUMNS = [
   'Board ID',
   'Activity Status',
   'Owner',
-  'Assigned To',
+  'Assigned By',  // Monday.com column name (UI maps this to "Assigned To" for display)
   'Importance',
   'Activity Type',
   'Date Created',
