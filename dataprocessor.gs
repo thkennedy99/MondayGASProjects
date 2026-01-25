@@ -220,6 +220,112 @@ function parseColumnValue(columnValue, columnInfo, itemAssets) {
 }
 
 /**
+ * Standardized column order for Internal Activities (GW boards)
+ * This ensures all GW sheets have the same column structure for proper aggregation
+ */
+const GW_STANDARD_COLUMNS = [
+  'Item Name',
+  'Group',
+  'Board Name',
+  'Partner Name',
+  'Monday Item ID',
+  'Board ID',
+  'Activity Status',
+  'Owner',
+  'Assigned To',
+  'Importance',
+  'Activity Type',
+  'Date Created',
+  'Date Due',
+  'Actual Completion',
+  'Files',
+  'Comments/Notes',
+  'Subitems',
+  'Alliance Manager'
+];
+
+/**
+ * Write data to Google Sheet for GW (Internal Activities) boards
+ * Uses standardized column order to ensure proper aggregation in GWMondayData
+ */
+function writeGWDataToSheet(sheet, boardStructure, items, boardConfig = null) {
+  if (!items || items.length === 0) return;
+
+  // Create a map of column ID to column info for parsing
+  const columnInfoMap = new Map();
+  boardStructure.columns.forEach(col => {
+    columnInfoMap.set(col.id, {
+      title: col.title,
+      type: col.type,
+      settings_str: col.settings_str
+    });
+  });
+
+  // Create a map of column title to column ID for lookup
+  const titleToIdMap = new Map();
+  boardStructure.columns.forEach(col => {
+    titleToIdMap.set(col.title, col.id);
+  });
+
+  // Use standardized headers
+  const headers = [...GW_STANDARD_COLUMNS];
+
+  // Get alliance manager lookup map
+  const allianceManagerMap = getAllianceManagerLookup();
+
+  // Write headers
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+
+  // Prepare data rows
+  const dataRows = items.map(item => {
+    const row = new Array(headers.length).fill('');
+
+    // Set fixed columns
+    row[0] = item.name || '';  // Item Name
+    row[1] = item.group ? item.group.title : '';  // Group
+    row[2] = item.boardName || boardConfig?.boardName || '';  // Board Name
+    row[3] = item.partnerName || boardConfig?.partnerName || '';  // Partner Name
+    row[4] = item.id || '';  // Monday Item ID
+    row[5] = item.boardId || boardConfig?.boardId || '';  // Board ID
+
+    // Process column values
+    item.column_values.forEach(colValue => {
+      const columnInfo = columnInfoMap.get(colValue.id);
+      if (!columnInfo) return;
+
+      const parsedValue = parseColumnValue(colValue, columnInfo, item.assets);
+      const title = columnInfo.title;
+
+      // Map to standardized column index
+      const colIndex = headers.indexOf(title);
+      if (colIndex !== -1 && colIndex >= 6) {  // Skip fixed columns (0-5)
+        row[colIndex] = parsedValue;
+      }
+    });
+
+    // Set Alliance Manager in the last column
+    const partnerName = item.partnerName || boardConfig?.partnerName || '';
+    row[headers.length - 1] = lookupAllianceManager(partnerName, allianceManagerMap);
+
+    return row;
+  });
+
+  // Sanitize all rows before writing
+  const sanitizedDataRows = dataRows.map(row => sanitizeRowForSheet(row));
+
+  // Write data rows
+  if (sanitizedDataRows.length > 0) {
+    const startRow = 2;  // Always start at row 2 since we just wrote headers
+    console.log(`writeGWDataToSheet: Writing ${sanitizedDataRows.length} rows starting at row ${startRow}`);
+    sheet.getRange(startRow, 1, sanitizedDataRows.length, headers.length).setValues(sanitizedDataRows);
+    console.log(`writeGWDataToSheet: Successfully wrote ${sanitizedDataRows.length} rows`);
+
+    // Force Google Sheets to apply changes
+    SpreadsheetApp.flush();
+  }
+}
+
+/**
  * Write data to Google Sheet
  */
 function writeDataToSheet(sheet, boardStructure, items, isFirstBoard = true, boardConfig = null) {

@@ -2265,7 +2265,8 @@ function syncSingleGWBoard(boardId, overrideBoardName, overrideSheetName) {
       });
 
       console.log(`Writing ${items.length} items to sheet ${sheetName}...`);
-      writeDataToSheet(targetSheet, boardStructure, items, true, {
+      // Use standardized GW column order to ensure proper aggregation in GWMondayData
+      writeGWDataToSheet(targetSheet, boardStructure, items, {
         boardName: boardName,
         boardId: boardId,
         targetSheetName: sheetName
