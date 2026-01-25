@@ -465,6 +465,7 @@ function lookupAllianceManager(partnerName, allianceManagerMap) {
 
 /**
  * Delete rows where column B (Group) equals "Completed"
+ * Optimized to filter in memory and write back in a single batch operation
  * Includes retry logic for spreadsheet timeout errors
  */
 function deleteCompletedRows(sheet, retryCount) {
@@ -472,29 +473,47 @@ function deleteCompletedRows(sheet, retryCount) {
   const MAX_RETRIES = 3;
   const RETRY_DELAYS = [2000, 4000, 8000]; // Exponential backoff
 
+  // Statuses to filter out
+  const COMPLETED_STATUSES = ['Completed', 'Cancelled', 'Accepted by Steer Co'];
+
   try {
-    console.log('Deleting rows with Group = "Completed or Cancelled"...');
+    console.log('Filtering out rows with completed/cancelled statuses...');
 
     const lastRow = sheet.getLastRow();
-    if (lastRow < 2) {
+    const lastCol = sheet.getLastColumn();
+
+    if (lastRow < 2 || lastCol < 1) {
       console.log('No data rows to process');
       return;
     }
 
-    // Get all values from column B (Group column)
-    const groupValues = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
+    // Read ALL data at once (row 2 onwards, excluding header)
+    const allData = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+    const originalCount = allData.length;
 
-    // Find rows to delete (working backwards to avoid index issues)
-    let deletedCount = 0;
-    for (let i = groupValues.length - 1; i >= 0; i--) {
-      if (groupValues[i][0] === 'Completed' || groupValues[i][0] === 'Cancelled' || groupValues[i][0] ==='Accepted by Steer Co') {
-        // Delete the row (i + 2 because we start from row 2)
-        sheet.deleteRow(i + 2);
-        deletedCount++;
+    // Filter in memory - keep rows where column B (index 1) is NOT a completed status
+    const filteredData = allData.filter(row => {
+      const groupValue = row[1]; // Column B is index 1
+      return !COMPLETED_STATUSES.includes(groupValue);
+    });
+
+    const deletedCount = originalCount - filteredData.length;
+    console.log(`Filtering: ${originalCount} rows -> ${filteredData.length} rows (removing ${deletedCount} completed/cancelled)`);
+
+    // Only update sheet if rows were actually filtered out
+    if (deletedCount > 0) {
+      // Clear the data area (keep header row)
+      sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+
+      // Write back filtered data in one operation
+      if (filteredData.length > 0) {
+        sheet.getRange(2, 1, filteredData.length, lastCol).setValues(filteredData);
       }
-    }
 
-    console.log(`Deleted ${deletedCount} rows with Group = "Completed"`);
+      console.log(`Removed ${deletedCount} rows with completed/cancelled statuses`);
+    } else {
+      console.log('No completed/cancelled rows to remove');
+    }
 
   } catch (error) {
     // Check if this is a timeout error and we can retry
