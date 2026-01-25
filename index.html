@@ -2620,6 +2620,16 @@
                       .withSuccessHandler(data => {
                         console.log('Internal activities response:', data);
                         const acts = data?.data || [];
+
+                        // DEBUG: Check Date Due field
+                        if (acts.length > 0) {
+                          console.log('=== DATE DUE DEBUG ===');
+                          console.log('First activity keys:', Object.keys(acts[0]));
+                          console.log('Has "Date Due":', acts[0].hasOwnProperty('Date Due'));
+                          console.log('Date Due value:', acts[0]['Date Due']);
+                          console.log('First activity full:', acts[0]);
+                        }
+
                         setActivities(acts);
 
                         // Extract filter options and available boards from the data
