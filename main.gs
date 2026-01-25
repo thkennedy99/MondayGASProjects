@@ -205,8 +205,8 @@ function getBoardConfigurations(retryCount) {
     if (isTimeoutError && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount];
       console.log(`Spreadsheet timeout in getBoardConfigurations. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
-      // Flush any pending operations before retry
-      SpreadsheetApp.flush();
+      // Try to flush any pending operations before retry (but don't fail if flush times out too)
+      try { SpreadsheetApp.flush(); } catch (e) { /* ignore flush errors */ }
       Utilities.sleep(delay);
       return getBoardConfigurations(retryCount + 1);
     }

@@ -427,8 +427,8 @@ function getAllianceManagerLookup(retryCount) {
     if (isTimeoutError && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount];
       console.log(`Spreadsheet timeout in getAllianceManagerLookup. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
-      // Flush any pending operations before retry
-      SpreadsheetApp.flush();
+      // Try to flush any pending operations before retry (but don't fail if flush times out too)
+      try { SpreadsheetApp.flush(); } catch (e) { /* ignore flush errors */ }
       Utilities.sleep(delay);
       return getAllianceManagerLookup(retryCount + 1);
     }
@@ -524,8 +524,8 @@ function deleteCompletedRows(sheet, retryCount) {
     if (isTimeoutError && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount];
       console.log(`Spreadsheet timeout in deleteCompletedRows. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
-      // Flush any pending operations before retry
-      SpreadsheetApp.flush();
+      // Try to flush any pending operations before retry (but don't fail if flush times out too)
+      try { SpreadsheetApp.flush(); } catch (e) { /* ignore flush errors */ }
       Utilities.sleep(delay);
       return deleteCompletedRows(sheet, retryCount + 1);
     }
@@ -821,8 +821,8 @@ function translatePartnerNamesOnSheet(targetSheet, retryCount) {
     if (isTimeoutError && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount];
       console.log(`Spreadsheet timeout in translatePartnerNamesOnSheet. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
-      // Flush any pending operations before retry
-      SpreadsheetApp.flush();
+      // Try to flush any pending operations before retry (but don't fail if flush times out too)
+      try { SpreadsheetApp.flush(); } catch (e) { /* ignore flush errors */ }
       Utilities.sleep(delay);
       return translatePartnerNamesOnSheet(targetSheet, retryCount + 1);
     }
@@ -862,8 +862,8 @@ function sortDataByItemName(sheet, retryCount) {
     if (isTimeoutError && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount];
       console.log(`Spreadsheet timeout in sortDataByItemName. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
-      // Flush any pending operations before retry
-      SpreadsheetApp.flush();
+      // Try to flush any pending operations before retry (but don't fail if flush times out too)
+      try { SpreadsheetApp.flush(); } catch (e) { /* ignore flush errors */ }
       Utilities.sleep(delay);
       return sortDataByItemName(sheet, retryCount + 1);
     }
