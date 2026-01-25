@@ -1040,10 +1040,8 @@ function syncMondayData(force) {
         // Flush writes before auto-resizing
         SpreadsheetApp.flush();
 
-        // Auto-resize columns for better visibility
-        for (let i = 1; i <= tempLastCol; i++) {
-          mainSheet.autoResizeColumn(i);
-        }
+        // Auto-resize columns for better visibility (single batch call)
+        mainSheet.autoResizeColumns(1, tempLastCol);
 
         console.log(`Copied ${tempLastRow} rows to MondayData sheet`);
       }
@@ -1419,10 +1417,11 @@ function syncGuidewireBoards() {
           // 3. Sort by item name
           sortDataByItemName(sheet);
 
-          // Auto-resize columns
+          // Auto-resize columns (single batch call, max 20 columns)
           const lastColumn = sheet.getLastColumn();
-          for (let col = 1; col <= Math.min(lastColumn, 20); col++) {
-            sheet.autoResizeColumn(col);
+          const columnsToResize = Math.min(lastColumn, 20);
+          if (columnsToResize > 0) {
+            sheet.autoResizeColumns(1, columnsToResize);
           }
 
           console.log(`Post-processing complete for ${sheetName}`);

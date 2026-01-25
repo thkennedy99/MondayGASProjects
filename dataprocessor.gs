@@ -635,10 +635,8 @@ function writeDashboardDataToSheet(sheet, boardStructure, items, boardId) {
     sheet.getRange(2, 1, sanitizedDataRows.length, headers.length).setValues(sanitizedDataRows);
   }
 
-  // Auto-resize columns for better visibility
-  for (let i = 1; i <= headers.length; i++) {
-    sheet.autoResizeColumn(i);
-  }
+  // Auto-resize columns for better visibility (single batch call)
+  sheet.autoResizeColumns(1, headers.length);
 
   console.log('Dashboard data processing complete');
 }
