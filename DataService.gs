@@ -1202,33 +1202,50 @@ sortData(data, field, order = 'asc') {
    * Convert any value to string for UI compatibility
    */
   convertToString(value) {
-    // Handle dates
+    // Handle null/undefined first
+    if (value === null || value === undefined) {
+      return '';
+    }
+
+    // Handle dates - check multiple ways since Google Sheets dates may not pass instanceof
     if (value instanceof Date) {
       const year = value.getFullYear();
       const month = String(value.getMonth() + 1).padStart(2, '0');
       const day = String(value.getDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     }
-    
-    // Handle null/undefined
-    if (value === null || value === undefined) {
-      return '';
+
+    // Check if it's a date-like object from Google Sheets (has getTime method)
+    if (typeof value === 'object' && typeof value.getTime === 'function') {
+      try {
+        const year = value.getFullYear();
+        const month = String(value.getMonth() + 1).padStart(2, '0');
+        const day = String(value.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      } catch (e) {
+        // Fall through to other handlers
+      }
     }
-    
+
     // Handle booleans
     if (typeof value === 'boolean') {
       return value ? 'true' : 'false';
     }
-    
-    // Handle objects
+
+    // Handle other objects (but not dates)
     if (typeof value === 'object') {
       try {
-        return JSON.stringify(value);
+        // Check if it serializes to an empty object (common with failed Date serialization)
+        const serialized = JSON.stringify(value);
+        if (serialized === '{}') {
+          return ''; // Return empty string for empty objects
+        }
+        return serialized;
       } catch (e) {
         return '';
       }
     }
-    
+
     // Everything else: convert to string
     return String(value);
   }
