@@ -3307,7 +3307,7 @@
                         <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
                         <td>{item['Owner'] || ''}</td>
                         <td>{item['Importance'] || item['Priority'] || ''}</td>
-                        <td>{item['Due Date'] || item['Deadline'] || ''}</td>
+                        <td>{item['Date Due'] || item['Due Date'] || item['Deadline'] || ''}</td>
                         <td>
                           <div className="action-buttons">
                             <button className="btn btn-outline-primary btn-sm" onClick={() => handleEdit(item)} title="Edit">
