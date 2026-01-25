@@ -2211,7 +2211,7 @@
               { key: 'Activity Status', label: 'Status' },
               { key: 'Owner', label: 'Owner' },
               { key: 'Importance', label: 'Priority' },
-              { key: 'Date Due', label: 'Due Date' },
+              { key: 'Date Due', label: 'Date Due' },
               { key: 'Date Created', label: 'Created' },
               { key: 'actions', label: 'Actions' }
             ];
@@ -2931,8 +2931,8 @@
                   { key: 'Board Name', label: 'Board' },
                   { key: 'Activity Status', label: 'Status' },
                   { key: 'Owner', label: 'Owner' },
-                  { key: 'Assigned By', label: 'Assigned To' },
-                  { key: 'Date Due', label: 'Due Date' },
+                  { key: 'Assigned To', label: 'Assigned To' },
+                  { key: 'Date Due', label: 'Date Due' },
                   { key: 'Importance', label: 'Priority' },
                   { key: 'actions', label: 'Actions' }
                 ];
@@ -2977,8 +2977,8 @@
                       React.createElement('div', {
                         className: 'text-truncate',
                         style: { maxWidth: '120px' },
-                        title: activity['Assigned By']
-                      }, activity['Assigned By'] || '-')
+                        title: activity['Assigned To']
+                      }, activity['Assigned To'] || '-')
                     ),
                     React.createElement('td', null,
                       React.createElement('span', {

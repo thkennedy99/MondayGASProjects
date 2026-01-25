@@ -96,18 +96,13 @@ getActivityData(type, manager, filters = {}, sort = {}, pagination = {}) {
         sanitized['Name'] = this.convertToString(row['Item Name']);
       }
 
-      // For internal activities, map "Assigned To" to "Assigned By"
-      if (type === 'internal' && row['Assigned To'] !== undefined) {
-        sanitized['Assigned By'] = this.convertToString(row['Assigned To']);
-      }
+      // Note: "Assigned To" is kept as-is (not renamed to "Assigned By")
+      // This matches the Monday.com column name and allows edit modal to work correctly
 
       // Then add all other fields
       for (const key in row) {
         if (key === 'Item Name') {
           // Skip Item Name as we've already added it as Name
-          continue;
-        } else if (type === 'internal' && key === 'Assigned To') {
-          // Skip Assigned To as we've already added it as Assigned By
           continue;
         } else {
           sanitized[key] = this.convertToString(row[key]);
@@ -1004,13 +999,13 @@ getPartnerHeatmap(managerEmail) {
       const data = this.getSheetData(internalSheet);
       const pending = data.filter(row => {
         const owner = row['Owner'];
-        const assignedBy = row['Assigned By'];
-        const matchesManager = owner === managerEmail || 
+        const assignedTo = row['Assigned To'];
+        const matchesManager = owner === managerEmail ||
                               owner === managerName ||
-                              assignedBy === managerEmail ||
-                              assignedBy === managerName ||
+                              assignedTo === managerEmail ||
+                              assignedTo === managerName ||
                               (owner && owner.includes(managerName.split(' ')[0])) ||
-                              (assignedBy && assignedBy.includes(managerName.split(' ')[0]));
+                              (assignedTo && assignedTo.includes(managerName.split(' ')[0]));
         
         // Check for approval required status
         const activityStatus = row['Activity Status'];
@@ -1791,11 +1786,9 @@ function getAllInternalActivitiesUnfiltered(boardFilter, filters, sort, paginati
       if (row['Item Name'] !== undefined) {
         sanitized['Name'] = service.convertToString(row['Item Name']);
       }
-      if (row['Assigned To'] !== undefined) {
-        sanitized['Assigned By'] = service.convertToString(row['Assigned To']);
-      }
+      // Note: "Assigned To" is kept as-is (not renamed to "Assigned By")
       for (const key in row) {
-        if (key === 'Item Name' || key === 'Assigned To') continue;
+        if (key === 'Item Name') continue;
         sanitized[key] = service.convertToString(row[key]);
       }
       return sanitized;
@@ -2242,7 +2235,7 @@ function getInternalActivityFilterOptions(managerEmail) {
     const statusIndex = headers.indexOf('Activity Status');
     const priorityIndex = headers.indexOf('Importance');
     const ownerIndex = headers.indexOf('Owner');
-    const assignedByIndex = headers.indexOf('Assigned By');
+    const assignedToIndex = headers.indexOf('Assigned To');
 
     if (boardIndex === -1 || statusIndex === -1) {
       console.error('Required columns not found');
@@ -2260,16 +2253,16 @@ function getInternalActivityFilterOptions(managerEmail) {
     for (let i = 1; i < values.length; i++) {
       const row = values[i];
       const owner = row[ownerIndex];
-      const assignedBy = row[assignedByIndex];
+      const assignedTo = row[assignedToIndex];
 
-      // Filter by manager - check if manager is owner or assignedBy
+      // Filter by manager - check if manager is owner or assignedTo
       const isManagerActivity =
         owner === managerEmail ||
         owner === managerName ||
         (owner && owner.toString().includes(managerName.split(' ')[0])) ||
-        assignedBy === managerEmail ||
-        assignedBy === managerName ||
-        (assignedBy && assignedBy.toString().includes(managerName.split(' ')[0]));
+        assignedTo === managerEmail ||
+        assignedTo === managerName ||
+        (assignedTo && assignedTo.toString().includes(managerName.split(' ')[0]));
 
       if (isManagerActivity) {
         // Collect unique values
