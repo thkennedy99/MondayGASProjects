@@ -96,7 +96,7 @@ function getMarketingBoardConfigurations() {
 function getBoardConfigurations(retryCount) {
   retryCount = retryCount || 0;
   const MAX_RETRIES = 3;
-  const RETRY_DELAYS = [2000, 4000, 8000]; // Exponential backoff: 2s, 4s, 8s
+  const RETRY_DELAYS = [5000, 10000, 20000]; // Longer exponential backoff: 5s, 10s, 20s
 
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
@@ -205,6 +205,8 @@ function getBoardConfigurations(retryCount) {
     if (isTimeoutError && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount];
       console.log(`Spreadsheet timeout in getBoardConfigurations. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
+      // Flush any pending operations before retry
+      SpreadsheetApp.flush();
       Utilities.sleep(delay);
       return getBoardConfigurations(retryCount + 1);
     }
@@ -926,7 +928,7 @@ function syncMondayData(force) {
     // This prevents "Service Spreadsheets timed out" errors in Stage 2
     console.log('Flushing spreadsheet writes and stabilizing...');
     SpreadsheetApp.flush();
-    Utilities.sleep(3000); // 3 second delay to let the spreadsheet service stabilize
+    Utilities.sleep(5000); // 5 second delay to let the spreadsheet service stabilize
 
     // STAGE 2: Sync MondayData using board IDs from MondayDashboard
     console.log('\n=== STAGE 2: Syncing MondayData ===');
@@ -998,17 +1000,17 @@ function syncMondayData(force) {
 
       // Flush and stabilize before post-processing
       SpreadsheetApp.flush();
-      Utilities.sleep(1000);
+      Utilities.sleep(3000); // Longer stabilization before post-processing
 
       // 1. Delete rows where column B (Group) equals completed statuses
       deleteCompletedRows(tempSheet);
       SpreadsheetApp.flush();
-      Utilities.sleep(500);
+      Utilities.sleep(2000);
 
       // 2. Apply partner name translations
       translatePartnerNamesOnSheet(tempSheet);
       SpreadsheetApp.flush();
-      Utilities.sleep(500);
+      Utilities.sleep(2000);
 
       // 3. Sort the data by column A (Item Name)
       sortDataByItemName(tempSheet);
@@ -1020,7 +1022,7 @@ function syncMondayData(force) {
       console.log('\n=== Copying data from temp to MondayData ===');
 
       // Stabilize before copy operation
-      Utilities.sleep(1000);
+      Utilities.sleep(3000);
 
       const mainSheet = getOrCreateSheet(SHEET_TAB_NAME);
 

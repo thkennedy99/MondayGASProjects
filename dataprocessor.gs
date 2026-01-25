@@ -380,7 +380,7 @@ function writeDataToSheet(sheet, boardStructure, items, isFirstBoard = true, boa
 function getAllianceManagerLookup(retryCount) {
   retryCount = retryCount || 0;
   const MAX_RETRIES = 3;
-  const RETRY_DELAYS = [2000, 4000, 8000]; // Exponential backoff
+  const RETRY_DELAYS = [5000, 10000, 20000]; // Longer exponential backoff: 5s, 10s, 20s
 
   try {
     console.log('Loading alliance manager lookup data...');
@@ -399,16 +399,16 @@ function getAllianceManagerLookup(retryCount) {
       return new Map();
     }
 
-    // Get data from A2 onwards (Account Name) and D2 onwards (Account Owner)
-    const accountNames = partnerSheet.getRange(2, 1, lastRow - 1, 1).getValues();
-    const accountOwners = partnerSheet.getRange(2, 4, lastRow - 1, 1).getValues();
+    // Get columns A and D in a single batch read (more efficient)
+    // Read columns A through D, then extract what we need
+    const allData = partnerSheet.getRange(2, 1, lastRow - 1, 4).getValues();
 
     // Create lookup map
     const allianceManagerMap = new Map();
 
-    for (let i = 0; i < accountNames.length; i++) {
-      const accountName = accountNames[i][0];
-      const accountOwner = accountOwners[i][0];
+    for (let i = 0; i < allData.length; i++) {
+      const accountName = allData[i][0];  // Column A
+      const accountOwner = allData[i][3]; // Column D
 
       if (accountName && accountName.toString().trim() !== '') {
         const key = accountName.toString().trim();
@@ -427,6 +427,8 @@ function getAllianceManagerLookup(retryCount) {
     if (isTimeoutError && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount];
       console.log(`Spreadsheet timeout in getAllianceManagerLookup. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
+      // Flush any pending operations before retry
+      SpreadsheetApp.flush();
       Utilities.sleep(delay);
       return getAllianceManagerLookup(retryCount + 1);
     }
@@ -471,7 +473,7 @@ function lookupAllianceManager(partnerName, allianceManagerMap) {
 function deleteCompletedRows(sheet, retryCount) {
   retryCount = retryCount || 0;
   const MAX_RETRIES = 3;
-  const RETRY_DELAYS = [2000, 4000, 8000]; // Exponential backoff
+  const RETRY_DELAYS = [5000, 10000, 20000]; // Longer exponential backoff: 5s, 10s, 20s
 
   // Statuses to filter out
   const COMPLETED_STATUSES = ['Completed', 'Cancelled', 'Accepted by Steer Co'];
@@ -522,6 +524,8 @@ function deleteCompletedRows(sheet, retryCount) {
     if (isTimeoutError && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount];
       console.log(`Spreadsheet timeout in deleteCompletedRows. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
+      // Flush any pending operations before retry
+      SpreadsheetApp.flush();
       Utilities.sleep(delay);
       return deleteCompletedRows(sheet, retryCount + 1);
     }
@@ -738,7 +742,7 @@ function translatePartnerNames() {
 function translatePartnerNamesOnSheet(targetSheet, retryCount) {
   retryCount = retryCount || 0;
   const MAX_RETRIES = 3;
-  const RETRY_DELAYS = [2000, 4000, 8000]; // Exponential backoff
+  const RETRY_DELAYS = [5000, 10000, 20000]; // Longer exponential backoff: 5s, 10s, 20s
 
   try {
     console.log('Starting partner name translation on sheet:', targetSheet.getName());
@@ -817,6 +821,8 @@ function translatePartnerNamesOnSheet(targetSheet, retryCount) {
     if (isTimeoutError && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount];
       console.log(`Spreadsheet timeout in translatePartnerNamesOnSheet. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
+      // Flush any pending operations before retry
+      SpreadsheetApp.flush();
       Utilities.sleep(delay);
       return translatePartnerNamesOnSheet(targetSheet, retryCount + 1);
     }
@@ -833,7 +839,7 @@ function translatePartnerNamesOnSheet(targetSheet, retryCount) {
 function sortDataByItemName(sheet, retryCount) {
   retryCount = retryCount || 0;
   const MAX_RETRIES = 3;
-  const RETRY_DELAYS = [2000, 4000, 8000]; // Exponential backoff
+  const RETRY_DELAYS = [5000, 10000, 20000]; // Longer exponential backoff: 5s, 10s, 20s
 
   try {
     console.log('Sorting data by Item Name (column A)...');
@@ -856,6 +862,8 @@ function sortDataByItemName(sheet, retryCount) {
     if (isTimeoutError && retryCount < MAX_RETRIES) {
       const delay = RETRY_DELAYS[retryCount];
       console.log(`Spreadsheet timeout in sortDataByItemName. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
+      // Flush any pending operations before retry
+      SpreadsheetApp.flush();
       Utilities.sleep(delay);
       return sortDataByItemName(sheet, retryCount + 1);
     }
