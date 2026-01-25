@@ -2948,6 +2948,16 @@
                 ];
 
                 const renderRow = (activity, index) => {
+                  // DEBUG: Log each row's Date Due value
+                  if (index < 3) {
+                    console.log(`=== ROW ${index} DEBUG ===`);
+                    console.log('Activity Name:', activity['Name'] || activity['Item Name']);
+                    console.log('Date Due raw value:', activity['Date Due']);
+                    console.log('Date Due type:', typeof activity['Date Due']);
+                    console.log('Date Due is object:', activity['Date Due'] && typeof activity['Date Due'] === 'object');
+                    console.log('All keys:', Object.keys(activity));
+                  }
+
                   const isOverdue = activity['Date Due'] && new Date(activity['Date Due']) < new Date();
 
                   return React.createElement('tr', {
