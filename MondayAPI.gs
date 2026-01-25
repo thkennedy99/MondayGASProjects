@@ -2472,41 +2472,46 @@ function syncSinglePartnerBoard(partnerName) {
     if (mondayDataLastRow > 1) {
       const mondayDataRange = mondayDataSheet.getRange(2, 1, mondayDataLastRow - 1, mondayDataSheet.getLastColumn());
       const mondayDataValues = mondayDataRange.getValues();
+      const numColumns = mondayDataSheet.getLastColumn();
 
-      // Find and delete rows that match this partner (delete from bottom to top to preserve row indices)
-      const rowsToDelete = [];
-      for (let i = mondayDataValues.length - 1; i >= 0; i--) {
-        let shouldDelete = false;
+      // Filter in memory - keep rows that DON'T match this partner
+      const filteredData = mondayDataValues.filter(row => {
+        let shouldKeep = true;
 
         // Check by Partner Name column
         if (partnerColumnIndex !== -1) {
-          const rowPartnerName = mondayDataValues[i][partnerColumnIndex];
+          const rowPartnerName = row[partnerColumnIndex];
           if (rowPartnerName && rowPartnerName.toString().toLowerCase().trim() === partnerName.toLowerCase().trim()) {
-            shouldDelete = true;
+            shouldKeep = false;
           }
         }
 
         // Also check by Board ID
-        if (!shouldDelete && boardIdColumnIndex !== -1) {
-          const rowBoardId = mondayDataValues[i][boardIdColumnIndex];
+        if (shouldKeep && boardIdColumnIndex !== -1) {
+          const rowBoardId = row[boardIdColumnIndex];
           if (rowBoardId && rowBoardId.toString() === partnerBoardId.toString()) {
-            shouldDelete = true;
+            shouldKeep = false;
           }
         }
 
-        if (shouldDelete) {
-          rowsToDelete.push(i + 2); // +2 because data starts at row 2 and i is 0-indexed
+        return shouldKeep;
+      });
+
+      const deletedCount = mondayDataValues.length - filteredData.length;
+      console.log(`Found ${deletedCount} rows to delete for partner ${partnerName}`);
+
+      // Only update sheet if rows were actually deleted
+      if (deletedCount > 0) {
+        // Clear the data area (keep header row)
+        mondayDataRange.clearContent();
+
+        // Write back filtered data in one batch operation
+        if (filteredData.length > 0) {
+          mondayDataSheet.getRange(2, 1, filteredData.length, numColumns).setValues(filteredData);
         }
+
+        console.log(`Deleted ${deletedCount} rows from MondayData (batch operation)`);
       }
-
-      console.log(`Found ${rowsToDelete.length} rows to delete for partner ${partnerName}`);
-
-      // Delete rows from bottom to top
-      for (const rowIndex of rowsToDelete) {
-        mondayDataSheet.deleteRow(rowIndex);
-      }
-
-      console.log(`Deleted ${rowsToDelete.length} rows from MondayData`);
     }
 
     // Step 3: Sync only this partner's board from Monday.com

@@ -217,14 +217,15 @@ function fetchAllDocumentsFromColumnT() {
       throw new Error('No data found in sheet');
     }
     
-    // Get all values from column T
+    // Get all values from column T and column A in batch operations
     const columnTValues = sheet.getRange(2, columnTIndex, lastRow - 1, 1).getValues();
+    const columnAValues = sheet.getRange(2, 1, lastRow - 1, 1).getValues(); // Batch read of item names
     const documents = [];
-    
+
     columnTValues.forEach((row, index) => {
       const link = row[0];
       if (link && link.toString().includes('monday.com')) {
-        const itemName = sheet.getRange(index + 2, 1).getValue(); // Get item name from column A
+        const itemName = columnAValues[index][0]; // Use pre-fetched value
         documents.push({
           row: index + 2,
           itemName: itemName,

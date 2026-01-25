@@ -91,8 +91,13 @@ function getMarketingBoardConfigurations() {
 /**
  * Get board configurations from the MondayDashboard sheet PartnerBoard column
  * Deduplicates board IDs and tracks all partners associated with each board
+ * Includes retry logic for spreadsheet timeout errors
  */
-function getBoardConfigurations() {
+function getBoardConfigurations(retryCount) {
+  retryCount = retryCount || 0;
+  const MAX_RETRIES = 3;
+  const RETRY_DELAYS = [5000, 10000, 20000]; // Longer exponential backoff: 5s, 10s, 20s
+
   try {
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const dashboardSheet = spreadsheet.getSheetByName('MondayDashboard');
@@ -194,6 +199,18 @@ function getBoardConfigurations() {
     return boardConfigs;
 
   } catch (error) {
+    // Check if this is a timeout error and we can retry
+    const isTimeoutError = error && error.message && error.message.includes('timed out');
+
+    if (isTimeoutError && retryCount < MAX_RETRIES) {
+      const delay = RETRY_DELAYS[retryCount];
+      console.log(`Spreadsheet timeout in getBoardConfigurations. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
+      // Try to flush any pending operations before retry (but don't fail if flush times out too)
+      try { SpreadsheetApp.flush(); } catch (e) { /* ignore flush errors */ }
+      Utilities.sleep(delay);
+      return getBoardConfigurations(retryCount + 1);
+    }
+
     console.error('Error reading board configurations from MondayDashboard:', error);
     console.log('Using fallback board ID: ' + BOARD_ID);
     return [{ boardName: 'Default Board', partnerName: 'Default Partner', boardId: BOARD_ID, targetSheetName: SHEET_TAB_NAME }];
@@ -300,11 +317,13 @@ function syncMondayDashboard() {
     // Process and write dashboard data to sheet
     if (items.length > 0) {
       writeDashboardDataToSheet(dashboardSheet, boardStructure, items, DASHBOARD_BOARD_ID);
+      // Ensure all writes are committed
+      SpreadsheetApp.flush();
       console.log('Dashboard data successfully written to sheet');
     } else {
       console.log('No items found on the dashboard board');
     }
-    
+
   } catch (error) {
     console.error('Error syncing MondayDashboard:', error);
     throw error; // Re-throw because we need the dashboard to work for the main sync
@@ -905,6 +924,12 @@ function syncMondayData(force) {
     console.log('\n=== STAGE 1: Syncing MondayDashboard ===');
     syncMondayDashboard();
 
+    // Ensure all spreadsheet writes are committed and give the service time to stabilize
+    // This prevents "Service Spreadsheets timed out" errors in Stage 2
+    console.log('Flushing spreadsheet writes and stabilizing...');
+    SpreadsheetApp.flush();
+    Utilities.sleep(5000); // 5 second delay to let the spreadsheet service stabilize
+
     // STAGE 2: Sync MondayData using board IDs from MondayDashboard
     console.log('\n=== STAGE 2: Syncing MondayData ===');
 
@@ -973,19 +998,32 @@ function syncMondayData(force) {
     if (allBoardsProcessed) {
       console.log('\n=== Starting Post-Processing on Temp Sheet ===');
 
+      // Flush and stabilize before post-processing
+      SpreadsheetApp.flush();
+      Utilities.sleep(3000); // Longer stabilization before post-processing
+
       // 1. Delete rows where column B (Group) equals completed statuses
       deleteCompletedRows(tempSheet);
+      SpreadsheetApp.flush();
+      Utilities.sleep(2000);
 
       // 2. Apply partner name translations
       translatePartnerNamesOnSheet(tempSheet);
+      SpreadsheetApp.flush();
+      Utilities.sleep(2000);
 
       // 3. Sort the data by column A (Item Name)
       sortDataByItemName(tempSheet);
+      SpreadsheetApp.flush();
 
       console.log('Post-processing complete on temp sheet');
 
       // Now copy from temp sheet to MondayData in one fast operation
       console.log('\n=== Copying data from temp to MondayData ===');
+
+      // Stabilize before copy operation
+      Utilities.sleep(3000);
+
       const mainSheet = getOrCreateSheet(SHEET_TAB_NAME);
 
       // Clear existing data in main sheet
@@ -1001,18 +1039,28 @@ function syncMondayData(force) {
         // Write all data to main sheet in one operation
         mainSheet.getRange(1, 1, tempLastRow, tempLastCol).setValues(allData);
 
-        // Auto-resize columns for better visibility
-        for (let i = 1; i <= tempLastCol; i++) {
-          mainSheet.autoResizeColumn(i);
-        }
+        // Flush writes before auto-resizing
+        SpreadsheetApp.flush();
+
+        // Auto-resize columns for better visibility (single batch call)
+        mainSheet.autoResizeColumns(1, tempLastCol);
 
         console.log(`Copied ${tempLastRow} rows to MondayData sheet`);
       }
+
+      // Flush and stabilize before deleting temp sheet
+      SpreadsheetApp.flush();
+      Utilities.sleep(500);
 
       // Delete the temp sheet
       spreadsheet.deleteSheet(tempSheet);
       console.log('Deleted temp sheet');
     }
+
+    // Stabilize before Stage 3
+    console.log('Stabilizing before Marketing boards sync...');
+    SpreadsheetApp.flush();
+    Utilities.sleep(2000);
 
     // STAGE 3: Sync Marketing Boards
     console.log('\n=== STAGE 3: Syncing Marketing Boards ===');
@@ -1022,6 +1070,11 @@ function syncMondayData(force) {
     console.log(`Dashboard synced successfully`);
     console.log(`Total items synced from ${boardConfigs.length} dashboard boards: ${totalItems}`);
     console.log(`Marketing boards synced separately`);
+
+    // Stabilize before Stage 4
+    console.log('Stabilizing before Guidewire boards sync...');
+    SpreadsheetApp.flush();
+    Utilities.sleep(2000);
 
    // STAGE 4: Sync Guidewire Boards
     syncGuidewireBoards();
@@ -1366,10 +1419,11 @@ function syncGuidewireBoards() {
           // 3. Sort by item name
           sortDataByItemName(sheet);
 
-          // Auto-resize columns
+          // Auto-resize columns (single batch call, max 20 columns)
           const lastColumn = sheet.getLastColumn();
-          for (let col = 1; col <= Math.min(lastColumn, 20); col++) {
-            sheet.autoResizeColumn(col);
+          const columnsToResize = Math.min(lastColumn, 20);
+          if (columnsToResize > 0) {
+            sheet.autoResizeColumns(1, columnsToResize);
           }
 
           console.log(`Post-processing complete for ${sheetName}`);

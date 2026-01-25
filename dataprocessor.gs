@@ -375,47 +375,64 @@ function writeDataToSheet(sheet, boardStructure, items, isFirstBoard = true, boa
 
 /**
  * Get alliance manager lookup map from Partner sheet
+ * Includes retry logic for spreadsheet timeout errors
  */
-function getAllianceManagerLookup() {
+function getAllianceManagerLookup(retryCount) {
+  retryCount = retryCount || 0;
+  const MAX_RETRIES = 3;
+  const RETRY_DELAYS = [5000, 10000, 20000]; // Longer exponential backoff: 5s, 10s, 20s
+
   try {
     console.log('Loading alliance manager lookup data...');
-    
+
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
     const partnerSheet = spreadsheet.getSheetByName('Partner');
-    
+
     if (!partnerSheet) {
       console.log('Partner sheet not found. Alliance Manager lookups will be empty.');
       return new Map();
     }
-    
+
     const lastRow = partnerSheet.getLastRow();
     if (lastRow < 2) {
       console.log('No data found in Partner sheet.');
       return new Map();
     }
-    
-    // Get data from A2 onwards (Account Name) and D2 onwards (Account Owner)
-    const accountNames = partnerSheet.getRange(2, 1, lastRow - 1, 1).getValues();
-    const accountOwners = partnerSheet.getRange(2, 4, lastRow - 1, 1).getValues();
-    
+
+    // Get columns A and D in a single batch read (more efficient)
+    // Read columns A through D, then extract what we need
+    const allData = partnerSheet.getRange(2, 1, lastRow - 1, 4).getValues();
+
     // Create lookup map
     const allianceManagerMap = new Map();
-    
-    for (let i = 0; i < accountNames.length; i++) {
-      const accountName = accountNames[i][0];
-      const accountOwner = accountOwners[i][0];
-      
+
+    for (let i = 0; i < allData.length; i++) {
+      const accountName = allData[i][0];  // Column A
+      const accountOwner = allData[i][3]; // Column D
+
       if (accountName && accountName.toString().trim() !== '') {
         const key = accountName.toString().trim();
         const value = accountOwner ? accountOwner.toString().trim() : '';
         allianceManagerMap.set(key, value);
       }
     }
-    
+
     console.log(`Loaded ${allianceManagerMap.size} alliance manager mappings`);
     return allianceManagerMap;
-    
+
   } catch (error) {
+    // Check if this is a timeout error and we can retry
+    const isTimeoutError = error && error.message && error.message.includes('timed out');
+
+    if (isTimeoutError && retryCount < MAX_RETRIES) {
+      const delay = RETRY_DELAYS[retryCount];
+      console.log(`Spreadsheet timeout in getAllianceManagerLookup. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
+      // Try to flush any pending operations before retry (but don't fail if flush times out too)
+      try { SpreadsheetApp.flush(); } catch (e) { /* ignore flush errors */ }
+      Utilities.sleep(delay);
+      return getAllianceManagerLookup(retryCount + 1);
+    }
+
     console.error('Error loading alliance manager lookup:', error);
     return new Map();
   }
@@ -450,33 +467,69 @@ function lookupAllianceManager(partnerName, allianceManagerMap) {
 
 /**
  * Delete rows where column B (Group) equals "Completed"
+ * Optimized to filter in memory and write back in a single batch operation
+ * Includes retry logic for spreadsheet timeout errors
  */
-function deleteCompletedRows(sheet) {
+function deleteCompletedRows(sheet, retryCount) {
+  retryCount = retryCount || 0;
+  const MAX_RETRIES = 3;
+  const RETRY_DELAYS = [5000, 10000, 20000]; // Longer exponential backoff: 5s, 10s, 20s
+
+  // Statuses to filter out
+  const COMPLETED_STATUSES = ['Completed', 'Cancelled', 'Accepted by Steer Co'];
+
   try {
-    console.log('Deleting rows with Group = "Completed or Cancelled"...');
-    
+    console.log('Filtering out rows with completed/cancelled statuses...');
+
     const lastRow = sheet.getLastRow();
-    if (lastRow < 2) {
+    const lastCol = sheet.getLastColumn();
+
+    if (lastRow < 2 || lastCol < 1) {
       console.log('No data rows to process');
       return;
     }
-    
-    // Get all values from column B (Group column)
-    const groupValues = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
-    
-    // Find rows to delete (working backwards to avoid index issues)
-    let deletedCount = 0;
-    for (let i = groupValues.length - 1; i >= 0; i--) {
-      if (groupValues[i][0] === 'Completed' || groupValues[i][0] === 'Cancelled' || groupValues[i][0] ==='Accepted by Steer Co') {
-        // Delete the row (i + 2 because we start from row 2)
-        sheet.deleteRow(i + 2);
-        deletedCount++;
+
+    // Read ALL data at once (row 2 onwards, excluding header)
+    const allData = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+    const originalCount = allData.length;
+
+    // Filter in memory - keep rows where column B (index 1) is NOT a completed status
+    const filteredData = allData.filter(row => {
+      const groupValue = row[1]; // Column B is index 1
+      return !COMPLETED_STATUSES.includes(groupValue);
+    });
+
+    const deletedCount = originalCount - filteredData.length;
+    console.log(`Filtering: ${originalCount} rows -> ${filteredData.length} rows (removing ${deletedCount} completed/cancelled)`);
+
+    // Only update sheet if rows were actually filtered out
+    if (deletedCount > 0) {
+      // Clear the data area (keep header row)
+      sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+
+      // Write back filtered data in one operation
+      if (filteredData.length > 0) {
+        sheet.getRange(2, 1, filteredData.length, lastCol).setValues(filteredData);
       }
+
+      console.log(`Removed ${deletedCount} rows with completed/cancelled statuses`);
+    } else {
+      console.log('No completed/cancelled rows to remove');
     }
-    
-    console.log(`Deleted ${deletedCount} rows with Group = "Completed"`);
-    
+
   } catch (error) {
+    // Check if this is a timeout error and we can retry
+    const isTimeoutError = error && error.message && error.message.includes('timed out');
+
+    if (isTimeoutError && retryCount < MAX_RETRIES) {
+      const delay = RETRY_DELAYS[retryCount];
+      console.log(`Spreadsheet timeout in deleteCompletedRows. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
+      // Try to flush any pending operations before retry (but don't fail if flush times out too)
+      try { SpreadsheetApp.flush(); } catch (e) { /* ignore flush errors */ }
+      Utilities.sleep(delay);
+      return deleteCompletedRows(sheet, retryCount + 1);
+    }
+
     console.error('Error deleting completed rows:', error);
     // Don't throw - allow sync to continue
   }
@@ -586,10 +639,8 @@ function writeDashboardDataToSheet(sheet, boardStructure, items, boardId) {
     sheet.getRange(2, 1, sanitizedDataRows.length, headers.length).setValues(sanitizedDataRows);
   }
 
-  // Auto-resize columns for better visibility
-  for (let i = 1; i <= headers.length; i++) {
-    sheet.autoResizeColumn(i);
-  }
+  // Auto-resize columns for better visibility (single batch call)
+  sheet.autoResizeColumns(1, headers.length);
 
   console.log('Dashboard data processing complete');
 }
@@ -685,9 +736,14 @@ function translatePartnerNames() {
 
 /**
  * Translate partner names on a specific sheet (for temp sheet sync)
+ * Includes retry logic for spreadsheet timeout errors
  * @param {Sheet} targetSheet - The sheet to translate partner names on
  */
-function translatePartnerNamesOnSheet(targetSheet) {
+function translatePartnerNamesOnSheet(targetSheet, retryCount) {
+  retryCount = retryCount || 0;
+  const MAX_RETRIES = 3;
+  const RETRY_DELAYS = [5000, 10000, 20000]; // Longer exponential backoff: 5s, 10s, 20s
+
   try {
     console.log('Starting partner name translation on sheet:', targetSheet.getName());
 
@@ -759,6 +815,18 @@ function translatePartnerNamesOnSheet(targetSheet) {
     }
 
   } catch (error) {
+    // Check if this is a timeout error and we can retry
+    const isTimeoutError = error && error.message && error.message.includes('timed out');
+
+    if (isTimeoutError && retryCount < MAX_RETRIES) {
+      const delay = RETRY_DELAYS[retryCount];
+      console.log(`Spreadsheet timeout in translatePartnerNamesOnSheet. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
+      // Try to flush any pending operations before retry (but don't fail if flush times out too)
+      try { SpreadsheetApp.flush(); } catch (e) { /* ignore flush errors */ }
+      Utilities.sleep(delay);
+      return translatePartnerNamesOnSheet(targetSheet, retryCount + 1);
+    }
+
     console.error('Error translating partner names on sheet:', error);
     // Don't throw the error - allow the sync to continue even if translation fails
   }
@@ -766,8 +834,13 @@ function translatePartnerNamesOnSheet(targetSheet) {
 
 /**
  * Sort the data by column A (Item Name)
+ * Includes retry logic for spreadsheet timeout errors
  */
-function sortDataByItemName(sheet) {
+function sortDataByItemName(sheet, retryCount) {
+  retryCount = retryCount || 0;
+  const MAX_RETRIES = 3;
+  const RETRY_DELAYS = [5000, 10000, 20000]; // Longer exponential backoff: 5s, 10s, 20s
+
   try {
     console.log('Sorting data by Item Name (column A)...');
 
@@ -783,6 +856,18 @@ function sortDataByItemName(sheet) {
     }
 
   } catch (error) {
+    // Check if this is a timeout error and we can retry
+    const isTimeoutError = error && error.message && error.message.includes('timed out');
+
+    if (isTimeoutError && retryCount < MAX_RETRIES) {
+      const delay = RETRY_DELAYS[retryCount];
+      console.log(`Spreadsheet timeout in sortDataByItemName. Retry ${retryCount + 1}/${MAX_RETRIES} after ${delay/1000}s...`);
+      // Try to flush any pending operations before retry (but don't fail if flush times out too)
+      try { SpreadsheetApp.flush(); } catch (e) { /* ignore flush errors */ }
+      Utilities.sleep(delay);
+      return sortDataByItemName(sheet, retryCount + 1);
+    }
+
     console.error('Error sorting data:', error);
     // Don't throw - allow sync to continue
   }
