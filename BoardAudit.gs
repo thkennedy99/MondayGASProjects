@@ -7,6 +7,7 @@
  *   2. auditMarketingBoards()
  *   3. auditPartnerBoards()
  *   4. auditDashboardSheet()
+ *   5. auditSamplePartnerAndCustomerBoards()  <-- NEW: samples actual partner/customer board structures
  */
 
 
@@ -351,4 +352,146 @@ function auditDashboardSheet() {
   }
 
   console.log('\n\nDONE - Dashboard sheet audit complete');
+}
+
+
+// ============================================================
+// 5. AUDIT SAMPLE PARTNER + CUSTOMER BOARDS
+//    Reads PartnerBoard and CustomerBoard columns from
+//    MondayDashboard to get actual board IDs, then fetches
+//    structure for a sample of each type.
+// ============================================================
+function auditSamplePartnerAndCustomerBoards() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dashSheet = ss.getSheetByName('MondayDashboard');
+
+  if (!dashSheet) {
+    console.log('MondayDashboard sheet not found.');
+    return;
+  }
+
+  var data = dashSheet.getDataRange().getValues();
+  var headers = data[0];
+
+  // Find the correct columns
+  var partnerBoardCol = headers.indexOf('PartnerBoard');
+  var customerBoardCol = headers.indexOf('CustomerBoard');
+  var itemCol = headers.indexOf('Item');
+
+  console.log('Column indices - PartnerBoard: ' + partnerBoardCol + ', CustomerBoard: ' + customerBoardCol + ', Item: ' + itemCol);
+
+  // Collect all unique partner board IDs and customer board IDs
+  var partnerBoards = [];
+  var customerBoards = [];
+  var seenPartner = {};
+  var seenCustomer = {};
+
+  for (var i = 1; i < data.length; i++) {
+    var partnerName = itemCol >= 0 ? String(data[i][itemCol]).trim() : 'Row ' + i;
+
+    if (partnerBoardCol >= 0) {
+      var pbId = String(data[i][partnerBoardCol]).trim();
+      if (pbId && pbId !== '' && pbId !== 'undefined' && pbId !== 'null' && /^\d+$/.test(pbId) && !seenPartner[pbId]) {
+        seenPartner[pbId] = true;
+        partnerBoards.push({ id: pbId, partner: partnerName });
+      }
+    }
+
+    if (customerBoardCol >= 0) {
+      var cbId = String(data[i][customerBoardCol]).trim();
+      if (cbId && cbId !== '' && cbId !== 'undefined' && cbId !== 'null' && /^\d+$/.test(cbId) && !seenCustomer[cbId]) {
+        seenCustomer[cbId] = true;
+        customerBoards.push({ id: cbId, partner: partnerName });
+      }
+    }
+  }
+
+  console.log('\nTotal unique Partner Boards: ' + partnerBoards.length);
+  partnerBoards.forEach(function(b) {
+    console.log('  ' + b.id + ' - ' + b.partner);
+  });
+
+  console.log('\nTotal unique Customer Boards: ' + customerBoards.length);
+  customerBoards.forEach(function(b) {
+    console.log('  ' + b.id + ' - ' + b.partner);
+  });
+
+  // Helper to log board structure
+  function logBoardStructure(boardId, label) {
+    console.log('\n' + '='.repeat(70));
+    console.log(label + '  (ID: ' + boardId + ')');
+    console.log('='.repeat(70));
+
+    try {
+      var structure = getBoardStructure(boardId);
+      console.log('Board Name (from Monday): ' + structure.name);
+
+      console.log('\nGROUPS:');
+      if (structure.groups && structure.groups.length > 0) {
+        structure.groups.forEach(function(g) {
+          console.log('  - ' + g.title + '  (id: ' + g.id + ')');
+        });
+      } else {
+        console.log('  (none)');
+      }
+
+      console.log('\nCOLUMNS (' + structure.columns.length + ' total):');
+      structure.columns.forEach(function(col) {
+        var settings = '';
+        if (col.type === 'color' || col.type === 'status') {
+          try {
+            var parsed = JSON.parse(col.settings_str);
+            if (parsed.labels) {
+              var labelList = Object.entries(parsed.labels)
+                .map(function(entry) { return entry[0] + '=' + entry[1]; })
+                .join(', ');
+              settings = '  Labels: [' + labelList + ']';
+            }
+          } catch (e) {}
+        }
+        if (col.type === 'dropdown') {
+          try {
+            var parsed = JSON.parse(col.settings_str);
+            if (parsed.labels) {
+              var labelList = parsed.labels
+                .map(function(l) { return l.name; })
+                .join(', ');
+              settings = '  Options: [' + labelList + ']';
+            }
+          } catch (e) {}
+        }
+        console.log('  ' + col.id + ' | ' + col.title + ' | ' + col.type + settings);
+      });
+
+    } catch (err) {
+      console.error('ERROR fetching board ' + boardId + ': ' + err.toString());
+    }
+  }
+
+  // Sample 3 partner boards: first, middle, last (to check schema consistency)
+  console.log('\n\n########## PARTNER BOARD SAMPLES ##########');
+  if (partnerBoards.length > 0) {
+    var sampleIndices = [0];
+    if (partnerBoards.length > 2) sampleIndices.push(Math.floor(partnerBoards.length / 2));
+    if (partnerBoards.length > 1) sampleIndices.push(partnerBoards.length - 1);
+
+    sampleIndices.forEach(function(idx) {
+      var b = partnerBoards[idx];
+      logBoardStructure(b.id, 'PARTNER BOARD: ' + b.partner);
+    });
+  }
+
+  // Sample 2 customer boards: first and last
+  console.log('\n\n########## CUSTOMER BOARD SAMPLES ##########');
+  if (customerBoards.length > 0) {
+    var custSamples = [0];
+    if (customerBoards.length > 1) custSamples.push(customerBoards.length - 1);
+
+    custSamples.forEach(function(idx) {
+      var b = customerBoards[idx];
+      logBoardStructure(b.id, 'CUSTOMER BOARD: ' + b.partner);
+    });
+  }
+
+  console.log('\n\nDONE - Sample partner and customer board audit complete');
 }
