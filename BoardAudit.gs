@@ -156,7 +156,7 @@ function auditMarketingBoards() {
 // ============================================================
 function auditPartnerBoards() {
   // First, read the dashboard sheet to find all partner board IDs
-  var ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dashSheet = ss.getSheetByName('MondayDashboard');
 
   if (!dashSheet) {
@@ -199,7 +199,8 @@ function auditPartnerBoards() {
       var bname = boardNameCol >= 0 ? String(data[i][boardNameCol]).trim() : '';
       var pname = partnerNameCol >= 0 ? String(data[i][partnerNameCol]).trim() : '';
 
-      if (bid && bid !== '' && bid !== 'undefined' && !seenIds[bid]) {
+      // Only include numeric board IDs (Monday board IDs are always numeric)
+      if (bid && bid !== '' && bid !== 'undefined' && bid !== 'null' && /^\d+$/.test(bid) && !seenIds[bid]) {
         seenIds[bid] = true;
         partnerBoardIds.push({
           id: bid,
@@ -303,7 +304,7 @@ function auditPartnerBoards() {
 //    Reads PartnerTranslate and any config sheets
 // ============================================================
 function auditDashboardSheet() {
-  var ss = SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
 
   // List all sheet names
   var sheets = ss.getSheets();
