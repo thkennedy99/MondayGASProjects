@@ -69,7 +69,8 @@ function doGet(e) {
     const template = HtmlService.createTemplateFromFile(templateName);
 
      const configData = {
-      user: session.user,
+      // Always use the webhook parameter directly - never rely on cached session identity
+      user: params.manager || session.user,
       token: session.token,
       environment: CONFIG.DEBUG_MODE ? 'development' : 'production',
       version: CONFIG.VERSION,
@@ -145,6 +146,9 @@ function initializeSession(userEmail, token) {
   let session = cache.get(sessionKey);
   if (session) {
     session = JSON.parse(session);
+    // Always update user and activity from the current request
+    // The webhook parameter must override any previously cached identity
+    session.user = userEmail;
     session.lastActivity = new Date().toISOString();
   } else {
     // Create new session
