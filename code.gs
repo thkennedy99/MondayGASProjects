@@ -53,11 +53,14 @@ function doGet(e) {
       console.log('Deep link edit request - itemId:', params.editItemId, 'boardId:', params.editBoardId);
     }
 
-    // When webhook provides a manager, clear stale authorization cache
+    // When webhook provides a manager, clear all stale caches for this identity
     // so the fresh identity from the webhook always takes precedence
     if (params.manager) {
       clearManagerAuthorizationCache(params.manager);
-      console.log('Cleared auth cache for webhook identity:', params.manager);
+      // Also clear the manager name cache to prevent stale name lookups
+      const nameCache = CacheService.getScriptCache();
+      nameCache.remove(`manager_name_${params.manager}`);
+      console.log('Cleared auth + name caches for webhook identity:', params.manager);
     }
 
     // Initialize session

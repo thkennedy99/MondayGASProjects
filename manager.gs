@@ -772,14 +772,16 @@ function getManagedPartners(managerEmail) {
       return [];
     }
 
-    // Get manager's name for matching
-    const authorization = getManagerAuthorization(managerEmail);
-    const managerName = authorization.managerName || '';
+    // Get the actual person name from AllianceManager sheet (e.g., "Tim Kennedy")
+    // NOT from TechAllianceManager which may have a team/role name (e.g., "Customer Success")
+    const managerName = getManagerName(managerEmail);
 
-    if (!managerName) {
-      console.log('Manager name not found for:', managerEmail);
+    if (!managerName || managerName === managerEmail) {
+      console.log('Manager name not found in AllianceManager for:', managerEmail);
       return [];
     }
+
+    console.log(`getManagedPartners: resolved "${managerEmail}" to name "${managerName}" from AllianceManager sheet`);
 
     // Get all partner data
     const lastRow = partnerSheet.getLastRow();
