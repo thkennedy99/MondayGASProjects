@@ -4990,7 +4990,7 @@
                                       {/* View Mode Buttons */}
                                       {renderViewModeButtons()}
                                       <span className="text-white small">
-                                          {authorization.managerName || currentManager}
+                                          {window.appConfig?.webhookManagerName || authorization.managerName || currentManager}
                                       </span>
                                       <button
                                           className="theme-toggle"

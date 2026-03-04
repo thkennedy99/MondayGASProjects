@@ -3695,8 +3695,9 @@
       };
 
       // Get the current manager's name for matching
+      // Prefer the webhook name (source of truth) over cached authorization name
       const getManagerName = () => {
-        return (authorization.managerName || '').toLowerCase();
+        return (window.appConfig?.webhookManagerName || authorization.managerName || '').toLowerCase();
       };
 
       // Filter function that checks if a row involves a person
@@ -4189,7 +4190,7 @@
                 {/* View Mode Buttons */}
                 {renderViewModeButtons()}
                 <span className="text-white small">
-                  {authorization.managerName || currentManager}
+                  {window.appConfig?.webhookManagerName || authorization.managerName || currentManager}
                 </span>
                 <button
                   className="btn btn-sm btn-outline-light"

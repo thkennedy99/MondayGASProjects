@@ -53,6 +53,13 @@ function doGet(e) {
       console.log('Deep link edit request - itemId:', params.editItemId, 'boardId:', params.editBoardId);
     }
 
+    // When webhook provides a manager, clear stale authorization cache
+    // so the fresh identity from the webhook always takes precedence
+    if (params.manager) {
+      clearManagerAuthorizationCache(params.manager);
+      console.log('Cleared auth cache for webhook identity:', params.manager);
+    }
+
     // Initialize session
     const session = initializeSession(params.manager, params.token);
 
@@ -71,6 +78,9 @@ function doGet(e) {
      const configData = {
       // Always use the webhook parameter directly - never rely on cached session identity
       user: params.manager || session.user,
+      // Pass the raw webhook name so the frontend can use it as display name
+      // instead of relying on cached authorization data
+      webhookManagerName: rawManager || '',
       token: session.token,
       environment: CONFIG.DEBUG_MODE ? 'development' : 'production',
       version: CONFIG.VERSION,
