@@ -1696,7 +1696,10 @@
       const filteredData = useMemo(() => {
         return data.filter(item => {
           if (partners.length > 0 && !partners.includes(item['Partner'])) return false;
-          if (owners.length > 0 && !owners.includes(item['Owner'])) return false;
+          if (owners.length > 0) {
+            const itemOwners = (item['Owner'] || '').split(',').map(o => o.trim());
+            if (!owners.some(o => itemOwners.includes(o))) return false;
+          }
           if (activityTypes.length > 0 && !activityTypes.includes(item['Activity Type'])) return false;
           return true;
         });
@@ -2466,13 +2469,15 @@
     function PartnerActivitiesTab({ data, onRefresh }) {
       const [filterPartner, setFilterPartner] = useState([]);
       const [filterStatus, setFilterStatus] = useState([]);
+      const [filterOwner, setFilterOwner] = useState([]);
+      const [filterImportance, setFilterImportance] = useState([]);
       const [columnsByBoard, setColumnsByBoard] = useState({});
       const [editingItem, setEditingItem] = useState(null);
       const [deletingItem, setDeletingItem] = useState(null);
       const [showAddModal, setShowAddModal] = useState(false);
       const [selectedPartnerForAdd, setSelectedPartnerForAdd] = useState(null);
 
-      // Get unique partners and statuses for filters
+      // Get unique values for filters
       const partners = useMemo(() => {
         return [...new Set(data.map(d => d['Partner Name'] || d['Partner']).filter(Boolean))].sort();
       }, [data]);
@@ -2481,16 +2486,31 @@
         return [...new Set(data.map(d => d['Activity Status'] || d['Status']).filter(Boolean))].sort();
       }, [data]);
 
+      const owners = useMemo(() => {
+        return [...new Set(data.flatMap(d => (d['Owner'] || '').split(',').map(o => o.trim())).filter(Boolean))].sort();
+      }, [data]);
+
+      const importanceLevels = useMemo(() => {
+        return [...new Set(data.map(d => d['Importance'] || d['Priority']).filter(Boolean))].sort();
+      }, [data]);
+
       // Filter data
       const filteredData = useMemo(() => {
         return data.filter(item => {
           const partner = item['Partner Name'] || item['Partner'] || '';
           const status = item['Activity Status'] || item['Status'] || '';
+          const owner = item['Owner'] || '';
+          const importance = item['Importance'] || item['Priority'] || '';
           if (filterPartner.length > 0 && !filterPartner.includes(partner)) return false;
           if (filterStatus.length > 0 && !filterStatus.includes(status)) return false;
+          if (filterOwner.length > 0) {
+            const itemOwners = owner.split(',').map(o => o.trim());
+            if (!filterOwner.some(o => itemOwners.includes(o))) return false;
+          }
+          if (filterImportance.length > 0 && !filterImportance.includes(importance)) return false;
           return true;
         });
-      }, [data, filterPartner, filterStatus]);
+      }, [data, filterPartner, filterStatus, filterOwner, filterImportance]);
 
       // Load column metadata for a board
       const loadColumnMetadata = async (boardId) => {
@@ -2602,17 +2622,21 @@
           {/* Filters */}
           <div className="filter-section">
             <div className="row g-2 align-items-end">
-              <div className="col-md-3">
+              <div className="col">
                 <MultiSelectFilter label="Partner" options={partners} selected={filterPartner} onChange={setFilterPartner} />
               </div>
-              <div className="col-md-3">
+              <div className="col">
                 <MultiSelectFilter label="Status" options={statuses} selected={filterStatus} onChange={setFilterStatus} />
               </div>
-              <div className="col-md-3">
-                <span className="text-muted">Showing {filteredData.length} of {data.length}</span>
+              <div className="col">
+                <MultiSelectFilter label="Owner" options={owners} selected={filterOwner} onChange={setFilterOwner} />
               </div>
-              <div className="col-md-3 text-end">
-                <button className="btn btn-success btn-sm" onClick={handleAddNew}>
+              <div className="col">
+                <MultiSelectFilter label="Importance" options={importanceLevels} selected={filterImportance} onChange={setFilterImportance} />
+              </div>
+              <div className="col-auto d-flex align-items-end gap-2">
+                <span className="text-muted text-nowrap">Showing {filteredData.length} of {data.length}</span>
+                <button className="btn btn-success btn-sm text-nowrap" onClick={handleAddNew}>
                   <i className="bi bi-plus-circle me-1"></i>New Item
                 </button>
               </div>
@@ -2624,21 +2648,25 @@
               <table className="table table-striped table-hover table-sm">
                 <thead className="table-light sticky-top">
                   <tr>
-                    <th>Activity</th>
+                    <th style={{ width: '29%' }}>Activity</th>
                     <th>Partner</th>
-                    <th>Status</th>
-                    <th>Owner</th>
-                    <th>Due Date</th>
+                    <th style={{ width: '7%' }}>Status</th>
+                    <th style={{ width: '13%' }}>Activity Type</th>
+                    <th style={{ width: '13%' }}>Owner</th>
+                    <th style={{ width: '7%' }}>Importance</th>
+                    <th style={{ width: '7%' }}>Due Date</th>
                     <th style={{ width: '100px' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredData.map((item, idx) => (
                     <tr key={item['Monday Item ID'] || idx}>
-                      <td>{item['Name'] || item['Item Name'] || ''}</td>
-                      <td>{item['Partner Name'] || item['Partner'] || ''}</td>
+                      <td style={{ wordWrap: 'break-word', whiteSpace: 'normal', maxWidth: '0' }}>{item['Name'] || item['Item Name'] || ''}</td>
+                      <td style={{ wordWrap: 'break-word', whiteSpace: 'normal', maxWidth: '0' }}>{item['Partner Name'] || item['Partner'] || ''}</td>
                       <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
-                      <td>{item['Owner'] || ''}</td>
+                      <td>{item['Activity'] || item['Activity Type'] || ''}</td>
+                      <td style={{ wordWrap: 'break-word', whiteSpace: 'normal', maxWidth: '0' }}>{item['Owner'] || ''}</td>
+                      <td>{item['Importance'] || item['Priority'] || ''}</td>
                       <td>{item['Date Due'] || item['Due Date'] || item['Deadline'] || ''}</td>
                       <td>
                         <div className="action-buttons">
@@ -3091,7 +3119,9 @@
 
       // Default to first board if available
       const [selectedBoard, setSelectedBoard] = useState(getBoardName(boardConfigs[0]) || '');
-      const [filterStatus, setFilterStatus] = useState('');
+      const [filterStatus, setFilterStatus] = useState([]);
+      const [filterActivityStatus, setFilterActivityStatus] = useState([]);
+      const [filterImportance, setFilterImportance] = useState([]);
       const [columnsByBoard, setColumnsByBoard] = useState({});
       const [editingItem, setEditingItem] = useState(null);
       const [deletingItem, setDeletingItem] = useState(null);
@@ -3105,22 +3135,36 @@
         }
       }, [boardConfigs]);
 
-      // Get unique statuses for selected board
-      const statuses = useMemo(() => {
-        const boardData = data.filter(d => (d['Board Name'] || '') === selectedBoard);
-        return [...new Set(boardData.map(d => d['Activity Status'] || d['Status']).filter(Boolean))].sort();
+      // Data scoped to the selected board (used for filter options and filtering)
+      const boardData = useMemo(() => {
+        return data.filter(d => (d['Board Name'] || '') === selectedBoard);
       }, [data, selectedBoard]);
 
-      // Filter data by selected board and status
+      // Get unique values for filters (scoped to selected board)
+      const statuses = useMemo(() => {
+        return [...new Set(boardData.map(d => d['Activity Status'] || d['Status']).filter(Boolean))].sort();
+      }, [boardData]);
+
+      const activityStatuses = useMemo(() => {
+        return [...new Set(boardData.map(d => d['Activity Status']).filter(Boolean))].sort();
+      }, [boardData]);
+
+      const importanceLevels = useMemo(() => {
+        return [...new Set(boardData.map(d => d['Importance'] || d['Priority']).filter(Boolean))].sort();
+      }, [boardData]);
+
+      // Filter data by selected board and filters
       const filteredData = useMemo(() => {
-        return data.filter(item => {
-          const board = item['Board Name'] || '';
+        return boardData.filter(item => {
           const status = item['Activity Status'] || item['Status'] || '';
-          if (board !== selectedBoard) return false;
-          if (filterStatus && status !== filterStatus) return false;
+          const activityStatus = item['Activity Status'] || '';
+          const importance = item['Importance'] || item['Priority'] || '';
+          if (filterStatus.length > 0 && !filterStatus.includes(status)) return false;
+          if (filterActivityStatus.length > 0 && !filterActivityStatus.includes(activityStatus)) return false;
+          if (filterImportance.length > 0 && !filterImportance.includes(importance)) return false;
           return true;
         });
-      }, [data, selectedBoard, filterStatus]);
+      }, [boardData, filterStatus, filterActivityStatus, filterImportance]);
 
       // Get count per board
       const getBoardCount = (boardName) => {
@@ -3247,7 +3291,7 @@
               return (
                 <button
                   key={boardName}
-                  onClick={() => { setSelectedBoard(boardName); setFilterStatus(''); }}
+                  onClick={() => { setSelectedBoard(boardName); setFilterStatus([]); setFilterActivityStatus([]); setFilterImportance([]); }}
                   type="button"
                   className="text-start mb-1"
                   style={{
@@ -3270,21 +3314,21 @@
 
           {/* Main Content Area */}
           <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-            {/* Status Filter and Add Button */}
+            {/* Filters and Add Button */}
             <div className="filter-section" style={{ marginBottom: '0.5rem' }}>
               <div className="row g-2 align-items-end">
-                <div className="col-md-3">
-                  <label className="form-label">Status</label>
-                  <select className="form-select form-select-sm" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-                    <option value="">All Statuses</option>
-                    {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                <div className="col">
+                  <MultiSelectFilter label="Status" options={statuses} selected={filterStatus} onChange={setFilterStatus} />
                 </div>
-                <div className="col-md-3">
-                  <span className="text-muted">Showing {filteredData.length} items</span>
+                <div className="col">
+                  <MultiSelectFilter label="Activity Status" options={activityStatuses} selected={filterActivityStatus} onChange={setFilterActivityStatus} />
                 </div>
-                <div className="col-md-6 text-end">
-                  <button className="btn btn-success btn-sm" onClick={handleAddNew}>
+                <div className="col">
+                  <MultiSelectFilter label="Importance" options={importanceLevels} selected={filterImportance} onChange={setFilterImportance} />
+                </div>
+                <div className="col-auto d-flex align-items-end gap-2">
+                  <span className="text-muted text-nowrap">Showing {filteredData.length} items</span>
+                  <button className="btn btn-success btn-sm text-nowrap" onClick={handleAddNew}>
                     <i className="bi bi-plus-circle me-1"></i>New Item
                   </button>
                 </div>
