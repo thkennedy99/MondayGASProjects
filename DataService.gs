@@ -3673,7 +3673,7 @@ function getMarketingManagerFilterOptions() {
     // Collect unique values for Marketing Calendar filters
     const calendarFilters = {
       partners: [...new Set(calendar.map(c => c['Partner']).filter(v => v))].sort(),
-      owners: [...new Set(calendar.map(c => c['Owner']).filter(v => v))].sort(),
+      owners: [...new Set(calendar.flatMap(c => (c['Owner'] || '').split(',').map(o => o.trim())).filter(v => v))].sort(),
       activityTypes: [...new Set(calendar.map(c => c['Activity Type']).filter(v => v))].sort()
     };
 
