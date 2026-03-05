@@ -4,6 +4,10 @@
   <base target="_top">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Prevent browser/iframe caching so webhook identity always takes effect -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Activity Management Portal</title>
 
   <!-- Bootstrap CSS -->
@@ -3374,6 +3378,58 @@
       return 'bg-secondary';
     }
 
+    // --- Refresh Tracking Utilities ---
+
+    function setStorage(name, value) {
+        try {
+            localStorage.setItem(name, value);
+            const stored = localStorage.getItem(name);
+            if (stored !== String(value)) {
+                console.error(`localStorage write verification failed for "${name}"`);
+            }
+        } catch (e) {
+            console.error(`Error writing to localStorage ("${name}"):`, e);
+        }
+    }
+
+    function getStorage(name) {
+        try {
+            return localStorage.getItem(name);
+        } catch (e) {
+            console.error(`Error reading from localStorage ("${name}"):`, e);
+            return null;
+        }
+    }
+
+    const CACHE_STALE_THRESHOLD_MS = 48 * 60 * 60 * 1000; // 48 hours
+    const CACHE_CHECK_INTERVAL_MS = 1 * 60 * 60 * 1000;   // 1 hour
+    const CACHE_REFRESH_KEY = 'lastRefreshTimestamp';
+
+    function getCacheAgeHours() {
+        const stored = getStorage(CACHE_REFRESH_KEY);
+        if (!stored) return null;
+        const ageMs = Date.now() - parseInt(stored, 10);
+        return (ageMs / (1000 * 60 * 60)).toFixed(1);
+    }
+
+    function checkAndRefreshIfStale() {
+        const ageHours = getCacheAgeHours();
+        if (ageHours === null) {
+            setStorage(CACHE_REFRESH_KEY, Date.now().toString());
+            return false;
+        }
+        const thresholdHours = CACHE_STALE_THRESHOLD_MS / (1000 * 60 * 60);
+        if (parseFloat(ageHours) >= thresholdHours) {
+            console.log(`Cache is stale (${ageHours} hours old, threshold: ${thresholdHours} hours). Refreshing page...`);
+            setStorage(CACHE_REFRESH_KEY, Date.now().toString());
+            window.location.reload();
+            return true;
+        }
+        return false;
+    }
+
+    // --- End Refresh Tracking Utilities ---
+
     // Main App Component
     function App() {
       // Get current manager from appConfig
@@ -3521,6 +3577,47 @@
         }
       }, [currentManager]);
 
+      // --- Auto-refresh tracking ---
+      useEffect(() => {
+          const thresholdHours = CACHE_STALE_THRESHOLD_MS / (1000 * 60 * 60);
+
+          // 1. Initial page load check
+          if (!checkAndRefreshIfStale()) {
+              setStorage(CACHE_REFRESH_KEY, Date.now().toString());
+          }
+
+          // 2. Tab visibility change
+          const handleVisibilityChange = () => {
+              if (document.visibilityState === 'visible') {
+                  const age = getCacheAgeHours();
+                  console.log(`Tab became visible, cache is ${age} hours old (threshold: ${thresholdHours} hours)`);
+                  checkAndRefreshIfStale();
+              }
+          };
+          document.addEventListener('visibilitychange', handleVisibilityChange);
+
+          // 3. Window focus
+          const handleFocus = () => {
+              const age = getCacheAgeHours();
+              console.log(`Window focused, cache is ${age} hours old (threshold: ${thresholdHours} hours)`);
+              checkAndRefreshIfStale();
+          };
+          window.addEventListener('focus', handleFocus);
+
+          // 4. Hourly background check
+          const intervalId = setInterval(() => {
+              const age = getCacheAgeHours();
+              console.log(`Hourly check: cache is ${age} hours old (threshold: ${thresholdHours} hours)`);
+              checkAndRefreshIfStale();
+          }, CACHE_CHECK_INTERVAL_MS);
+
+          return () => {
+              document.removeEventListener('visibilitychange', handleVisibilityChange);
+              window.removeEventListener('focus', handleFocus);
+              clearInterval(intervalId);
+          };
+      }, []);
+
       // Refresh authorization (clears cache and reloads fresh permissions)
       const handleRefreshAuthorization = async () => {
         setAuthRefreshing(true);
@@ -3598,8 +3695,9 @@
       };
 
       // Get the current manager's name for matching
+      // Prefer the webhook name (source of truth) over cached authorization name
       const getManagerName = () => {
-        return (authorization.managerName || '').toLowerCase();
+        return (window.appConfig?.webhookManagerName || authorization.managerName || '').toLowerCase();
       };
 
       // Filter function that checks if a row involves a person
@@ -4092,7 +4190,7 @@
                 {/* View Mode Buttons */}
                 {renderViewModeButtons()}
                 <span className="text-white small">
-                  {authorization.managerName || currentManager}
+                  {window.appConfig?.webhookManagerName || authorization.managerName || currentManager}
                 </span>
                 <button
                   className="btn btn-sm btn-outline-light"
