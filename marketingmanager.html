@@ -2642,10 +2642,12 @@
               <table className="table table-striped table-hover table-sm">
                 <thead className="table-light sticky-top">
                   <tr>
-                    <th>Activity</th>
+                    <th style={{ width: '15%' }}>Activity</th>
                     <th>Partner</th>
                     <th>Status</th>
-                    <th>Owner</th>
+                    <th>Activity</th>
+                    <th style={{ width: '10%' }}>Owner</th>
+                    <th>Importance</th>
                     <th>Due Date</th>
                     <th style={{ width: '100px' }}>Actions</th>
                   </tr>
@@ -2653,10 +2655,12 @@
                 <tbody>
                   {filteredData.map((item, idx) => (
                     <tr key={item['Monday Item ID'] || idx}>
-                      <td>{item['Name'] || item['Item Name'] || ''}</td>
+                      <td style={{ wordWrap: 'break-word', whiteSpace: 'normal', maxWidth: '0' }}>{item['Name'] || item['Item Name'] || ''}</td>
                       <td>{item['Partner Name'] || item['Partner'] || ''}</td>
                       <td><span className={`badge ${getStatusBadgeClass(item['Activity Status'] || item['Status'])}`}>{item['Activity Status'] || item['Status'] || ''}</span></td>
-                      <td>{item['Owner'] || ''}</td>
+                      <td>{item['Activity'] || item['Activity Type'] || ''}</td>
+                      <td style={{ wordWrap: 'break-word', whiteSpace: 'normal', maxWidth: '0' }}>{item['Owner'] || ''}</td>
+                      <td>{item['Importance'] || item['Priority'] || ''}</td>
                       <td>{item['Date Due'] || item['Due Date'] || item['Deadline'] || ''}</td>
                       <td>
                         <div className="action-buttons">
