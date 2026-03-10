@@ -486,6 +486,14 @@ function startMigration(params) {
     var targetApiKey = params.targetApiKey || (params.targetAccountId ? getTargetApiKeyForAccount(params.targetAccountId) : null) || null;
     var isCrossAccount = !!targetApiKey;
 
+    console.log('Migration: ═══════════════════════════════════════════════════════');
+    console.log('Migration: STARTING MIGRATION ' + migrationId);
+    console.log('Migration: Source workspace ID: ' + sourceWsId);
+    console.log('Migration: Target name: ' + (targetName || '(auto)'));
+    console.log('Migration: Cross-account: ' + isCrossAccount);
+    console.log('Migration: Components: ' + JSON.stringify(components));
+    console.log('Migration: ═══════════════════════════════════════════════════════');
+
     // Mandatory components are always on
     components.boards = true;
     components.columns = true;
@@ -504,14 +512,18 @@ function startMigration(params) {
       Object.assign({}, params, { targetApiKey: targetApiKey ? '[REDACTED]' : null }));
 
     // Step 1: Get source workspace info
+    console.log('Migration: Step 1 - Fetching source workspace details...');
     var sourceWs = getWorkspaceDetails(sourceWsId);
-    if (!sourceWs) throw new Error('Source workspace not found');
+    if (!sourceWs) throw new Error('Source workspace not found (ID: ' + sourceWsId + '). Verify the workspace exists and the API key has access.');
+    console.log('Migration: Step 1 DONE - Source: "' + sourceWs.name + '" (kind=' + sourceWs.kind + ')');
 
     updateMigrationProgress(migrationId, { percent: 5, message: 'Creating new workspace...' });
 
     // Step 2: Create new workspace (in target account if cross-account)
+    console.log('Migration: Step 2 - Creating target workspace...');
     var wsName = targetName || sourceWs.name + ' (Migrated)';
     var targetWs = createWorkspaceOnTarget(targetApiKey, wsName, sourceWs.kind || 'open', sourceWs.description || '');
+    console.log('Migration: Step 2 DONE - Target workspace created: "' + wsName + '" (id=' + targetWs.id + ')');
 
     updateMigrationProgress(migrationId, {
       percent: 10,
@@ -520,13 +532,32 @@ function startMigration(params) {
     });
 
     // Step 3: Get source boards
+    console.log('Migration: Step 3 - Fetching boards from source workspace ' + sourceWsId + '...');
     var sourceBoards = getBoardsInWorkspace(sourceWsId);
-    updateMigrationProgress(migrationId, {
-      boardsTotal: sourceBoards.length,
-      message: 'Found ' + sourceBoards.length + ' boards to migrate.'
-    });
+    console.log('Migration: Step 3 DONE - Found ' + sourceBoards.length + ' boards');
+
+    if (sourceBoards.length === 0) {
+      console.warn('Migration: ⚠ WARNING - 0 boards found in source workspace "' + sourceWs.name + '" (id=' + sourceWsId + ', kind=' + sourceWs.kind + ')');
+      console.warn('Migration: Possible causes:');
+      console.warn('Migration:   1. Workspace genuinely has no boards');
+      console.warn('Migration:   2. API key user is not a member of this closed workspace');
+      console.warn('Migration:   3. All boards are archived (state != active)');
+      console.warn('Migration:   4. Incorrect workspace ID');
+
+      updateMigrationProgress(migrationId, {
+        boardsTotal: 0,
+        message: 'WARNING: No boards found in source workspace "' + sourceWs.name + '". The workspace may be empty or the API key may lack access.',
+        errors: [{ board: 'Workspace', msg: 'No boards found in source workspace "' + sourceWs.name + '" (kind=' + sourceWs.kind + '). If boards exist, check API key permissions.' }]
+      });
+    } else {
+      updateMigrationProgress(migrationId, {
+        boardsTotal: sourceBoards.length,
+        message: 'Found ' + sourceBoards.length + ' boards to migrate.'
+      });
+    }
 
     // Step 4: Migrate each board
+    console.log('Migration: Step 4 - Starting board migration loop (' + sourceBoards.length + ' boards)...');
     var boardMapping = [];
     var totalItemsMigrated = 0;
     var totalItemsExpected = 0;
@@ -542,12 +573,15 @@ function startMigration(params) {
       });
 
       try {
+        console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - Starting: "' + sourceBoard.name + '" (id=' + sourceBoard.id + ', kind=' + sourceBoard.board_kind + ')');
         var result = migrateBoard(sourceBoard, targetWs.id, components, migrationId, targetApiKey);
         boardMapping.push(result);
         totalItemsMigrated += result.itemsMigrated;
         totalItemsExpected += result.itemsTotal;
+        console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - SUCCESS: "' + sourceBoard.name + '" → target id=' + result.targetBoardId + ' (' + result.itemsMigrated + '/' + result.itemsTotal + ' items, method=' + (result.migrationMethod || 'manual') + ')');
       } catch (boardError) {
-        console.error('Failed to migrate board ' + sourceBoard.name + ':', boardError);
+        console.error('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - FAILED: "' + sourceBoard.name + '": ' + boardError.toString());
+        console.error('Migration: Board error stack:', boardError.stack || 'no stack');
         boardMapping.push({
           sourceBoardId: String(sourceBoard.id),
           sourceBoardName: sourceBoard.name,
@@ -569,9 +603,12 @@ function startMigration(params) {
     }
 
     // Step 5: Migrate documents with Drive backup (if selected)
+    console.log('Migration: Step 4 DONE - Board loop complete. Migrated ' + boardMapping.length + ' boards (' + totalItemsMigrated + '/' + totalItemsExpected + ' items)');
+    console.log('Migration: Board results: ' + JSON.stringify(boardMapping.map(function(b) { return { name: b.sourceBoardName, status: b.status, items: b.itemsMigrated + '/' + b.itemsTotal }; })));
     var docMapping = [];
     var docMigrationResult = null;
     if (components.documents) {
+      console.log('Migration: Step 5 - Migrating documents...');
       updateMigrationProgress(migrationId, { percent: 88, message: 'Migrating documents (export, backup to Drive, import)...' });
       try {
         docMigrationResult = migrateDocuments(
@@ -605,8 +642,17 @@ function startMigration(params) {
     saveMigrationMapping(migrationId, sourceWsId, String(targetWs.id), wsName, boardMapping, docMapping);
 
     // Final status
+    var successCount = boardMapping.filter(function(b) { return b.status === 'success'; }).length;
+    var errorCount = boardMapping.filter(function(b) { return b.status !== 'success'; }).length;
     var finalState = boardMapping.every(function(b) { return b.status === 'success'; })
       ? 'completed' : 'completed_with_errors';
+    console.log('Migration: ═══════════════════════════════════════════════════════');
+    console.log('Migration: MIGRATION ' + migrationId + ' FINISHED');
+    console.log('Migration: State: ' + finalState);
+    console.log('Migration: Boards: ' + successCount + ' succeeded, ' + errorCount + ' failed, ' + sourceBoards.length + ' total');
+    console.log('Migration: Items: ' + totalItemsMigrated + ' migrated / ' + totalItemsExpected + ' expected');
+    console.log('Migration: Docs: ' + (docMigrationResult ? docMigrationResult.docsMigrated + ' migrated' : 'skipped'));
+    console.log('Migration: ═══════════════════════════════════════════════════════');
 
     // Build completion message
     var completionMsg = finalState === 'completed'

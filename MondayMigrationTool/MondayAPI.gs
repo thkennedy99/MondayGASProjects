@@ -632,21 +632,41 @@ function getWorkspaces() {
 }
 
 function getWorkspaceDetails(workspaceId) {
+  console.log('Migration: Fetching workspace details for ID: ' + workspaceId);
   var data = callMondayAPI(
     'query ($ids: [ID!]) { workspaces (ids: $ids) { id name kind description } }',
     { ids: [Number(workspaceId)] }
   );
-  return data.workspaces && data.workspaces[0] ? data.workspaces[0] : null;
+  var ws = data.workspaces && data.workspaces[0] ? data.workspaces[0] : null;
+  if (ws) {
+    console.log('Migration: Source workspace: "' + ws.name + '" (id=' + ws.id + ', kind=' + ws.kind + ')');
+    if (ws.kind === 'closed') {
+      console.warn('Migration: WARNING - Source workspace is CLOSED. API key user must be a member to access boards.');
+    }
+  } else {
+    console.error('Migration: ERROR - Workspace ' + workspaceId + ' not found or not accessible');
+  }
+  return ws;
 }
 
 // ── Board Queries ────────────────────────────────────────────────────────────
 
 function getBoardsInWorkspace(workspaceId) {
+  console.log('Migration: Fetching boards for workspace ID: ' + workspaceId);
   var data = callMondayAPI(
     'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind state columns { id title type settings_str } groups { id title color } } }',
     { wsId: [Number(workspaceId)] }
   );
-  return data.boards || [];
+  var boards = data.boards || [];
+  console.log('Migration: getBoardsInWorkspace(' + workspaceId + ') returned ' + boards.length + ' boards');
+  if (boards.length > 0) {
+    boards.forEach(function(b) {
+      console.log('Migration:   Board: "' + b.name + '" (id=' + b.id + ', kind=' + b.board_kind + ', state=' + b.state + ', cols=' + (b.columns || []).length + ', groups=' + (b.groups || []).length + ')');
+    });
+  } else {
+    console.warn('Migration: WARNING - No boards found in workspace ' + workspaceId + '. If this workspace has boards, the API key user may not have access (e.g., closed workspace requires membership).');
+  }
+  return boards;
 }
 
 function getBoardItemCount(boardId) {
