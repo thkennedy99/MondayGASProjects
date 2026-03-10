@@ -657,14 +657,29 @@ function getBoardsInWorkspace(workspaceId) {
     'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind state columns { id title type settings_str } groups { id title color } } }',
     { wsId: [Number(workspaceId)] }
   );
-  var boards = data.boards || [];
-  console.log('Migration: getBoardsInWorkspace(' + workspaceId + ') returned ' + boards.length + ' boards');
+  var allBoards = data.boards || [];
+  // Separate regular boards from subitem boards
+  var boards = [];
+  var subitemBoards = [];
+  allBoards.forEach(function(b) {
+    if (b.board_kind === 'sub_items_board') {
+      subitemBoards.push(b);
+    } else {
+      boards.push(b);
+    }
+  });
+  console.log('Migration: getBoardsInWorkspace(' + workspaceId + ') returned ' + allBoards.length + ' total boards (' + boards.length + ' regular, ' + subitemBoards.length + ' subitem boards)');
   if (boards.length > 0) {
     boards.forEach(function(b) {
       console.log('Migration:   Board: "' + b.name + '" (id=' + b.id + ', kind=' + b.board_kind + ', state=' + b.state + ', cols=' + (b.columns || []).length + ', groups=' + (b.groups || []).length + ')');
     });
   } else {
     console.warn('Migration: WARNING - No boards found in workspace ' + workspaceId + '. If this workspace has boards, the API key user may not have access (e.g., closed workspace requires membership).');
+  }
+  if (subitemBoards.length > 0) {
+    subitemBoards.forEach(function(b) {
+      console.log('Migration:   Subitem board (excluded): "' + b.name + '" (id=' + b.id + ')');
+    });
   }
   return boards;
 }
@@ -683,10 +698,10 @@ function getBoardItems(boardId, cursor) {
   var variables;
 
   if (cursor) {
-    query = 'query ($cursor: String!) { next_items_page (cursor: $cursor, limit: 500) { cursor items { id name group { id title } column_values { id type text value } } } }';
+    query = 'query ($cursor: String!) { next_items_page (cursor: $cursor, limit: 500) { cursor items { id name group { id title } column_values { id type text value } subitems { id name column_values { id type text value } } } } }';
     variables = { cursor: cursor };
   } else {
-    query = 'query ($boardId: [ID!]) { boards (ids: $boardId) { items_page (limit: 500) { cursor items { id name group { id title } column_values { id type text value } } } } }';
+    query = 'query ($boardId: [ID!]) { boards (ids: $boardId) { items_page (limit: 500) { cursor items { id name group { id title } column_values { id type text value } subitems { id name column_values { id type text value } } } } } }';
     variables = { boardId: [Number(boardId)] };
   }
 
@@ -822,6 +837,24 @@ function createItem(boardId, itemName, groupId, columnValues) {
 
   var data = callMondayAPI(query, variables);
   return data.create_item;
+}
+
+function createSubitem(parentItemId, subitemName, columnValues) {
+  var variables = {
+    parentId: Number(parentItemId),
+    name: subitemName
+  };
+
+  var query;
+  if (columnValues) {
+    query = 'mutation ($parentId: ID!, $name: String!, $values: JSON!) { create_subitem (parent_item_id: $parentId, item_name: $name, column_values: $values) { id name } }';
+    variables.values = JSON.stringify(columnValues);
+  } else {
+    query = 'mutation ($parentId: ID!, $name: String!) { create_subitem (parent_item_id: $parentId, item_name: $name) { id name } }';
+  }
+
+  var data = callMondayAPI(query, variables);
+  return data.create_subitem;
 }
 
 function createWorkspace(name, kind, description) {

@@ -350,6 +350,24 @@ function createItemOnTarget(targetApiKey, boardId, itemName, groupId, columnValu
   return data.create_item;
 }
 
+function createSubitemOnTarget(targetApiKey, parentItemId, subitemName, columnValues) {
+  var variables = {
+    parentId: Number(parentItemId),
+    name: subitemName
+  };
+
+  var query;
+  if (columnValues) {
+    query = 'mutation ($parentId: ID!, $name: String!, $values: JSON!) { create_subitem (parent_item_id: $parentId, item_name: $name, column_values: $values) { id name } }';
+    variables.values = JSON.stringify(columnValues);
+  } else {
+    query = 'mutation ($parentId: ID!, $name: String!) { create_subitem (parent_item_id: $parentId, item_name: $name) { id name } }';
+  }
+
+  var data = _targetAPI(targetApiKey, query, variables);
+  return data.create_subitem;
+}
+
 function addUsersToBoardOnTarget(targetApiKey, boardId, userIds) {
   var data = _targetAPI(targetApiKey,
     'mutation ($boardId: ID!, $userIds: [ID!]!) { add_users_to_board (board_id: $boardId, user_ids: $userIds) { id } }',
@@ -561,6 +579,7 @@ function startMigration(params) {
     var boardMapping = [];
     var totalItemsMigrated = 0;
     var totalItemsExpected = 0;
+    var totalSubitemsMigrated = 0;
 
     for (var i = 0; i < sourceBoards.length; i++) {
       var sourceBoard = sourceBoards[i];
@@ -578,7 +597,8 @@ function startMigration(params) {
         boardMapping.push(result);
         totalItemsMigrated += result.itemsMigrated;
         totalItemsExpected += result.itemsTotal;
-        console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - SUCCESS: "' + sourceBoard.name + '" → target id=' + result.targetBoardId + ' (' + result.itemsMigrated + '/' + result.itemsTotal + ' items, method=' + (result.migrationMethod || 'manual') + ')');
+        totalSubitemsMigrated += (result.subitemsMigrated || 0);
+        console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - SUCCESS: "' + sourceBoard.name + '" → target id=' + result.targetBoardId + ' (' + result.itemsMigrated + '/' + result.itemsTotal + ' items, ' + (result.subitemsMigrated || 0) + ' subitems, method=' + (result.migrationMethod || 'manual') + ')');
       } catch (boardError) {
         console.error('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - FAILED: "' + sourceBoard.name + '": ' + boardError.toString());
         console.error('Migration: Board error stack:', boardError.stack || 'no stack');
@@ -603,7 +623,7 @@ function startMigration(params) {
     }
 
     // Step 5: Migrate documents with Drive backup (if selected)
-    console.log('Migration: Step 4 DONE - Board loop complete. Migrated ' + boardMapping.length + ' boards (' + totalItemsMigrated + '/' + totalItemsExpected + ' items)');
+    console.log('Migration: Step 4 DONE - Board loop complete. Migrated ' + boardMapping.length + ' boards (' + totalItemsMigrated + '/' + totalItemsExpected + ' items, ' + totalSubitemsMigrated + ' subitems)');
     console.log('Migration: Board results: ' + JSON.stringify(boardMapping.map(function(b) { return { name: b.sourceBoardName, status: b.status, items: b.itemsMigrated + '/' + b.itemsTotal }; })));
     var docMapping = [];
     var docMigrationResult = null;
@@ -650,7 +670,7 @@ function startMigration(params) {
     console.log('Migration: MIGRATION ' + migrationId + ' FINISHED');
     console.log('Migration: State: ' + finalState);
     console.log('Migration: Boards: ' + successCount + ' succeeded, ' + errorCount + ' failed, ' + sourceBoards.length + ' total');
-    console.log('Migration: Items: ' + totalItemsMigrated + ' migrated / ' + totalItemsExpected + ' expected');
+    console.log('Migration: Items: ' + totalItemsMigrated + ' migrated / ' + totalItemsExpected + ' expected (' + totalSubitemsMigrated + ' subitems)');
     console.log('Migration: Docs: ' + (docMigrationResult ? docMigrationResult.docsMigrated + ' migrated' : 'skipped'));
     console.log('Migration: ═══════════════════════════════════════════════════════');
 
@@ -682,6 +702,7 @@ function startMigration(params) {
           migrationMethod: bm.migrationMethod || 'manual',
           itemsMigrated: bm.itemsMigrated,
           itemsTotal: bm.itemsTotal,
+          subitemsMigrated: bm.subitemsMigrated || 0,
           managedColumnsAttached: bm.managedColumnsAttached || 0
         };
       }),
@@ -734,6 +755,59 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId, t
 }
 
 /**
+ * Migrate subitems of a source item to a newly created target parent item.
+ * Subitem column values are written directly (no column mapping needed since
+ * subitems get their own auto-created subitem board on the target).
+ * Returns the count of subitems migrated.
+ */
+function migrateSubitems(sourceItem, targetParentItemId, targetApiKey) {
+  var subitems = sourceItem.subitems || [];
+  if (subitems.length === 0) return 0;
+
+  var migrated = 0;
+  for (var s = 0; s < subitems.length; s++) {
+    var sub = subitems[s];
+    try {
+      // Build column values from the subitem — skip system/computed types
+      var colValues = {};
+      (sub.column_values || []).forEach(function(cv) {
+        if (cv.value) {
+          try {
+            var parsed = JSON.parse(cv.value);
+            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency'];
+            if (skipTypes.indexOf(cv.type) < 0) {
+              colValues[cv.id] = parsed;
+            }
+          } catch (e) {
+            // unparseable value — skip
+          }
+        }
+      });
+
+      if (targetApiKey) {
+        createSubitemOnTarget(
+          targetApiKey,
+          targetParentItemId,
+          sub.name,
+          Object.keys(colValues).length > 0 ? colValues : null
+        );
+      } else {
+        createSubitem(
+          targetParentItemId,
+          sub.name,
+          Object.keys(colValues).length > 0 ? colValues : null
+        );
+      }
+      migrated++;
+      Utilities.sleep(150);
+    } catch (subError) {
+      console.warn('Failed to migrate subitem "' + sub.name + '" under parent "' + sourceItem.name + '": ' + subError);
+    }
+  }
+  return migrated;
+}
+
+/**
  * Template-based board migration: duplicate_board preserves views, automations,
  * formulas, managed columns, and column settings. Only items are migrated separately.
  */
@@ -781,10 +855,11 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
 
   // Step 5: Subscribers are handled by duplicate_board's keep_subscribers param
 
-  // Step 6: Migrate items (only writable column values)
+  // Step 6: Migrate items (only writable column values) and their subitems
   var allItems = getAllBoardItems(sourceBoard.id);
   var itemsTotal = allItems.length;
   var itemsMigrated = 0;
+  var subitemsMigrated = 0;
 
   for (var i = 0; i < allItems.length; i++) {
     var item = allItems[i];
@@ -813,7 +888,7 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
         targetGroupId = groupMapping[item.group.id].targetId;
       }
 
-      createItem(
+      var newItem = createItem(
         targetBoard.id,
         item.name,
         targetGroupId,
@@ -821,6 +896,14 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
       );
 
       itemsMigrated++;
+
+      // Migrate subitems if present
+      if (item.subitems && item.subitems.length > 0 && newItem && newItem.id) {
+        var subCount = migrateSubitems(item, newItem.id, null);
+        subitemsMigrated += subCount;
+        console.log('Migration:   Migrated ' + subCount + '/' + item.subitems.length + ' subitems for item "' + item.name + '"');
+      }
+
       Utilities.sleep(150);
     } catch (itemError) {
       console.warn('Failed to migrate item "' + item.name + '":', itemError);
@@ -839,6 +922,7 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
     columnsMapped: Object.keys(columnMapping).length,
     columnsSkipped: colMapResult.unmapped.length,
     groupsMapped: Object.keys(groupMapping).length,
+    subitemsMigrated: subitemsMigrated,
     managedColumnsAttached: 0, // managed columns preserved automatically via duplicate_board
     columnMapping: columnMapping,
     groupMapping: groupMapping,
@@ -953,10 +1037,11 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     }
   }
 
-  // Migrate items (mandatory)
+  // Migrate items (mandatory) and their subitems
   var allItems = getAllBoardItems(sourceBoard.id);
   var itemsTotal = allItems.length;
   var itemsMigrated = 0;
+  var subitemsMigrated = 0;
 
   for (var i = 0; i < allItems.length; i++) {
     var item = allItems[i];
@@ -990,7 +1075,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
         targetGroupId = groupMapping[item.group.id].targetId;
       }
 
-      createItemOnTarget(
+      var newItem = createItemOnTarget(
         targetApiKey,
         targetBoard.id,
         item.name,
@@ -999,6 +1084,14 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
       );
 
       itemsMigrated++;
+
+      // Migrate subitems if present
+      if (item.subitems && item.subitems.length > 0 && newItem && newItem.id) {
+        var subCount = migrateSubitems(item, newItem.id, targetApiKey);
+        subitemsMigrated += subCount;
+        console.log('Migration:   Migrated ' + subCount + '/' + item.subitems.length + ' subitems for item "' + item.name + '"');
+      }
+
       Utilities.sleep(150);
     } catch (itemError) {
       console.warn('Failed to migrate item "' + item.name + '":', itemError);
@@ -1014,6 +1107,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     migrationMethod: 'manual',
     itemsMigrated: itemsMigrated,
     itemsTotal: itemsTotal,
+    subitemsMigrated: subitemsMigrated,
     columnsMapped: Object.keys(columnMapping).length,
     columnsSkipped: skippedColumns.length,
     groupsMapped: Object.keys(groupMapping).length,
