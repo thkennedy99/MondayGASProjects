@@ -309,6 +309,7 @@ const MigrationTab = () => {
   const [targetName, setTargetName] = useState('');
   const [components, setComponents] = useState({
     groups: true,
+    useTemplates: true,
     managedColumns: true,
     subscribers: true,
     guests: false,
@@ -572,6 +573,24 @@ const MigrationTab = () => {
                 </div>
               )}
 
+              {/* Template Clone Info */}
+              {dryRunResult.useTemplates && (
+                <div className="alert alert-success mb-3">
+                  <strong><i className="bi bi-copy me-1" />Template Clone:</strong>{' '}
+                  Boards will be duplicated via <code>duplicate_board</code>, preserving views, automations, formulas,
+                  and managed column links automatically. Only item data will be migrated separately.
+                  {dryRunResult.boards.some(b => b.complexColumns && b.complexColumns.length > 0) && (
+                    <ul className="mb-0 mt-2">
+                      {dryRunResult.boards.filter(b => b.complexColumns && b.complexColumns.length > 0).map((b, i) => (
+                        <li key={i}>
+                          <strong>{b.name}</strong>: {b.complexColumns.map(c => `${c.title} (${c.type})`).join(', ')} — preserved via template clone
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
               {dryRunResult.managedColumns && dryRunResult.managedColumns.detectedOnBoards > 0 && (
                 <div className="alert alert-primary mb-3">
                   <strong><i className="bi bi-link-45deg me-1" />Managed Columns:</strong>{' '}
@@ -721,12 +740,18 @@ const MigrationTab = () => {
             {progress.boardMapping && (
               <div className="scrollable-table mt-3">
                 <table className="table table-gw table-sm mb-0">
-                  <thead><tr><th>Source Board</th><th>Target Board ID</th><th>Status</th><th>Items</th></tr></thead>
+                  <thead><tr><th>Source Board</th><th>Target Board ID</th><th>Method</th><th>Status</th><th>Items</th></tr></thead>
                   <tbody>
                     {progress.boardMapping.map((bm, i) => (
                       <tr key={i}>
                         <td>{bm.sourceBoardName}</td>
                         <td><code>{bm.targetBoardId || 'N/A'}</code></td>
+                        <td>
+                          <span className={`badge ${bm.migrationMethod === 'template' ? 'bg-info' : 'bg-secondary'}`}>
+                            <i className={`bi ${bm.migrationMethod === 'template' ? 'bi-copy' : 'bi-wrench'} me-1`} />
+                            {bm.migrationMethod === 'template' ? 'Template' : 'Manual'}
+                          </span>
+                        </td>
                         <td><span className={`badge status-${bm.status}`}>{bm.status}</span></td>
                         <td>{bm.itemsMigrated} / {bm.itemsTotal}</td>
                       </tr>

@@ -1159,3 +1159,141 @@ function getWorkspaceFolders(workspaceId) {
   );
   return data.folders || [];
 }
+
+// ── Template-Based Migration Functions ────────────────────────────────────────
+// duplicate_board preserves views, automations, column settings, formulas, and
+// managed column links — things that manual column-by-column creation loses.
+
+/**
+ * Get board metadata including created_from_board_id to detect template origin.
+ * @param {string} boardId - Board ID
+ * @returns {Object} Board metadata with created_from_board_id
+ */
+function getBoardOrigin(boardId) {
+  var data = callMondayAPI(
+    'query ($id: [ID!]!) { boards (ids: $id) { id name board_kind created_from_board_id columns { id title type } groups { id title } } }',
+    { id: [Number(boardId)] }
+  );
+  var boards = data.boards || [];
+  return boards.length > 0 ? boards[0] : null;
+}
+
+/**
+ * Duplicate a board with structure only (no items) into a target workspace.
+ * Preserves: columns with settings, groups, views, automations, managed columns.
+ * @param {string} sourceBoardId - Source board ID
+ * @param {string} targetWorkspaceId - Target workspace ID
+ * @param {string} boardName - Optional name override
+ * @param {boolean} keepSubscribers - Whether to keep subscribers
+ * @returns {Object} { board: { id, name }, isAsync }
+ */
+function duplicateBoardStructure(sourceBoardId, targetWorkspaceId, boardName, keepSubscribers) {
+  var variables = {
+    boardId: Number(sourceBoardId),
+    duplicateType: 'duplicate_board_with_structure',
+    wsId: Number(targetWorkspaceId)
+  };
+  if (keepSubscribers) variables.keepSubs = true;
+
+  var args = '$boardId: ID!, $duplicateType: DuplicateBoardType!, $wsId: ID';
+  var params = 'board_id: $boardId, duplicate_type: $duplicateType, workspace_id: $wsId';
+  if (boardName) {
+    variables.boardName = boardName;
+    args += ', $boardName: String';
+    params += ', board_name: $boardName';
+  }
+  if (keepSubscribers) {
+    args += ', $keepSubs: Boolean';
+    params += ', keep_subscribers: $keepSubs';
+  }
+
+  var data = callMondayAPI(
+    'mutation (' + args + ') { duplicate_board (' + params + ') { board { id name columns { id title type } groups { id title } } is_async } }',
+    variables
+  );
+
+  return {
+    board: data.duplicate_board.board,
+    isAsync: data.duplicate_board.is_async
+  };
+}
+
+/**
+ * Build a column mapping between source and target boards by matching column titles.
+ * Used after duplicate_board to map source column IDs to target column IDs for item migration.
+ * @param {Array} sourceColumns - Source board columns [{ id, title, type }]
+ * @param {Array} targetColumns - Target board columns [{ id, title, type }]
+ * @returns {Object} { mapping: { sourceId: { targetId, title, type } }, unmapped: [] }
+ */
+function buildColumnMappingByTitle(sourceColumns, targetColumns) {
+  var mapping = {};
+  var unmapped = [];
+
+  // Build a lookup by title+type for the target
+  var targetLookup = {};
+  (targetColumns || []).forEach(function(col) {
+    var key = col.title.toLowerCase() + '::' + col.type;
+    if (!targetLookup[key]) {
+      targetLookup[key] = col;
+    }
+  });
+
+  // Also build a title-only fallback lookup
+  var titleOnlyLookup = {};
+  (targetColumns || []).forEach(function(col) {
+    var key = col.title.toLowerCase();
+    if (!titleOnlyLookup[key]) {
+      titleOnlyLookup[key] = col;
+    }
+  });
+
+  (sourceColumns || []).forEach(function(srcCol) {
+    var key = srcCol.title.toLowerCase() + '::' + srcCol.type;
+    var match = targetLookup[key];
+
+    // Fallback to title-only match
+    if (!match) {
+      match = titleOnlyLookup[srcCol.title.toLowerCase()];
+    }
+
+    if (match) {
+      mapping[srcCol.id] = {
+        targetId: match.id,
+        title: srcCol.title,
+        type: srcCol.type,
+        duplicated: true
+      };
+    } else {
+      unmapped.push({ id: srcCol.id, title: srcCol.title, type: srcCol.type });
+    }
+  });
+
+  return { mapping: mapping, unmapped: unmapped };
+}
+
+/**
+ * Build a group mapping between source and target boards by matching group titles.
+ * @param {Array} sourceGroups - Source board groups [{ id, title }]
+ * @param {Array} targetGroups - Target board groups [{ id, title }]
+ * @returns {Object} { mapping: { sourceId: { targetId, title } }, unmapped: [] }
+ */
+function buildGroupMappingByTitle(sourceGroups, targetGroups) {
+  var mapping = {};
+  var unmapped = [];
+
+  var targetLookup = {};
+  (targetGroups || []).forEach(function(grp) {
+    targetLookup[grp.title.toLowerCase()] = grp;
+  });
+
+  (sourceGroups || []).forEach(function(srcGrp) {
+    var match = targetLookup[srcGrp.title.toLowerCase()];
+    if (match) {
+      mapping[srcGrp.id] = { targetId: match.id, title: srcGrp.title };
+    } else {
+      unmapped.push({ id: srcGrp.id, title: srcGrp.title });
+    }
+  });
+
+  return { mapping: mapping, unmapped: unmapped };
+}

@@ -16,7 +16,8 @@ var MIGRATION_COMPONENTS = {
   columns:        { label: 'Columns',           mandatory: true,  description: 'Column definitions (always included)' },
   items:          { label: 'Items (Rows)',      mandatory: true,  description: 'All item data (always included)' },
   groups:         { label: 'Groups',            mandatory: false, description: 'Board groups / sections', defaultOn: true },
-  managedColumns: { label: 'Managed Columns',   mandatory: false, description: 'Preserve account-level managed column links for status/dropdown consistency', defaultOn: true },
+  useTemplates:   { label: 'Template Clone',    mandatory: false, description: 'Use duplicate_board to preserve views, automations, formulas, and managed column links (recommended)', defaultOn: true },
+  managedColumns: { label: 'Managed Columns',   mandatory: false, description: 'Preserve account-level managed column links for status/dropdown consistency (used when Template Clone is off)', defaultOn: true },
   subscribers:    { label: 'Board Subscribers',  mandatory: false, description: 'Add existing users as board subscribers', defaultOn: true },
   guests:         { label: 'Guest Users',        mandatory: false, description: 'Assign guest users to boards', defaultOn: false },
   documents:      { label: 'Documents',          mandatory: false, description: 'Export docs as markdown, backup to Google Drive, and recreate in target workspace', defaultOn: true }
@@ -145,6 +146,7 @@ function testMigration(workspaceId, components) {
       ]
     };
 
+    var hasComplexColumns = false;
     boards.forEach(function(board) {
       var itemCount = 0;
       try { itemCount = getBoardItemCount(board.id); } catch (e) {
@@ -159,6 +161,24 @@ function testMigration(workspaceId, components) {
       var groupCount = board.groups ? board.groups.length : 0;
       var columnCount = board.columns ? board.columns.length : 0;
 
+      // Detect complex column types that benefit from template cloning
+      var complexTypes = ['mirror', 'board_relation', 'formula', 'auto_number', 'dependency'];
+      var complexCols = (board.columns || []).filter(function(c) {
+        return complexTypes.indexOf(c.type) >= 0;
+      });
+      if (complexCols.length > 0) hasComplexColumns = true;
+
+      // Check template origin
+      var createdFromBoardId = null;
+      if (components.useTemplates) {
+        try {
+          var origin = getBoardOrigin(board.id);
+          if (origin && origin.created_from_board_id) {
+            createdFromBoardId = String(origin.created_from_board_id);
+          }
+        } catch (e) {}
+      }
+
       plan.boards.push({
         id: String(board.id),
         name: board.name,
@@ -167,7 +187,9 @@ function testMigration(workspaceId, components) {
         columns: columnCount,
         items: itemCount,
         subscribers: subscribers.length,
-        columnTypes: (board.columns || []).map(function(c) { return c.type; })
+        columnTypes: (board.columns || []).map(function(c) { return c.type; }),
+        complexColumns: complexCols.map(function(c) { return { title: c.title, type: c.type }; }),
+        createdFromBoardId: createdFromBoardId
       });
 
       plan.totals.groups += groupCount;
@@ -175,6 +197,15 @@ function testMigration(workspaceId, components) {
       plan.totals.items += itemCount;
       plan.totals.subscribers += subscribers.length;
     });
+
+    // Template clone analysis
+    if (components.useTemplates) {
+      plan.useTemplates = true;
+      plan.notes.push('Template Clone is ON: boards will be duplicated via duplicate_board, preserving views, automations, formulas, and managed column links. Only item data will be migrated separately.');
+      if (hasComplexColumns) {
+        plan.notes.push('Complex columns detected (mirror, formula, dependency, etc.) — Template Clone will preserve these correctly.');
+      }
+    }
 
     // Documents analysis
     if (components.documents) {
@@ -436,6 +467,7 @@ function startMigration(params) {
           targetBoardId: bm.targetBoardId,
           targetBoardName: bm.targetBoardName,
           status: bm.status,
+          migrationMethod: bm.migrationMethod || 'manual',
           itemsMigrated: bm.itemsMigrated,
           itemsTotal: bm.itemsTotal,
           managedColumnsAttached: bm.managedColumnsAttached || 0
@@ -478,7 +510,151 @@ function startMigration(params) {
 
 // ── Board Migration ──────────────────────────────────────────────────────────
 
+/**
+ * Migrate a single board. Routes to template-based or manual approach.
+ */
 function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
+  if (components.useTemplates) {
+    return migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, migrationId);
+  }
+  return migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId);
+}
+
+/**
+ * Template-based board migration: duplicate_board preserves views, automations,
+ * formulas, managed columns, and column settings. Only items are migrated separately.
+ */
+function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, migrationId) {
+  // Step 1: Duplicate board structure to target workspace
+  var dupResult = duplicateBoardStructure(
+    sourceBoard.id,
+    targetWorkspaceId,
+    null, // keep original name
+    !!components.subscribers
+  );
+
+  var targetBoard = dupResult.board;
+  if (!targetBoard || !targetBoard.id) {
+    throw new Error('duplicate_board returned no board for: ' + sourceBoard.name);
+  }
+
+  // If async, wait briefly for the board to be ready
+  if (dupResult.isAsync) {
+    Utilities.sleep(3000);
+    // Re-fetch to get columns and groups
+    var refreshed = getBoardOrigin(targetBoard.id);
+    if (refreshed) {
+      targetBoard.columns = refreshed.columns;
+      targetBoard.groups = refreshed.groups;
+    }
+  }
+
+  // Step 2: Get source board structure for mapping
+  var sourceStructure = getBoardStructure(sourceBoard.id);
+  if (!sourceStructure) throw new Error('Could not read board structure for: ' + sourceBoard.name);
+
+  // Step 3: Build column mapping by title (source ID -> target ID)
+  var colMapResult = buildColumnMappingByTitle(sourceStructure.columns, targetBoard.columns);
+  var columnMapping = colMapResult.mapping;
+
+  if (colMapResult.unmapped.length > 0) {
+    console.warn('Unmapped columns for ' + sourceBoard.name + ': ' +
+      colMapResult.unmapped.map(function(c) { return c.title + ' (' + c.type + ')'; }).join(', '));
+  }
+
+  // Step 4: Build group mapping by title
+  var grpMapResult = buildGroupMappingByTitle(sourceStructure.groups, targetBoard.groups);
+  var groupMapping = grpMapResult.mapping;
+
+  // Step 5: Add subscribers if not already kept by duplicate_board
+  if (components.subscribers && !components.subscribers) {
+    // duplicate_board with keep_subscribers handles this, but add non-subscriber users
+    try {
+      var subscribers = getBoardSubscribers(sourceBoard.id);
+      var subscriberIds = [];
+      subscribers.forEach(function(s) {
+        if (components.guests || !isGuestUser(s.email)) {
+          subscriberIds.push(String(s.id));
+        }
+      });
+      if (subscriberIds.length > 0) {
+        addUsersToBoard(targetBoard.id, subscriberIds);
+      }
+    } catch (e) {
+      console.warn('Failed to add subscribers to board ' + sourceBoard.name + ':', e);
+    }
+  }
+
+  // Step 6: Migrate items (only writable column values)
+  var allItems = getAllBoardItems(sourceBoard.id);
+  var itemsTotal = allItems.length;
+  var itemsMigrated = 0;
+
+  for (var i = 0; i < allItems.length; i++) {
+    var item = allItems[i];
+
+    try {
+      var columnValues = {};
+      (item.column_values || []).forEach(function(cv) {
+        var mapped = columnMapping[cv.id];
+        if (cv.value && mapped) {
+          try {
+            var parsed = JSON.parse(cv.value);
+            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency'];
+            if (skipTypes.indexOf(cv.type) < 0) {
+              columnValues[mapped.targetId] = parsed;
+            }
+          } catch (parseError) {
+            if (cv.text) {
+              columnValues[mapped.targetId] = cv.text;
+            }
+          }
+        }
+      });
+
+      var targetGroupId = null;
+      if (item.group && groupMapping[item.group.id]) {
+        targetGroupId = groupMapping[item.group.id].targetId;
+      }
+
+      createItem(
+        targetBoard.id,
+        item.name,
+        targetGroupId,
+        Object.keys(columnValues).length > 0 ? columnValues : null
+      );
+
+      itemsMigrated++;
+      Utilities.sleep(150);
+    } catch (itemError) {
+      console.warn('Failed to migrate item "' + item.name + '":', itemError);
+    }
+  }
+
+  return {
+    sourceBoardId: String(sourceBoard.id),
+    sourceBoardName: sourceStructure.name,
+    targetBoardId: String(targetBoard.id),
+    targetBoardName: targetBoard.name,
+    status: 'success',
+    migrationMethod: 'template',
+    itemsMigrated: itemsMigrated,
+    itemsTotal: itemsTotal,
+    columnsMapped: Object.keys(columnMapping).length,
+    columnsSkipped: colMapResult.unmapped.length,
+    groupsMapped: Object.keys(groupMapping).length,
+    managedColumnsAttached: 0, // managed columns preserved automatically via duplicate_board
+    columnMapping: columnMapping,
+    groupMapping: groupMapping,
+    managedColumnMapping: []
+  };
+}
+
+/**
+ * Manual board migration: create board from scratch, add columns individually,
+ * detect and attach managed columns. Original approach.
+ */
+function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId) {
   var structure = getBoardStructure(sourceBoard.id);
   if (!structure) throw new Error('Could not read board structure for: ' + sourceBoard.name);
 
@@ -633,6 +809,7 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
     targetBoardId: String(targetBoard.id),
     targetBoardName: structure.name,
     status: 'success',
+    migrationMethod: 'manual',
     itemsMigrated: itemsMigrated,
     itemsTotal: itemsTotal,
     columnsMapped: Object.keys(columnMapping).length,
