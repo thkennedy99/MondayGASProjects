@@ -312,7 +312,7 @@ const MigrationTab = () => {
     managedColumns: true,
     subscribers: true,
     guests: false,
-    documents: false
+    documents: true
   });
   const [componentDefs, setComponentDefs] = useState(null);
   const [dryRunResult, setDryRunResult] = useState(null);
@@ -531,15 +531,46 @@ const MigrationTab = () => {
                 <div className="col"><StatCard value={dryRunResult.totals.groups} label="Groups" icon="collection" /></div>
                 <div className="col"><StatCard value={dryRunResult.totals.columns} label="Columns" icon="layout-three-columns" /></div>
                 <div className="col"><StatCard value={dryRunResult.totals.items} label="Items" icon="list-task" /></div>
+                <div className="col"><StatCard value={dryRunResult.totals.documents || 0} label="Documents" icon="file-earmark-text" /></div>
                 <div className="col"><StatCard value={dryRunResult.estimatedApiCalls} label="API Calls" icon="cloud" /></div>
               </div>
 
               <div className="row g-3 mb-3">
                 <div className="col-md-6">
                   <p className="mb-1"><strong>Estimated Duration:</strong> {dryRunResult.estimatedDuration}</p>
-                  {dryRunResult.totals.documents > 0 && <p className="mb-1"><strong>Documents:</strong> {dryRunResult.totals.documents}</p>}
                 </div>
               </div>
+
+              {/* Document Analysis */}
+              {dryRunResult.documentAnalysis && dryRunResult.documentAnalysis.totalCount > 0 && (
+                <div className="alert alert-primary mb-3">
+                  <strong><i className="bi bi-file-earmark-text me-1" />Document Migration:</strong>{' '}
+                  {dryRunResult.documentAnalysis.exportableCount} of {dryRunResult.documentAnalysis.totalCount} document(s) will be exported as markdown,
+                  backed up to Google Drive, and recreated in the target workspace.
+                  {dryRunResult.documentAnalysis.totalMarkdownSize > 0 && (
+                    <span> (~{Math.round(dryRunResult.documentAnalysis.totalMarkdownSize / 1024)} KB total)</span>
+                  )}
+                  {dryRunResult.documentAnalysis.emptyCount > 0 && (
+                    <span> {dryRunResult.documentAnalysis.emptyCount} empty doc(s) will be created without content.</span>
+                  )}
+                  {dryRunResult.documentAnalysis.docs.length > 0 && (
+                    <ul className="mb-0 mt-2">
+                      {dryRunResult.documentAnalysis.docs.map((d, i) => (
+                        <li key={i}>
+                          <strong>{d.name}</strong>
+                          {d.exportable ? (
+                            <span className="text-success ms-1">
+                              <i className="bi bi-check-circle" /> {d.markdownSize > 0 ? `(${Math.round(d.markdownSize / 1024)} KB)` : '(empty)'}
+                            </span>
+                          ) : (
+                            <span className="text-danger ms-1"><i className="bi bi-x-circle" /> {d.error || 'Cannot export'}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
 
               {dryRunResult.managedColumns && dryRunResult.managedColumns.detectedOnBoards > 0 && (
                 <div className="alert alert-primary mb-3">
@@ -651,14 +682,40 @@ const MigrationTab = () => {
               <div className="col-md-3"><StatCard value={progress.itemsTotal || 0} label="Items Expected" icon="list-check" /></div>
               <div className="col-md-3"><StatCard value={progress.errors?.length || 0} label="Errors" icon="exclamation-triangle" color="var(--match-poor)" /></div>
             </div>
-            {progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0) && (
+            {(
+              (progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0)) ||
+              (progress.documentMigration && progress.documentMigration.docsMigrated > 0)
+            ) && (
               <div className="row g-3 mb-4">
-                <div className="col-md-3"><StatCard value={progress.boardMapping.reduce((sum, bm) => sum + (bm.managedColumnsAttached || 0), 0)} label="Managed Columns Linked" icon="link-45deg" color="var(--gw-bright-blue)" /></div>
+                {progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0) && (
+                  <div className="col-md-3"><StatCard value={progress.boardMapping.reduce((sum, bm) => sum + (bm.managedColumnsAttached || 0), 0)} label="Managed Columns Linked" icon="link-45deg" color="var(--gw-bright-blue)" /></div>
+                )}
+                {progress.documentMigration && (
+                  <>
+                    <div className="col-md-3"><StatCard value={progress.documentMigration.docsMigrated || 0} label="Docs Migrated" icon="file-earmark-text" color="var(--match-great)" /></div>
+                    {progress.documentMigration.docsSkipped > 0 && (
+                      <div className="col-md-3"><StatCard value={progress.documentMigration.docsSkipped} label="Docs Skipped" icon="file-earmark-x" color="var(--match-poor)" /></div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
             <p><strong>Target Workspace:</strong> {progress.targetWorkspaceName || 'N/A'}</p>
             <p><strong>Migration ID:</strong> <code>{progress.id}</code></p>
+
+            {/* Google Drive backup link */}
+            {progress.documentMigration && progress.documentMigration.driveFolder && (
+              <div className="alert alert-success mb-3">
+                <i className="bi bi-cloud-arrow-down me-1" />
+                <strong>Document Backup:</strong>{' '}
+                Markdown backups saved to Google Drive:{' '}
+                <a href={progress.documentMigration.driveFolder.url} target="_blank" rel="noopener noreferrer" className="alert-link">
+                  <i className="bi bi-folder me-1" />{progress.documentMigration.driveFolder.name}
+                </a>
+              </div>
+            )}
+
             <p className="text-muted">Before/after mapping has been saved to the migration spreadsheet.</p>
 
             {progress.boardMapping && (
@@ -672,6 +729,32 @@ const MigrationTab = () => {
                         <td><code>{bm.targetBoardId || 'N/A'}</code></td>
                         <td><span className={`badge status-${bm.status}`}>{bm.status}</span></td>
                         <td>{bm.itemsMigrated} / {bm.itemsTotal}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Document Mapping Table */}
+            {progress.docMapping && progress.docMapping.length > 0 && (
+              <div className="scrollable-table mt-3">
+                <h6><i className="bi bi-file-earmark-text me-1" />Document Migration Details</h6>
+                <table className="table table-gw table-sm mb-0">
+                  <thead><tr><th>Document</th><th>Status</th><th>Target Doc ID</th><th>Drive Backup</th></tr></thead>
+                  <tbody>
+                    {progress.docMapping.map((dm, i) => (
+                      <tr key={i}>
+                        <td>{dm.sourceDocName || dm.sourceDocTitle || dm.sourceDocId}</td>
+                        <td><span className={`badge ${dm.status === 'migrated' ? 'bg-success' : dm.status === 'migrated_empty' ? 'bg-info' : dm.status === 'empty' ? 'bg-secondary' : 'bg-danger'}`}>{dm.status}</span></td>
+                        <td><code>{dm.targetDocId || 'N/A'}</code></td>
+                        <td>
+                          {dm.driveFileUrl ? (
+                            <a href={dm.driveFileUrl} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-secondary">
+                              <i className="bi bi-file-earmark-arrow-down me-1" />.md
+                            </a>
+                          ) : <span className="text-muted">-</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

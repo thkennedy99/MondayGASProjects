@@ -19,7 +19,7 @@ var MIGRATION_COMPONENTS = {
   managedColumns: { label: 'Managed Columns',   mandatory: false, description: 'Preserve account-level managed column links for status/dropdown consistency', defaultOn: true },
   subscribers:    { label: 'Board Subscribers',  mandatory: false, description: 'Add existing users as board subscribers', defaultOn: true },
   guests:         { label: 'Guest Users',        mandatory: false, description: 'Assign guest users to boards', defaultOn: false },
-  documents:      { label: 'Documents',          mandatory: false, description: 'Workspace documents (name only — content requires manual copy)', defaultOn: false }
+  documents:      { label: 'Documents',          mandatory: false, description: 'Export docs as markdown, backup to Google Drive, and recreate in target workspace', defaultOn: true }
 };
 
 /**
@@ -176,13 +176,28 @@ function testMigration(workspaceId, components) {
       plan.totals.subscribers += subscribers.length;
     });
 
-    // Documents count
+    // Documents analysis
     if (components.documents) {
       try {
-        var docs = getDocs(workspaceId);
-        plan.totals.documents = docs.length;
+        var docAnalysis = analyzeDocumentsForMigration(workspaceId);
+        plan.totals.documents = docAnalysis.totalCount;
+        plan.documentAnalysis = {
+          totalCount: docAnalysis.totalCount,
+          exportableCount: docAnalysis.exportableCount,
+          emptyCount: docAnalysis.emptyCount,
+          errorCount: docAnalysis.errorCount,
+          totalMarkdownSize: docAnalysis.totalMarkdownSize,
+          docs: docAnalysis.docs
+        };
+        if (docAnalysis.errorCount > 0) {
+          plan.warnings.push(docAnalysis.errorCount + ' document(s) could not be exported and will be skipped.');
+        }
+        if (docAnalysis.totalCount > 0) {
+          var sizeKb = Math.round(docAnalysis.totalMarkdownSize / 1024);
+          plan.notes.push(docAnalysis.exportableCount + ' document(s) will be exported as markdown, backed up to Google Drive, and recreated in the target workspace. (~' + sizeKb + ' KB total)');
+        }
       } catch (e) {
-        plan.warnings.push('Could not fetch document count.');
+        plan.warnings.push('Could not analyze documents: ' + e.toString());
       }
     }
 
@@ -357,21 +372,34 @@ function startMigration(params) {
       Utilities.sleep(300);
     }
 
-    // Step 5: Migrate documents (if selected)
+    // Step 5: Migrate documents with Drive backup (if selected)
     var docMapping = [];
+    var docMigrationResult = null;
     if (components.documents) {
-      updateMigrationProgress(migrationId, { percent: 90, message: 'Checking documents...' });
+      updateMigrationProgress(migrationId, { percent: 88, message: 'Migrating documents (export, backup to Drive, import)...' });
       try {
-        var docs = getDocs(sourceWsId);
-        docs.forEach(function(doc) {
-          docMapping.push({
-            sourceDocId: String(doc.id),
-            sourceDocTitle: doc.title,
-            note: 'Document content must be manually copied'
+        docMigrationResult = migrateDocuments(
+          sourceWsId,
+          String(targetWs.id),
+          migrationId,
+          function(msg) {
+            updateMigrationProgress(migrationId, { message: msg });
+          }
+        );
+        docMapping = docMigrationResult.docMapping || [];
+
+        if (docMigrationResult.errors && docMigrationResult.errors.length > 0) {
+          docMigrationResult.errors.forEach(function(e) {
+            updateMigrationProgress(migrationId, {
+              errors: [{ board: 'Doc: ' + (e.docName || e.docId), msg: e.msg }]
+            });
           });
-        });
+        }
       } catch (e) {
-        console.warn('Failed to enumerate documents:', e);
+        console.warn('Document migration failed:', e);
+        updateMigrationProgress(migrationId, {
+          errors: [{ board: 'Documents', msg: e.toString() }]
+        });
       }
     }
 
@@ -383,12 +411,19 @@ function startMigration(params) {
     var finalState = boardMapping.every(function(b) { return b.status === 'success'; })
       ? 'completed' : 'completed_with_errors';
 
+    // Build completion message
+    var completionMsg = finalState === 'completed'
+      ? 'Migration complete! ' + sourceBoards.length + ' boards cloned to "' + wsName + '".'
+      : 'Migration finished with some errors. Check details.';
+
+    if (docMigrationResult && docMigrationResult.docsMigrated > 0) {
+      completionMsg += ' ' + docMigrationResult.docsMigrated + ' document(s) migrated with Drive backup.';
+    }
+
     updateMigrationProgress(migrationId, {
       state: finalState,
       percent: 100,
-      message: finalState === 'completed'
-        ? 'Migration complete! ' + sourceBoards.length + ' boards cloned to "' + wsName + '".'
-        : 'Migration finished with some errors. Check details.',
+      message: completionMsg,
       boardsCompleted: sourceBoards.length,
       itemsTotal: totalItemsExpected,
       itemsMigrated: totalItemsMigrated,
@@ -407,6 +442,13 @@ function startMigration(params) {
         };
       }),
       docMapping: docMapping,
+      documentMigration: docMigrationResult ? {
+        docsTotal: docMigrationResult.docsTotal,
+        docsMigrated: docMigrationResult.docsMigrated,
+        docsSkipped: docMigrationResult.docsSkipped,
+        driveFolder: docMigrationResult.driveFolder,
+        errors: docMigrationResult.errors
+      } : null,
       endTime: new Date().toISOString()
     });
 
@@ -738,9 +780,17 @@ function saveMigrationMapping(migrationId, sourceWsId, targetWsId, targetWsName,
     if (docMapping && docMapping.length > 0) {
       headerRows.push(['']);
       headerRows.push(['=== DOCUMENT MAPPING ===']);
-      headerRows.push(['Source Doc ID', 'Source Doc Title', 'Note']);
+      headerRows.push(['Source Doc ID', 'Source Doc Name', 'Target Doc ID', 'Status', 'Drive File URL', 'Blocks Created', 'Note']);
       docMapping.forEach(function(dm) {
-        headerRows.push([dm.sourceDocId, dm.sourceDocTitle, dm.note]);
+        headerRows.push([
+          dm.sourceDocId,
+          dm.sourceDocName || dm.sourceDocTitle || '',
+          dm.targetDocId || 'N/A',
+          dm.status || '',
+          dm.driveFileUrl || '',
+          dm.blocksCreated || 0,
+          dm.note || ''
+        ]);
       });
     }
 

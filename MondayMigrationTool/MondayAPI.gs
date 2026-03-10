@@ -1050,3 +1050,112 @@ function detectManagedColumnsOnBoard(boardId) {
 
   return matches;
 }
+
+// ── Document Migration Functions ──────────────────────────────────────────────
+// Export doc content as markdown, create docs in target workspace, and import
+// markdown content. Used by DocumentMigrationService.gs.
+
+/**
+ * Get docs in a workspace with full metadata including blocks.
+ * @param {string} workspaceId - Workspace ID
+ * @returns {Array} Array of doc objects with id, name, doc_kind, object_id, created_at
+ */
+function getDocsWithDetails(workspaceId) {
+  var data = callMondayAPI(
+    'query ($wsId: [ID!]) { docs (workspace_ids: $wsId, limit: 200) { id name object_id doc_kind created_at url relative_url doc_folder_id } }',
+    { wsId: [Number(workspaceId)] }
+  );
+  return data.docs || [];
+}
+
+/**
+ * Export a document's content as markdown.
+ * @param {string} docId - The document's unique ID (not object_id)
+ * @returns {Object} { success: boolean, markdown: string, error?: string }
+ */
+function exportDocAsMarkdown(docId) {
+  var data = callMondayAPI(
+    'query ($docId: ID!) { export_markdown_from_doc (docId: $docId) { success markdown error } }',
+    { docId: Number(docId) }
+  );
+  return data.export_markdown_from_doc;
+}
+
+/**
+ * Create a new doc in a workspace.
+ * @param {string} workspaceId - Target workspace ID
+ * @param {string} name - Document name
+ * @param {string} kind - 'public' or 'private'
+ * @returns {Object} Created document with id and object_id
+ */
+function createDoc(workspaceId, name, kind) {
+  var variables = {
+    workspace: { workspace_id: Number(workspaceId) },
+    doc: {}
+  };
+  if (kind) {
+    variables.doc.kind = kind;
+  }
+
+  var data = callMondayAPI(
+    'mutation ($workspace: CreateDocWorkspaceInput!, $doc: CreateDocInput) { create_doc (workspace: $workspace, doc: $doc) { id object_id } }',
+    variables
+  );
+
+  var doc = data.create_doc;
+
+  // Rename the doc (create_doc doesn't accept a name directly)
+  if (name && doc && doc.id) {
+    try {
+      callMondayAPI(
+        'mutation ($docId: ID!, $name: String!) { update_doc_name (docId: $docId, name: $name) { id } }',
+        { docId: Number(doc.id), name: name }
+      );
+    } catch (e) {
+      console.warn('Failed to rename doc to "' + name + '":', e);
+    }
+  }
+
+  return doc;
+}
+
+/**
+ * Add markdown content to an existing document.
+ * @param {string} docId - Target document ID
+ * @param {string} markdown - Markdown content to add
+ * @returns {Object} Result with created block IDs
+ */
+function addMarkdownToDoc(docId, markdown) {
+  var data = callMondayAPI(
+    'mutation ($docId: ID!, $markdown: String!) { add_content_to_doc_from_markdown (docId: $docId, markdown: $markdown) { ids } }',
+    { docId: Number(docId), markdown: markdown }
+  );
+  return data.add_content_to_doc_from_markdown;
+}
+
+/**
+ * Get document blocks for a doc (used for verification).
+ * @param {string} docId - Document ID
+ * @returns {Array} Array of document blocks
+ */
+function getDocBlocks(docId) {
+  var data = callMondayAPI(
+    'query ($docId: [ID!]!) { docs (ids: $docId) { id name blocks { id type content } } }',
+    { docId: [Number(docId)] }
+  );
+  var docs = data.docs || [];
+  return docs.length > 0 ? docs[0].blocks || [] : [];
+}
+
+/**
+ * Get workspace folders for doc organization.
+ * @param {string} workspaceId - Workspace ID
+ * @returns {Array} Array of folder objects
+ */
+function getWorkspaceFolders(workspaceId) {
+  var data = callMondayAPI(
+    'query ($wsId: [ID!]) { folders (workspace_ids: $wsId) { id name } }',
+    { wsId: [Number(workspaceId)] }
+  );
+  return data.folders || [];
+}
