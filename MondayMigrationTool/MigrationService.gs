@@ -681,10 +681,12 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
           if (srcApp.background && srcApp.background.type) {
             var validBgTypes = ['Image', 'Color', 'None'];
             if (validBgTypes.indexOf(srcApp.background.type) >= 0) {
-              appearance.background = {
-                type: srcApp.background.type,
-                value: srcApp.background.value || null
-              };
+              var bg = { type: srcApp.background.type };
+              // Only include value when type is Image or Color (not None)
+              if (srcApp.background.type !== 'None' && srcApp.background.value) {
+                bg.value = srcApp.background.value;
+              }
+              appearance.background = bg;
             }
           }
 
@@ -758,8 +760,11 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
           // Map source question ID (= source column ID) to target column ID
           var targetQId = null;
 
-          if (srcQ.id === 'name' || srcQ.id === 'subitems') {
-            // System questions — same ID on target
+          if (srcQ.id === 'subitems') {
+            // Subitems is not a form-fillable question — skip silently
+            continue;
+          } else if (srcQ.id === 'name') {
+            // System question — same ID on target
             targetQId = srcQ.id;
           } else if (columnMapping[srcQ.id]) {
             targetQId = columnMapping[srcQ.id].targetId;
