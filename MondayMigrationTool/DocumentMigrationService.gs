@@ -26,9 +26,10 @@ var DRIVE_BACKUP_FOLDER_ID = '1FI25ARWCXE7UWwr8qIhmMsgKeTIxtPNm';
  * @param {string} targetWorkspaceId - Target workspace ID
  * @param {string} migrationId - Migration tracking ID
  * @param {Function} progressCallback - Optional callback for progress updates
+ * @param {string} targetApiKey - Optional API key for target account (cross-account migration)
  * @returns {Object} { success, docsTotal, docsMigrated, docsSkipped, driveFolder, docMapping, errors }
  */
-function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, progressCallback) {
+function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, progressCallback, targetApiKey) {
   var errors = [];
   var docMapping = [];
   var docsMigrated = 0;
@@ -92,7 +93,7 @@ function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, pro
 
           // Create empty doc in target
           try {
-            var emptyDoc = createDoc(targetWorkspaceId, docName, doc.doc_kind || 'public');
+            var emptyDoc = createDocOnTarget(targetApiKey, targetWorkspaceId, docName, doc.doc_kind || 'public');
             docMapping[docMapping.length - 1].targetDocId = String(emptyDoc.id);
             docMapping[docMapping.length - 1].status = 'migrated_empty';
             docsMigrated++;
@@ -110,11 +111,11 @@ function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, pro
         var driveFile = saveMarkdownToDrive(driveFolder, doc.id, docName, markdown);
 
         // 3c. Create new doc in target workspace
-        var newDoc = createDoc(targetWorkspaceId, docName, doc.doc_kind || 'public');
+        var newDoc = createDocOnTarget(targetApiKey, targetWorkspaceId, docName, doc.doc_kind || 'public');
         Utilities.sleep(300);
 
         // 3d. Import markdown content into new doc
-        var importResult = addMarkdownToDoc(newDoc.id, markdown);
+        var importResult = addMarkdownToDocOnTarget(targetApiKey, newDoc.id, markdown);
 
         docMapping.push({
           sourceDocId: String(doc.id),

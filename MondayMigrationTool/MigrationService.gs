@@ -1,8 +1,8 @@
 /**
  * MigrationService.gs - Core workspace migration logic.
- * Clones a workspace to a new workspace within the SAME Monday.com account.
- * Since users/guests already exist, people columns are preserved by user ID.
- * No invitation emails are sent.
+ * Clones a workspace to a new workspace — same or different Monday.com account.
+ * For same-account: people columns are preserved by user ID.
+ * For cross-account: a target API key is used for all write operations.
  *
  * Supports selectable migration components:
  *   MANDATORY: boards, columns, items (rows)
@@ -300,12 +300,185 @@ function testMigration(workspaceId, components) {
   }
 }
 
+// ── Target API Helpers ────────────────────────────────────────────────────────
+// These wrappers call the target Monday.com account when a targetApiKey is
+// provided, otherwise they fall back to the source (same-account) API key.
+
+function _targetAPI(targetApiKey, query, variables) {
+  if (targetApiKey) {
+    return callMondayAPIWithKey(targetApiKey, query, variables);
+  }
+  return callMondayAPI(query, variables);
+}
+
+function createWorkspaceOnTarget(targetApiKey, name, kind, description) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($name: String!, $kind: WorkspaceKind!, $desc: String) { create_workspace (name: $name, kind: $kind, description: $desc) { id name } }',
+    { name: name, kind: kind, desc: description || '' }
+  );
+  return data.create_workspace;
+}
+
+function createBoardOnTarget(targetApiKey, name, kind, workspaceId) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($name: String!, $kind: BoardKind!, $wsId: ID) { create_board (board_name: $name, board_kind: $kind, workspace_id: $wsId) { id name } }',
+    { name: name, kind: kind, wsId: workspaceId ? Number(workspaceId) : null }
+  );
+  return data.create_board;
+}
+
+function createGroupOnTarget(targetApiKey, boardId, groupName) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($boardId: ID!, $name: String!) { create_group (board_id: $boardId, group_name: $name) { id title } }',
+    { boardId: Number(boardId), name: groupName }
+  );
+  return data.create_group;
+}
+
+function createColumnOnTarget(targetApiKey, boardId, title, columnType) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }',
+    { boardId: Number(boardId), title: title, type: columnType }
+  );
+  return data.create_column;
+}
+
+function createItemOnTarget(targetApiKey, boardId, itemName, groupId, columnValues) {
+  var variables = {
+    boardId: Number(boardId),
+    name: itemName,
+    groupId: groupId
+  };
+
+  var query;
+  if (columnValues) {
+    query = 'mutation ($boardId: ID!, $name: String!, $groupId: String, $values: JSON!) { create_item (board_id: $boardId, item_name: $name, group_id: $groupId, column_values: $values) { id name } }';
+    variables.values = JSON.stringify(columnValues);
+  } else {
+    query = 'mutation ($boardId: ID!, $name: String!, $groupId: String) { create_item (board_id: $boardId, item_name: $name, group_id: $groupId) { id name } }';
+  }
+
+  var data = _targetAPI(targetApiKey, query, variables);
+  return data.create_item;
+}
+
+function addUsersToBoardOnTarget(targetApiKey, boardId, userIds) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($boardId: ID!, $userIds: [ID!]!) { add_users_to_board (board_id: $boardId, user_ids: $userIds) { id } }',
+    { boardId: Number(boardId), userIds: userIds.map(Number) }
+  );
+  return data.add_users_to_board;
+}
+
+function duplicateBoardStructureOnTarget(targetApiKey, sourceBoardId, targetWorkspaceId, boardName, keepSubscribers) {
+  var variables = {
+    boardId: Number(sourceBoardId),
+    duplicateType: 'duplicate_board_with_structure',
+    wsId: Number(targetWorkspaceId)
+  };
+  if (keepSubscribers) variables.keepSubs = true;
+
+  var args = '$boardId: ID!, $duplicateType: DuplicateBoardType!, $wsId: ID';
+  var params = 'board_id: $boardId, duplicate_type: $duplicateType, workspace_id: $wsId';
+  if (boardName) {
+    variables.boardName = boardName;
+    args += ', $boardName: String';
+    params += ', board_name: $boardName';
+  }
+  if (keepSubscribers) {
+    args += ', $keepSubs: Boolean';
+    params += ', keep_subscribers: $keepSubs';
+  }
+
+  var data = _targetAPI(targetApiKey,
+    'mutation (' + args + ') { duplicate_board (' + params + ') { board { id name columns { id title type } groups { id title } } is_async } }',
+    variables
+  );
+
+  return {
+    board: data.duplicate_board.board,
+    isAsync: data.duplicate_board.is_async
+  };
+}
+
+function attachStatusManagedColumnOnTarget(targetApiKey, boardId, managedColumnId, title, description) {
+  var variables = {
+    boardId: Number(boardId),
+    managedColumnId: managedColumnId
+  };
+  var args = '$boardId: ID!, $managedColumnId: ID!';
+  var params = 'board_id: $boardId, managed_column_id: $managedColumnId';
+
+  if (title) { variables.title = title; args += ', $title: String'; params += ', title: $title'; }
+  if (description) { variables.description = description; args += ', $description: String'; params += ', description: $description'; }
+
+  var data = _targetAPI(targetApiKey,
+    'mutation (' + args + ') { attach_status_managed_column (' + params + ') { id title type } }',
+    variables
+  );
+  return data.attach_status_managed_column;
+}
+
+function attachDropdownManagedColumnOnTarget(targetApiKey, boardId, managedColumnId, title, description) {
+  var variables = {
+    boardId: Number(boardId),
+    managedColumnId: managedColumnId
+  };
+  var args = '$boardId: ID!, $managedColumnId: ID!';
+  var params = 'board_id: $boardId, managed_column_id: $managedColumnId';
+
+  if (title) { variables.title = title; args += ', $title: String'; params += ', title: $title'; }
+  if (description) { variables.description = description; args += ', $description: String'; params += ', description: $description'; }
+
+  var data = _targetAPI(targetApiKey,
+    'mutation (' + args + ') { attach_dropdown_managed_column (' + params + ') { id title type } }',
+    variables
+  );
+  return data.attach_dropdown_managed_column;
+}
+
+function createDocOnTarget(targetApiKey, workspaceId, name, kind) {
+  var variables = {
+    workspace: { workspace_id: Number(workspaceId) },
+    doc: {}
+  };
+  if (kind) variables.doc.kind = kind;
+
+  var data = _targetAPI(targetApiKey,
+    'mutation ($workspace: CreateDocWorkspaceInput!, $doc: CreateDocInput) { create_doc (workspace: $workspace, doc: $doc) { id object_id } }',
+    variables
+  );
+
+  var doc = data.create_doc;
+
+  if (name && doc && doc.id) {
+    try {
+      _targetAPI(targetApiKey,
+        'mutation ($docId: ID!, $name: String!) { update_doc_name (docId: $docId, name: $name) { id } }',
+        { docId: Number(doc.id), name: name }
+      );
+    } catch (e) {
+      console.warn('Failed to rename doc to "' + name + '":', e);
+    }
+  }
+
+  return doc;
+}
+
+function addMarkdownToDocOnTarget(targetApiKey, docId, markdown) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($docId: ID!, $markdown: String!) { add_content_to_doc_from_markdown (docId: $docId, markdown: $markdown) { ids } }',
+    { docId: Number(docId), markdown: markdown }
+  );
+  return data.add_content_to_doc_from_markdown;
+}
+
 // ── Execute Migration ────────────────────────────────────────────────────────
 
 /**
- * Clone a workspace to a new workspace within the same account.
+ * Clone a workspace to a new workspace (same or different account).
  * @param {Object} params - {
- *   sourceWorkspaceId, targetWorkspaceName,
+ *   sourceWorkspaceId, targetWorkspaceName, targetApiKey (optional),
  *   components: { groups: true, subscribers: true, guests: false, documents: false }
  * }
  * @returns {Object} { success, migrationId }
@@ -322,6 +495,8 @@ function startMigration(params) {
     var sourceWsId = params.sourceWorkspaceId;
     var targetName = params.targetWorkspaceName || null;
     var components = params.components || {};
+    var targetApiKey = params.targetApiKey || getTargetApiKey() || null;
+    var isCrossAccount = !!targetApiKey;
 
     // Mandatory components are always on
     components.boards = true;
@@ -331,12 +506,14 @@ function startMigration(params) {
     updateMigrationProgress(migrationId, {
       state: 'running',
       percent: 2,
-      message: 'Initializing migration...',
+      message: 'Initializing migration...' + (isCrossAccount ? ' (cross-account)' : ''),
       sourceWorkspaceId: sourceWsId,
-      components: components
+      components: components,
+      isCrossAccount: isCrossAccount
     });
 
-    logMigrationAction(migrationId, 'START', sourceWsId, '', 'running', params);
+    logMigrationAction(migrationId, 'START', sourceWsId, '', 'running',
+      Object.assign({}, params, { targetApiKey: targetApiKey ? '[REDACTED]' : null }));
 
     // Step 1: Get source workspace info
     var sourceWs = getWorkspaceDetails(sourceWsId);
@@ -344,9 +521,9 @@ function startMigration(params) {
 
     updateMigrationProgress(migrationId, { percent: 5, message: 'Creating new workspace...' });
 
-    // Step 2: Create new workspace in same account
+    // Step 2: Create new workspace (in target account if cross-account)
     var wsName = targetName || sourceWs.name + ' (Migrated)';
-    var targetWs = createWorkspace(wsName, sourceWs.kind || 'open', sourceWs.description || '');
+    var targetWs = createWorkspaceOnTarget(targetApiKey, wsName, sourceWs.kind || 'open', sourceWs.description || '');
 
     updateMigrationProgress(migrationId, {
       percent: 10,
@@ -377,7 +554,7 @@ function startMigration(params) {
       });
 
       try {
-        var result = migrateBoard(sourceBoard, targetWs.id, components, migrationId);
+        var result = migrateBoard(sourceBoard, targetWs.id, components, migrationId, targetApiKey);
         boardMapping.push(result);
         totalItemsMigrated += result.itemsMigrated;
         totalItemsExpected += result.itemsTotal;
@@ -415,7 +592,8 @@ function startMigration(params) {
           migrationId,
           function(msg) {
             updateMigrationProgress(migrationId, { message: msg });
-          }
+          },
+          targetApiKey
         );
         docMapping = docMigrationResult.docMapping || [];
 
@@ -513,11 +691,12 @@ function startMigration(params) {
 /**
  * Migrate a single board. Routes to template-based or manual approach.
  */
-function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
-  if (components.useTemplates) {
+function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey) {
+  if (components.useTemplates && !targetApiKey) {
+    // Template clone only works within the same account
     return migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, migrationId);
   }
-  return migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId);
+  return migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey);
 }
 
 /**
@@ -566,24 +745,7 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
   var grpMapResult = buildGroupMappingByTitle(sourceStructure.groups, targetBoard.groups);
   var groupMapping = grpMapResult.mapping;
 
-  // Step 5: Add subscribers if not already kept by duplicate_board
-  if (components.subscribers && !components.subscribers) {
-    // duplicate_board with keep_subscribers handles this, but add non-subscriber users
-    try {
-      var subscribers = getBoardSubscribers(sourceBoard.id);
-      var subscriberIds = [];
-      subscribers.forEach(function(s) {
-        if (components.guests || !isGuestUser(s.email)) {
-          subscriberIds.push(String(s.id));
-        }
-      });
-      if (subscriberIds.length > 0) {
-        addUsersToBoard(targetBoard.id, subscriberIds);
-      }
-    } catch (e) {
-      console.warn('Failed to add subscribers to board ' + sourceBoard.name + ':', e);
-    }
-  }
+  // Step 5: Subscribers are handled by duplicate_board's keep_subscribers param
 
   // Step 6: Migrate items (only writable column values)
   var allItems = getAllBoardItems(sourceBoard.id);
@@ -654,12 +816,13 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
  * Manual board migration: create board from scratch, add columns individually,
  * detect and attach managed columns. Original approach.
  */
-function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId) {
+function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey) {
   var structure = getBoardStructure(sourceBoard.id);
   if (!structure) throw new Error('Could not read board structure for: ' + sourceBoard.name);
 
-  // Create board in new workspace
-  var targetBoard = createBoard(
+  // Create board in new workspace (target account if cross-account)
+  var targetBoard = createBoardOnTarget(
+    targetApiKey,
     structure.name,
     structure.board_kind || 'public',
     targetWorkspaceId
@@ -695,9 +858,9 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
       if (managedMatch) {
         try {
           if (managedMatch.managedColumnType === 'color') {
-            newCol = attachStatusManagedColumn(targetBoard.id, managedMatch.managedColumnId, col.title);
+            newCol = attachStatusManagedColumnOnTarget(targetApiKey, targetBoard.id, managedMatch.managedColumnId, col.title);
           } else {
-            newCol = attachDropdownManagedColumn(targetBoard.id, managedMatch.managedColumnId, col.title);
+            newCol = attachDropdownManagedColumnOnTarget(targetApiKey, targetBoard.id, managedMatch.managedColumnId, col.title);
           }
           managedColumnMapping.push({
             sourceColumnId: col.id,
@@ -715,7 +878,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
         }
       }
 
-      newCol = createColumn(targetBoard.id, col.title, col.type);
+      newCol = createColumnOnTarget(targetApiKey, targetBoard.id, col.title, col.type);
       columnMapping[col.id] = { targetId: newCol.id, title: col.title, type: col.type };
       Utilities.sleep(100);
     } catch (e) {
@@ -729,7 +892,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
   if (components.groups !== false) {
     (structure.groups || []).forEach(function(grp) {
       try {
-        var newGroup = createGroup(targetBoard.id, grp.title);
+        var newGroup = createGroupOnTarget(targetApiKey, targetBoard.id, grp.title);
         groupMapping[grp.id] = { targetId: newGroup.id, title: grp.title };
         Utilities.sleep(100);
       } catch (e) {
@@ -738,8 +901,8 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     });
   }
 
-  // Add subscribers (optional — no invitations, users exist)
-  if (components.subscribers) {
+  // Add subscribers (optional — only for same-account; skip for cross-account)
+  if (components.subscribers && !targetApiKey) {
     try {
       var subscribers = getBoardSubscribers(sourceBoard.id);
       var subscriberIds = [];
@@ -749,7 +912,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
         }
       });
       if (subscriberIds.length > 0) {
-        addUsersToBoard(targetBoard.id, subscriberIds);
+        addUsersToBoardOnTarget(targetApiKey, targetBoard.id, subscriberIds);
       }
     } catch (e) {
       console.warn('Failed to add subscribers to board ' + structure.name + ':', e);
@@ -773,8 +936,12 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
             var parsed = JSON.parse(cv.value);
             var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation'];
             if (skipTypes.indexOf(cv.type) < 0) {
-              // People columns work because user IDs are the same account
-              columnValues[mapped.targetId] = parsed;
+              // For cross-account: people columns won't match (different user IDs)
+              if (targetApiKey && cv.type === 'people') {
+                // Skip people columns for cross-account migration
+              } else {
+                columnValues[mapped.targetId] = parsed;
+              }
             }
           } catch (parseError) {
             if (cv.text) {
@@ -789,7 +956,8 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
         targetGroupId = groupMapping[item.group.id].targetId;
       }
 
-      createItem(
+      createItemOnTarget(
+        targetApiKey,
         targetBoard.id,
         item.name,
         targetGroupId,

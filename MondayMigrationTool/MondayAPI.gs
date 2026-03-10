@@ -593,6 +593,35 @@ function callMondayAPI(query, variables) {
   return _monday().query(query, variables);
 }
 
+/**
+ * Call Monday.com API with a specific API key (for cross-account operations).
+ * @param {string} apiKey - The API key to use
+ * @param {string} query - GraphQL query
+ * @param {Object} variables - Query variables
+ * @returns {Object} API response data
+ */
+function callMondayAPIWithKey(apiKey, query, variables) {
+  var options = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': apiKey,
+      'API-Version': '2025-07'
+    },
+    payload: JSON.stringify({ query: query, variables: variables || {} }),
+    muteHttpExceptions: true
+  };
+
+  var response = retryableFetch(CONFIG.MONDAY_API_URL, options);
+  var result = JSON.parse(response.getContentText());
+
+  if (result.errors) {
+    throw new Error(result.errors[0].message);
+  }
+
+  return result.data;
+}
+
 // ── Workspace Queries ────────────────────────────────────────────────────────
 
 function getWorkspaces() {

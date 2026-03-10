@@ -1,25 +1,26 @@
 /**
  * Monday.com Workspace Migration Tool
- * Separate GAS project for migrating workspaces within the same Monday.com account.
+ * GAS project for migrating workspaces within the same or across Monday.com accounts.
  *
  * Features:
  *   - Inventory: Scan and catalog workspaces, boards, users, items
- *   - Migration: Select a workspace and clone it to a new workspace (same account)
+ *   - Test Run: Dry-run analysis of what will be migrated
+ *   - Migration: Clone a workspace to a new workspace (same or different account)
  *   - Validation: Compare source vs target to verify migration success
  *
- * Note: Uses a single API key. Users/guests already exist in the account so
- *       no invitations are sent — people columns are preserved by user ID.
+ * Supports dual API keys for cross-account migration.
+ * For same-account migrations, people columns are preserved by user ID.
  */
 
 // ── Configuration ────────────────────────────────────────────────────────────
 const CONFIG = {
   APP_NAME: 'Monday.com Workspace Migration Tool',
-  VERSION: '1.0.0',
+  VERSION: '1.1.0',
   CACHE_DURATION: 300,
   MAX_RETRIES: 3,
   DEBUG_MODE: false,
 
-  // Single Monday.com API key (same account for source & target)
+  // Source Monday.com API key (primary account)
   MONDAY_API_KEY: PropertiesService.getScriptProperties().getProperty('MONDAY_API_KEY'),
 
   MONDAY_API_URL: 'https://api.monday.com/v2',
@@ -152,6 +153,108 @@ function logMigrationAction(migrationId, action, sourceWs, targetWs, status, det
     }
   } catch (e) {
     console.error('Failed to log migration action:', e);
+  }
+}
+
+// ── Target API Key Management ────────────────────────────────────────────────
+
+/**
+ * Validate a Monday.com API key by querying the /me endpoint.
+ * Returns account info if valid, error if not.
+ * @param {string} apiKey - The API key to validate
+ * @returns {Object} { success, accountInfo: { userId, userName, userEmail, accountId, accountName } }
+ */
+function validateTargetApiKey(apiKey) {
+  try {
+    if (!apiKey || apiKey.trim().length < 10) {
+      return { success: false, error: 'API key is too short or empty.' };
+    }
+
+    var options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': apiKey.trim(),
+        'API-Version': '2025-07'
+      },
+      payload: JSON.stringify({
+        query: '{ me { id name email account { id name } } }'
+      }),
+      muteHttpExceptions: true
+    };
+
+    var response = UrlFetchApp.fetch(CONFIG.MONDAY_API_URL, options);
+    var code = response.getResponseCode();
+    var body = JSON.parse(response.getContentText());
+
+    if (code !== 200 || body.errors) {
+      var errMsg = body.errors ? body.errors[0].message : 'HTTP ' + code;
+      return { success: false, error: 'API key validation failed: ' + errMsg };
+    }
+
+    var me = body.data.me;
+    return safeReturn({
+      success: true,
+      accountInfo: {
+        userId: String(me.id),
+        userName: me.name,
+        userEmail: me.email,
+        accountId: me.account ? String(me.account.id) : '',
+        accountName: me.account ? me.account.name : ''
+      }
+    });
+  } catch (error) {
+    return handleError('validateTargetApiKey', error);
+  }
+}
+
+/**
+ * Store the target API key in user properties (per-user, not shared).
+ * @param {string} apiKey - The target Monday.com API key
+ * @returns {Object} { success }
+ */
+function saveTargetApiKey(apiKey) {
+  try {
+    PropertiesService.getUserProperties().setProperty('TARGET_MONDAY_API_KEY', apiKey.trim());
+    return { success: true };
+  } catch (error) {
+    return handleError('saveTargetApiKey', error);
+  }
+}
+
+/**
+ * Clear the stored target API key.
+ * @returns {Object} { success }
+ */
+function clearTargetApiKey() {
+  try {
+    PropertiesService.getUserProperties().deleteProperty('TARGET_MONDAY_API_KEY');
+    return { success: true };
+  } catch (error) {
+    return handleError('clearTargetApiKey', error);
+  }
+}
+
+/**
+ * Get the stored target API key (if any).
+ * @returns {string|null}
+ */
+function getTargetApiKey() {
+  return PropertiesService.getUserProperties().getProperty('TARGET_MONDAY_API_KEY') || null;
+}
+
+/**
+ * Get workspaces from the target Monday.com account.
+ * @param {string} apiKey - Target account API key
+ * @returns {Object} { success, workspaces }
+ */
+function getTargetWorkspaces(apiKey) {
+  try {
+    if (!apiKey) throw new Error('Target API key is required');
+    var data = callMondayAPIWithKey(apiKey, 'query { workspaces (limit: 100) { id name kind description } }');
+    return safeReturn({ success: true, workspaces: data.workspaces || [] });
+  } catch (error) {
+    return handleError('getTargetWorkspaces', error);
   }
 }
 
