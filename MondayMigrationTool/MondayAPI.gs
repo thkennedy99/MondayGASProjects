@@ -26,7 +26,7 @@ class MondayAPI {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': this.apiKey,
-        'API-Version': '2025-07'
+        'API-Version': '2025-10'
       },
       payload: JSON.stringify({
         query: graphqlQuery,
@@ -606,7 +606,7 @@ function callMondayAPIWithKey(apiKey, query, variables) {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': apiKey,
-      'API-Version': '2025-07'
+      'API-Version': '2025-10'
     },
     payload: JSON.stringify({ query: query, variables: variables || {} }),
     muteHttpExceptions: true
