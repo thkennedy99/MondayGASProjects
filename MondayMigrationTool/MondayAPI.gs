@@ -1370,7 +1370,7 @@ function createDoc(workspaceId, name, kind, folderId) {
  */
 function addMarkdownToDoc(docId, markdown) {
   var data = callMondayAPI(
-    'mutation ($docId: ID!, $markdown: String!) { add_content_to_doc_from_markdown (docId: $docId, markdown: $markdown) { ids } }',
+    'mutation ($docId: ID!, $markdown: String!) { add_content_to_doc_from_markdown (docId: $docId, markdown: $markdown) { success block_ids error } }',
     { docId: Number(docId), markdown: markdown }
   );
   return data.add_content_to_doc_from_markdown;
