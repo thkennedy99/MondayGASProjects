@@ -654,7 +654,7 @@ function getWorkspaceDetails(workspaceId) {
 function getBoardsInWorkspace(workspaceId) {
   console.log('Migration: Fetching boards for workspace ID: ' + workspaceId);
   var data = callMondayAPI(
-    'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind state columns { id title type settings_str } groups { id title color } } }',
+    'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind board_folder_id state columns { id title type settings_str } groups { id title color } } }',
     { wsId: [Number(workspaceId)] }
   );
   var allBoards = data.boards || [];
@@ -1372,13 +1372,14 @@ function getDocBlocks(docId) {
 }
 
 /**
- * Get workspace folders for doc organization.
+ * Get workspace folders with hierarchy info.
+ * Returns all folders including nested sub_folders, parent references, and color/icon.
  * @param {string} workspaceId - Workspace ID
- * @returns {Array} Array of folder objects
+ * @returns {Array} Array of folder objects with parent and sub_folders
  */
 function getWorkspaceFolders(workspaceId) {
   var data = callMondayAPI(
-    'query ($wsId: [ID!]) { folders (workspace_ids: $wsId) { id name } }',
+    'query ($wsId: [ID!]) { folders (workspace_ids: $wsId) { id name color custom_icon font_weight parent { id name } sub_folders { id name color custom_icon font_weight parent { id } sub_folders { id name color custom_icon font_weight parent { id } } } } }',
     { wsId: [Number(workspaceId)] }
   );
   return data.folders || [];
