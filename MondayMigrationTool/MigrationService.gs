@@ -159,7 +159,13 @@ function testMigration(workspaceId, components) {
       }
 
       var groupCount = board.groups ? board.groups.length : 0;
-      var columnCount = board.columns ? board.columns.length : 0;
+      // Exclude non-creatable/system column types from count so totals
+      // reflect only what actually gets migrated to the target.
+      var nonCreatableTypes = ['subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
+                               'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
+      var columnCount = (board.columns || []).filter(function(c) {
+        return nonCreatableTypes.indexOf(c.type) < 0;
+      }).length;
 
       // Detect complex column types that benefit from template cloning
       var complexTypes = ['mirror', 'board_relation', 'formula', 'auto_number', 'dependency'];

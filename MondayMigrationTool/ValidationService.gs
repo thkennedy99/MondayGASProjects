@@ -39,6 +39,10 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId) {
     var matchedBoards = 0;
     var unmatchedBoards = [];
 
+    // Column types that are not migrated (system/computed)
+    var nonCreatableTypes = ['subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
+                             'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
+
     sourceBoards.forEach(function(sourceBoard) {
       var targetBoard = targetBoardByName[sourceBoard.name];
 
@@ -46,7 +50,10 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId) {
       try { sourceItemCount = getBoardItemCount(sourceBoard.id); } catch (e) {}
 
       var sourceGroupCount = sourceBoard.groups ? sourceBoard.groups.length : 0;
-      var sourceColumnCount = sourceBoard.columns ? sourceBoard.columns.length : 0;
+      var sourceCreatableCols = (sourceBoard.columns || []).filter(function(c) {
+        return nonCreatableTypes.indexOf(c.type) < 0;
+      });
+      var sourceColumnCount = sourceCreatableCols.length;
 
       totalSourceItems += sourceItemCount;
       totalSourceGroups += sourceGroupCount;
@@ -59,17 +66,20 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId) {
         try { targetItemCount = getBoardItemCount(targetBoard.id); } catch (e) {}
 
         var targetGroupCount = targetBoard.groups ? targetBoard.groups.length : 0;
-        var targetColumnCount = targetBoard.columns ? targetBoard.columns.length : 0;
+        var targetCreatableCols = (targetBoard.columns || []).filter(function(c) {
+          return nonCreatableTypes.indexOf(c.type) < 0;
+        });
+        var targetColumnCount = targetCreatableCols.length;
 
         totalTargetItems += targetItemCount;
         totalTargetGroups += targetGroupCount;
         totalTargetColumns += targetColumnCount;
 
-        // Column comparison
+        // Column comparison (only creatable types)
         var sourceColMap = {};
-        (sourceBoard.columns || []).forEach(function(c) { sourceColMap[c.title] = c.type; });
+        sourceCreatableCols.forEach(function(c) { sourceColMap[c.title] = c.type; });
         var targetColMap = {};
-        (targetBoard.columns || []).forEach(function(c) { targetColMap[c.title] = c.type; });
+        targetCreatableCols.forEach(function(c) { targetColMap[c.title] = c.type; });
 
         var matchedColumns = 0;
         var missingColumns = [];
