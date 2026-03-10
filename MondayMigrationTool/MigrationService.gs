@@ -368,6 +368,314 @@ function createSubitemOnTarget(targetApiKey, parentItemId, subitemName, columnVa
   return data.create_subitem;
 }
 
+// ── Form Migration Helpers ────────────────────────────────────────────────────
+
+function createFormViewOnTarget(targetApiKey, boardId, viewName) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($boardId: ID!, $name: String, $type: ViewKind!) { create_view (board_id: $boardId, name: $name, type: $type) { id name type view_specific_data_str } }',
+    { boardId: Number(boardId), name: viewName || 'Form', type: 'FORM' }
+  );
+  var view = data.create_view;
+  if (!view) throw new Error('create_view returned null for board ' + boardId);
+
+  var viewData = {};
+  try { viewData = JSON.parse(view.view_specific_data_str || '{}'); } catch (e) {}
+
+  return {
+    viewId: view.id,
+    viewName: view.name,
+    token: viewData.token || null
+  };
+}
+
+function getFormByTokenOnTarget(targetApiKey, formToken) {
+  var data = _targetAPI(targetApiKey,
+    'query ($token: String!) { form (formToken: $token) { id token active title questions { id type title description required visible options { label } settings { display optionsOrder checkedByDefault defaultCurrentDate includeTime } } } }',
+    { token: formToken }
+  );
+  return data.form || null;
+}
+
+function updateFormHeaderOnTarget(targetApiKey, formToken, title, description) {
+  var input = {};
+  if (title) input.title = title;
+  if (description !== undefined && description !== null) input.description = description;
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!, $input: UpdateFormInput!) { update_form (formToken: $token, input: $input) { id token title } }',
+    { token: formToken, input: input }
+  );
+}
+
+function updateFormSettingsOnTarget(targetApiKey, formToken, settings) {
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!, $settings: UpdateFormSettingsInput!) { update_form_settings (formToken: $token, settings: $settings) { id token } }',
+    { token: formToken, settings: settings }
+  );
+}
+
+function updateFormQuestionOnTarget(targetApiKey, formToken, questionId, questionInput) {
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!, $qId: String!, $question: UpdateQuestionInput!) { update_form_question (formToken: $token, questionId: $qId, question: $question) { id } }',
+    { token: formToken, qId: questionId, question: questionInput }
+  );
+}
+
+function updateFormQuestionOrderOnTarget(targetApiKey, formToken, questionOrder) {
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!, $input: UpdateFormInput!) { update_form (formToken: $token, input: $input) { id } }',
+    { token: formToken, input: { questions: questionOrder } }
+  );
+}
+
+function activateFormOnTarget(targetApiKey, formToken) {
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!) { activate_form (formToken: $token) { id token active } }',
+    { token: formToken }
+  );
+}
+
+function createFormTagOnTarget(targetApiKey, formToken, tagName, tagValue) {
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!, $tag: CreateFormTagInput!) { create_form_tag (formToken: $token, tag: $tag) { id name value } }',
+    { token: formToken, tag: { name: tagName, value: tagValue } }
+  );
+}
+
+/**
+ * Migrate all forms from a source board to the target board.
+ * @param {string} sourceBoardId
+ * @param {string} targetBoardId
+ * @param {Object} columnMapping - source col ID → { targetId, title, type }
+ * @param {string|null} targetApiKey - null for same-account
+ * @returns {Object} { formsMigrated, formsTotal, details[] }
+ */
+function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetApiKey) {
+  var formViews = getBoardFormViews(sourceBoardId);
+  if (formViews.length === 0) return { formsMigrated: 0, formsTotal: 0, details: [] };
+
+  console.log('Migration: Found ' + formViews.length + ' form(s) on source board ' + sourceBoardId);
+  var details = [];
+
+  for (var f = 0; f < formViews.length; f++) {
+    var formView = formViews[f];
+    try {
+      console.log('Migration:   Form ' + (f + 1) + '/' + formViews.length + ': "' + formView.viewName + '" (token=' + formView.token + ')');
+
+      // 1. Read full source form config
+      var sourceForm = getFormByToken(formView.token);
+      if (!sourceForm) {
+        console.warn('Migration:   Could not read form with token ' + formView.token);
+        details.push({ name: formView.viewName, status: 'error', error: 'Could not read source form' });
+        continue;
+      }
+
+      // 2. Create form view on target board
+      var targetFormView;
+      if (targetApiKey) {
+        targetFormView = createFormViewOnTarget(targetApiKey, targetBoardId, formView.viewName);
+      } else {
+        targetFormView = createFormViewOnBoard(targetBoardId, formView.viewName);
+      }
+
+      if (!targetFormView.token) {
+        console.warn('Migration:   Form view created but no token returned');
+        details.push({ name: formView.viewName, status: 'error', error: 'No token on new form view' });
+        continue;
+      }
+
+      console.log('Migration:   Target form created: token=' + targetFormView.token);
+      Utilities.sleep(500);
+
+      // 3. Read the auto-created target form to get its default questions
+      var targetForm;
+      if (targetApiKey) {
+        targetForm = getFormByTokenOnTarget(targetApiKey, targetFormView.token);
+      } else {
+        targetForm = getFormByToken(targetFormView.token);
+      }
+
+      // Build a lookup of target question IDs (these correspond to target column IDs)
+      var targetQuestionMap = {};
+      if (targetForm && targetForm.questions) {
+        targetForm.questions.forEach(function(q) { targetQuestionMap[q.id] = q; });
+      }
+
+      // Build reverse column mapping: target col ID → source col ID
+      var targetToSource = {};
+      Object.keys(columnMapping).forEach(function(srcId) {
+        targetToSource[columnMapping[srcId].targetId] = srcId;
+      });
+
+      // 4. Update form title and description
+      try {
+        if (targetApiKey) {
+          updateFormHeaderOnTarget(targetApiKey, targetFormView.token, sourceForm.title, sourceForm.description);
+        } else {
+          updateFormHeader(targetFormView.token, sourceForm.title, sourceForm.description);
+        }
+      } catch (e) {
+        console.warn('Migration:   Could not update form header: ' + e);
+      }
+
+      // 5. Update form settings (features, appearance, accessibility)
+      try {
+        var settings = {};
+
+        // Features (strip password.enabled since we can't set passwords via update_form_settings)
+        if (sourceForm.features) {
+          var features = JSON.parse(JSON.stringify(sourceForm.features));
+          // Remove password — must use set_form_password mutation separately
+          delete features.password;
+          settings.features = features;
+        }
+        if (sourceForm.appearance) {
+          settings.appearance = sourceForm.appearance;
+        }
+        if (sourceForm.accessibility) {
+          settings.accessibility = sourceForm.accessibility;
+        }
+
+        if (Object.keys(settings).length > 0) {
+          if (targetApiKey) {
+            updateFormSettingsOnTarget(targetApiKey, targetFormView.token, settings);
+          } else {
+            updateFormSettings(targetFormView.token, settings);
+          }
+        }
+      } catch (e) {
+        console.warn('Migration:   Could not update form settings: ' + e);
+      }
+
+      // 6. Configure questions — match source questions to target questions via column mapping
+      var questionsConfigured = 0;
+      var questionOrder = [];
+
+      if (sourceForm.questions) {
+        for (var q = 0; q < sourceForm.questions.length; q++) {
+          var srcQ = sourceForm.questions[q];
+          // Map source question ID (= source column ID) to target column ID
+          var targetQId = null;
+
+          if (srcQ.id === 'name' || srcQ.id === 'subitems') {
+            // System questions — same ID on target
+            targetQId = srcQ.id;
+          } else if (columnMapping[srcQ.id]) {
+            targetQId = columnMapping[srcQ.id].targetId;
+          }
+
+          if (targetQId && targetQuestionMap[targetQId]) {
+            // Update the matching target question
+            try {
+              var updateInput = {
+                visible: srcQ.visible,
+                required: srcQ.required
+              };
+              if (srcQ.description) updateInput.description = srcQ.description;
+              if (srcQ.settings) {
+                var settingsInput = {};
+                if (srcQ.settings.display) settingsInput.display = srcQ.settings.display;
+                if (srcQ.settings.optionsOrder) settingsInput.optionsOrder = srcQ.settings.optionsOrder;
+                if (srcQ.settings.checkedByDefault !== null) settingsInput.checkedByDefault = srcQ.settings.checkedByDefault;
+                if (srcQ.settings.defaultCurrentDate !== null) settingsInput.defaultCurrentDate = srcQ.settings.defaultCurrentDate;
+                if (srcQ.settings.includeTime !== null) settingsInput.includeTime = srcQ.settings.includeTime;
+                if (Object.keys(settingsInput).length > 0) updateInput.settings = settingsInput;
+              }
+
+              if (targetApiKey) {
+                updateFormQuestionOnTarget(targetApiKey, targetFormView.token, targetQId, updateInput);
+              } else {
+                updateFormQuestion(targetFormView.token, targetQId, updateInput);
+              }
+              questionsConfigured++;
+              Utilities.sleep(100);
+            } catch (qErr) {
+              console.warn('Migration:   Could not update question "' + srcQ.title + '": ' + qErr);
+            }
+
+            questionOrder.push({ id: targetQId });
+          } else {
+            console.warn('Migration:   No target match for question "' + srcQ.title + '" (srcId=' + srcQ.id + ')');
+          }
+        }
+      }
+
+      // 7. Set question order
+      if (questionOrder.length > 0) {
+        try {
+          // Include any remaining target questions not in source (append at end)
+          var orderedIds = {};
+          questionOrder.forEach(function(qo) { orderedIds[qo.id] = true; });
+          Object.keys(targetQuestionMap).forEach(function(tqId) {
+            if (!orderedIds[tqId]) {
+              questionOrder.push({ id: tqId });
+            }
+          });
+
+          if (targetApiKey) {
+            updateFormQuestionOrderOnTarget(targetApiKey, targetFormView.token, questionOrder);
+          } else {
+            updateFormQuestionOrder(targetFormView.token, questionOrder);
+          }
+        } catch (e) {
+          console.warn('Migration:   Could not set question order: ' + e);
+        }
+      }
+
+      // 8. Recreate tags
+      if (sourceForm.tags && sourceForm.tags.length > 0) {
+        sourceForm.tags.forEach(function(tag) {
+          try {
+            if (targetApiKey) {
+              createFormTagOnTarget(targetApiKey, targetFormView.token, tag.name, tag.value);
+            } else {
+              createFormTag(targetFormView.token, tag.name, tag.value);
+            }
+          } catch (e) {
+            console.warn('Migration:   Could not create tag "' + tag.name + '": ' + e);
+          }
+        });
+      }
+
+      // 9. Activate form if source was active
+      if (sourceForm.active) {
+        try {
+          if (targetApiKey) {
+            activateFormOnTarget(targetApiKey, targetFormView.token);
+          } else {
+            activateForm(targetFormView.token);
+          }
+        } catch (e) {
+          console.warn('Migration:   Could not activate form: ' + e);
+        }
+      }
+
+      console.log('Migration:   Form "' + sourceForm.title + '" migrated successfully (' + questionsConfigured + ' questions configured)');
+      details.push({
+        name: sourceForm.title || formView.viewName,
+        sourceToken: formView.token,
+        targetToken: targetFormView.token,
+        status: 'success',
+        questionsConfigured: questionsConfigured,
+        questionsTotal: (sourceForm.questions || []).length
+      });
+
+    } catch (formError) {
+      console.error('Migration:   Form migration failed for "' + formView.viewName + '": ' + formError);
+      details.push({ name: formView.viewName, status: 'error', error: formError.toString() });
+    }
+
+    Utilities.sleep(300);
+  }
+
+  return {
+    formsMigrated: details.filter(function(d) { return d.status === 'success'; }).length,
+    formsTotal: formViews.length,
+    details: details
+  };
+}
+
+// ── Board Subscriber Helpers ─────────────────────────────────────────────────
+
 function addUsersToBoardOnTarget(targetApiKey, boardId, userIds) {
   var data = _targetAPI(targetApiKey,
     'mutation ($boardId: ID!, $userIds: [ID!]!) { add_users_to_board (board_id: $boardId, user_ids: $userIds) { id } }',
@@ -598,7 +906,7 @@ function startMigration(params) {
         totalItemsMigrated += result.itemsMigrated;
         totalItemsExpected += result.itemsTotal;
         totalSubitemsMigrated += (result.subitemsMigrated || 0);
-        console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - SUCCESS: "' + sourceBoard.name + '" → target id=' + result.targetBoardId + ' (' + result.itemsMigrated + '/' + result.itemsTotal + ' items, ' + (result.subitemsMigrated || 0) + ' subitems, method=' + (result.migrationMethod || 'manual') + ')');
+        console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - SUCCESS: "' + sourceBoard.name + '" → target id=' + result.targetBoardId + ' (' + result.itemsMigrated + '/' + result.itemsTotal + ' items, ' + (result.subitemsMigrated || 0) + ' subitems, ' + (result.formsMigrated || 0) + '/' + (result.formsTotal || 0) + ' forms, method=' + (result.migrationMethod || 'manual') + ')');
       } catch (boardError) {
         console.error('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - FAILED: "' + sourceBoard.name + '": ' + boardError.toString());
         console.error('Migration: Board error stack:', boardError.stack || 'no stack');
@@ -703,6 +1011,8 @@ function startMigration(params) {
           itemsMigrated: bm.itemsMigrated,
           itemsTotal: bm.itemsTotal,
           subitemsMigrated: bm.subitemsMigrated || 0,
+          formsMigrated: bm.formsMigrated || 0,
+          formsTotal: bm.formsTotal || 0,
           managedColumnsAttached: bm.managedColumnsAttached || 0
         };
       }),
@@ -747,11 +1057,38 @@ function startMigration(params) {
  * Migrate a single board. Routes to template-based or manual approach.
  */
 function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey) {
+  var result;
   if (components.useTemplates && !targetApiKey) {
     // Template clone only works within the same account
-    return migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, migrationId);
+    result = migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, migrationId);
+  } else {
+    result = migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey);
   }
-  return migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey);
+
+  // Migrate forms if the board was migrated successfully
+  if (result.status === 'success' && result.targetBoardId) {
+    try {
+      var formResult = migrateBoardForms(
+        result.sourceBoardId,
+        result.targetBoardId,
+        result.columnMapping || {},
+        targetApiKey
+      );
+      result.formsMigrated = formResult.formsMigrated;
+      result.formsTotal = formResult.formsTotal;
+      result.formDetails = formResult.details;
+      if (formResult.formsTotal > 0) {
+        console.log('Migration: Forms: ' + formResult.formsMigrated + '/' + formResult.formsTotal + ' migrated for board "' + result.sourceBoardName + '"');
+      }
+    } catch (formError) {
+      console.warn('Migration: Form migration failed for board "' + result.sourceBoardName + '": ' + formError);
+      result.formsMigrated = 0;
+      result.formsTotal = -1;
+      result.formError = formError.toString();
+    }
+  }
+
+  return result;
 }
 
 /**

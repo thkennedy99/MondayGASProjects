@@ -752,6 +752,148 @@ function getBoardColumnsWithSettings(boardId) {
   return _monday().getBoardColumnsWithSettings(boardId);
 }
 
+// ── Form Queries ─────────────────────────────────────────────────────────────
+
+/**
+ * Get all form views on a board. Returns array of { viewId, viewName, token, disabled }.
+ */
+function getBoardFormViews(boardId) {
+  var data = callMondayAPI(
+    'query ($boardId: [ID!]) { boards (ids: $boardId) { views { id name type view_specific_data_str } } }',
+    { boardId: [Number(boardId)] }
+  );
+  var board = data.boards && data.boards[0];
+  if (!board || !board.views) return [];
+
+  var forms = [];
+  board.views.forEach(function(v) {
+    if (v.type === 'FormBoardView') {
+      try {
+        var viewData = JSON.parse(v.view_specific_data_str || '{}');
+        if (viewData.token) {
+          forms.push({
+            viewId: v.id,
+            viewName: v.name,
+            token: viewData.token,
+            disabled: viewData.disabled || false
+          });
+        }
+      } catch (e) {
+        console.warn('Could not parse form view data for view ' + v.id + ':', e);
+      }
+    }
+  });
+  return forms;
+}
+
+/**
+ * Get full form configuration by token.
+ */
+function getFormByToken(formToken) {
+  var data = callMondayAPI(
+    'query ($token: String!) { form (formToken: $token) { id token active title description questions { id type title description required visible options { label } settings { display optionsOrder prefill { enabled source lookup } checkedByDefault defaultCurrentDate includeTime locationAutofilled skipValidation } } features { monday { includeNameQuestion includeUpdateQuestion itemGroupId syncQuestionAndColumnsTitles } preSubmissionView { enabled title description startButton { text } } afterSubmissionView { title description allowResubmit allowEditSubmission allowViewSubmission showSuccessImage redirectAfterSubmission { enabled redirectUrl } } reCaptchaChallenge responseLimit { enabled limit } closeDate { enabled date } draftSubmission { enabled } requireLogin { enabled redirectToLogin } password { enabled } } appearance { primaryColor showProgressBar layout { format alignment direction } text { font size color } submitButton { text } logo { position size } background { type value } hideBranding } accessibility { language logoAltText } tags { id name value columnId } } }',
+    { token: formToken }
+  );
+  return data.form || null;
+}
+
+/**
+ * Create a form view on an existing board. Returns the view with form token.
+ */
+function createFormViewOnBoard(boardId, viewName) {
+  var data = callMondayAPI(
+    'mutation ($boardId: ID!, $name: String, $type: ViewKind!) { create_view (board_id: $boardId, name: $name, type: $type) { id name type view_specific_data_str } }',
+    { boardId: Number(boardId), name: viewName || 'Form', type: 'FORM' }
+  );
+  var view = data.create_view;
+  if (!view) throw new Error('create_view returned null for board ' + boardId);
+
+  var viewData = {};
+  try {
+    viewData = JSON.parse(view.view_specific_data_str || '{}');
+  } catch (e) {}
+
+  return {
+    viewId: view.id,
+    viewName: view.name,
+    token: viewData.token || null
+  };
+}
+
+/**
+ * Update form title and description.
+ */
+function updateFormHeader(formToken, title, description) {
+  var input = {};
+  if (title) input.title = title;
+  if (description !== undefined) input.description = description;
+
+  return callMondayAPI(
+    'mutation ($token: String!, $input: UpdateFormInput!) { update_form (formToken: $token, input: $input) { id token title } }',
+    { token: formToken, input: input }
+  );
+}
+
+/**
+ * Update form settings (features, appearance, accessibility).
+ */
+function updateFormSettings(formToken, settings) {
+  return callMondayAPI(
+    'mutation ($token: String!, $settings: UpdateFormSettingsInput!) { update_form_settings (formToken: $token, settings: $settings) { id token } }',
+    { token: formToken, settings: settings }
+  );
+}
+
+/**
+ * Update an existing question on a form.
+ */
+function updateFormQuestion(formToken, questionId, questionInput) {
+  return callMondayAPI(
+    'mutation ($token: String!, $qId: String!, $question: UpdateQuestionInput!) { update_form_question (formToken: $token, questionId: $qId, question: $question) { id } }',
+    { token: formToken, qId: questionId, question: questionInput }
+  );
+}
+
+/**
+ * Create a new question on a form.
+ */
+function createFormQuestion(formToken, questionInput) {
+  return callMondayAPI(
+    'mutation ($token: String!, $question: CreateQuestionInput!) { create_form_question (formToken: $token, question: $question) { id type title } }',
+    { token: formToken, question: questionInput }
+  );
+}
+
+/**
+ * Activate a form so it accepts responses.
+ */
+function activateForm(formToken) {
+  return callMondayAPI(
+    'mutation ($token: String!) { activate_form (formToken: $token) { id token active } }',
+    { token: formToken }
+  );
+}
+
+/**
+ * Create a tag on a form.
+ */
+function createFormTag(formToken, tagName, tagValue) {
+  return callMondayAPI(
+    'mutation ($token: String!, $tag: CreateFormTagInput!) { create_form_tag (formToken: $token, tag: $tag) { id name value } }',
+    { token: formToken, tag: { name: tagName, value: tagValue } }
+  );
+}
+
+/**
+ * Set question order on a form. Takes an array of { id: questionId } objects.
+ */
+function updateFormQuestionOrder(formToken, questionOrder) {
+  return callMondayAPI(
+    'mutation ($token: String!, $input: UpdateFormInput!) { update_form (formToken: $token, input: $input) { id } }',
+    { token: formToken, input: { questions: questionOrder } }
+  );
+}
+
 // ── User Queries ─────────────────────────────────────────────────────────────
 
 function getAccountUsers() {
