@@ -309,6 +309,7 @@ const MigrationTab = () => {
   const [targetName, setTargetName] = useState('');
   const [components, setComponents] = useState({
     groups: true,
+    managedColumns: true,
     subscribers: true,
     guests: false,
     documents: false
@@ -540,6 +541,24 @@ const MigrationTab = () => {
                 </div>
               </div>
 
+              {dryRunResult.managedColumns && dryRunResult.managedColumns.detectedOnBoards > 0 && (
+                <div className="alert alert-primary mb-3">
+                  <strong><i className="bi bi-link-45deg me-1" />Managed Columns:</strong>{' '}
+                  {dryRunResult.managedColumns.detectedOnBoards} managed column link(s) detected
+                  ({dryRunResult.managedColumns.accountTotal} total in account).
+                  These will be <em>attached</em> to target boards to preserve account-level consistency.
+                  {dryRunResult.managedColumns.matches.length > 0 && (
+                    <ul className="mb-0 mt-2">
+                      {dryRunResult.managedColumns.matches.map((m, i) => (
+                        <li key={i}>
+                          <strong>{m.boardName}</strong> &rarr; "{m.columnTitle}" linked to managed column "{m.managedColumnTitle}" ({m.matchRate}% match)
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
               {dryRunResult.notes.length > 0 && (
                 <div className="alert alert-info mb-3">
                   <strong><i className="bi bi-info-circle me-1" />Notes:</strong>
@@ -632,6 +651,11 @@ const MigrationTab = () => {
               <div className="col-md-3"><StatCard value={progress.itemsTotal || 0} label="Items Expected" icon="list-check" /></div>
               <div className="col-md-3"><StatCard value={progress.errors?.length || 0} label="Errors" icon="exclamation-triangle" color="var(--match-poor)" /></div>
             </div>
+            {progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0) && (
+              <div className="row g-3 mb-4">
+                <div className="col-md-3"><StatCard value={progress.boardMapping.reduce((sum, bm) => sum + (bm.managedColumnsAttached || 0), 0)} label="Managed Columns Linked" icon="link-45deg" color="var(--gw-bright-blue)" /></div>
+              </div>
+            )}
 
             <p><strong>Target Workspace:</strong> {progress.targetWorkspaceName || 'N/A'}</p>
             <p><strong>Migration ID:</strong> <code>{progress.id}</code></p>

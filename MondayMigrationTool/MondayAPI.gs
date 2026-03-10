@@ -851,3 +851,201 @@ function duplicateBoard(boardId, duplicateType, workspaceId) {
   );
   return data.duplicate_board.board;
 }
+
+// ── Managed Column Functions ─────────────────────────────────────────────────
+// Managed columns enforce account-level consistency for status and dropdown
+// columns across boards (e.g. the Tech Alliance Management workspace uses these).
+
+/**
+ * Get all managed columns in the account.
+ * Returns array of managed column objects with id, title, description, state,
+ * revision, settings_json (contains type + labels).
+ */
+function getManagedColumns() {
+  var data = callMondayAPI(
+    'query { managed_column { id title description state revision settings_json } }'
+  );
+  return data.managed_column || [];
+}
+
+/**
+ * Get only active managed columns.
+ */
+function getActiveManagedColumns() {
+  var all = getManagedColumns();
+  return all.filter(function(mc) { return mc.state === 'active'; });
+}
+
+/**
+ * Create a managed status column.
+ * @param {string} title - Column title
+ * @param {string} description - Column description
+ * @param {Array} labels - Array of { label, color, index, description?, is_done? }
+ * @returns {Object} Created managed column
+ */
+function createStatusManagedColumn(title, description, labels) {
+  var data = callMondayAPI(
+    'mutation ($title: String!, $description: String, $settings: CreateStatusColumnSettingsInput!) { create_status_managed_column (title: $title, description: $description, settings: $settings) { id title state } }',
+    {
+      title: title,
+      description: description || '',
+      settings: { labels: labels }
+    }
+  );
+  return data.create_status_managed_column;
+}
+
+/**
+ * Create a managed dropdown column.
+ * @param {string} title - Column title
+ * @param {string} description - Column description
+ * @param {Array} labels - Array of { label }
+ * @returns {Object} Created managed column
+ */
+function createDropdownManagedColumn(title, description, labels) {
+  var data = callMondayAPI(
+    'mutation ($title: String!, $description: String, $settings: CreateDropdownColumnSettingsInput!) { create_dropdown_managed_column (title: $title, description: $description, settings: $settings) { id title state } }',
+    {
+      title: title,
+      description: description || '',
+      settings: { labels: labels }
+    }
+  );
+  return data.create_dropdown_managed_column;
+}
+
+/**
+ * Attach a managed status column to a board.
+ * Creates a new column on the board linked to the managed column definition.
+ * @param {string} boardId - Target board ID
+ * @param {string} managedColumnId - Managed column UUID
+ * @param {string} title - Optional title override
+ * @param {string} description - Optional description override
+ * @returns {Object} Created column
+ */
+function attachStatusManagedColumn(boardId, managedColumnId, title, description) {
+  var variables = {
+    boardId: Number(boardId),
+    managedColumnId: managedColumnId
+  };
+  var args = '$boardId: ID!, $managedColumnId: ID!';
+  var params = 'board_id: $boardId, managed_column_id: $managedColumnId';
+
+  if (title) {
+    variables.title = title;
+    args += ', $title: String';
+    params += ', title: $title';
+  }
+  if (description) {
+    variables.description = description;
+    args += ', $description: String';
+    params += ', description: $description';
+  }
+
+  var data = callMondayAPI(
+    'mutation (' + args + ') { attach_status_managed_column (' + params + ') { id title type } }',
+    variables
+  );
+  return data.attach_status_managed_column;
+}
+
+/**
+ * Attach a managed dropdown column to a board.
+ * @param {string} boardId - Target board ID
+ * @param {string} managedColumnId - Managed column UUID
+ * @param {string} title - Optional title override
+ * @param {string} description - Optional description override
+ * @returns {Object} Created column
+ */
+function attachDropdownManagedColumn(boardId, managedColumnId, title, description) {
+  var variables = {
+    boardId: Number(boardId),
+    managedColumnId: managedColumnId
+  };
+  var args = '$boardId: ID!, $managedColumnId: ID!';
+  var params = 'board_id: $boardId, managed_column_id: $managedColumnId';
+
+  if (title) {
+    variables.title = title;
+    args += ', $title: String';
+    params += ', title: $title';
+  }
+  if (description) {
+    variables.description = description;
+    args += ', $description: String';
+    params += ', description: $description';
+  }
+
+  var data = callMondayAPI(
+    'mutation (' + args + ') { attach_dropdown_managed_column (' + params + ') { id title type } }',
+    variables
+  );
+  return data.attach_dropdown_managed_column;
+}
+
+/**
+ * Detect which columns on a source board are linked to managed columns.
+ * Compares board column settings_str against managed column settings_json
+ * to find matches by title + label structure.
+ * @param {string} boardId - Source board ID
+ * @returns {Array} Array of { columnId, columnTitle, columnType, managedColumnId, managedColumnTitle }
+ */
+function detectManagedColumnsOnBoard(boardId) {
+  var boardColumns = getBoardColumnsWithSettings(boardId);
+  var managedCols = getActiveManagedColumns();
+  var matches = [];
+
+  boardColumns.forEach(function(col) {
+    if (col.type !== 'color' && col.type !== 'dropdown') return;
+
+    // Try to match by title and label content
+    managedCols.forEach(function(mc) {
+      var mcSettings = mc.settings_json;
+      if (!mcSettings) return;
+
+      // Type check: 'color' maps to managed 'status', 'dropdown' to 'dropdown'
+      var mcType = mcSettings.type === 'color' ? 'color' : mcSettings.type;
+      if (col.type !== mcType && !(col.type === 'color' && mcSettings.type === 'color')) return;
+
+      // Compare titles (case-insensitive)
+      if (col.title.toLowerCase() !== mc.title.toLowerCase()) return;
+
+      // Compare label names for confirmation
+      var colLabels = [];
+      if (col.settings && col.settings.labels) {
+        var labelsObj = col.settings.labels;
+        if (Array.isArray(labelsObj)) {
+          colLabels = labelsObj.map(function(l) { return l.name || l.label || ''; });
+        } else {
+          colLabels = Object.values(labelsObj).map(function(v) {
+            return typeof v === 'object' ? (v.name || v.label || '') : String(v);
+          });
+        }
+      }
+
+      var mcLabels = (mcSettings.labels || []).map(function(l) { return l.label || ''; });
+
+      // If at least 50% of managed column labels exist in the board column, it's a match
+      if (mcLabels.length > 0) {
+        var matchCount = 0;
+        mcLabels.forEach(function(ml) {
+          if (colLabels.indexOf(ml) >= 0) matchCount++;
+        });
+        var matchRate = matchCount / mcLabels.length;
+        if (matchRate >= 0.5) {
+          matches.push({
+            columnId: col.id,
+            columnTitle: col.title,
+            columnType: col.type,
+            managedColumnId: mc.id,
+            managedColumnTitle: mc.title,
+            managedColumnType: mcSettings.type,
+            matchRate: Math.round(matchRate * 100)
+          });
+        }
+      }
+    });
+  });
+
+  return matches;
+}

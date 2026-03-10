@@ -12,13 +12,14 @@
 // ── Migration Component Definitions ──────────────────────────────────────────
 
 var MIGRATION_COMPONENTS = {
-  boards:      { label: 'Boards',           mandatory: true,  description: 'Board structure (always included)' },
-  columns:     { label: 'Columns',          mandatory: true,  description: 'Column definitions (always included)' },
-  items:       { label: 'Items (Rows)',     mandatory: true,  description: 'All item data (always included)' },
-  groups:      { label: 'Groups',           mandatory: false, description: 'Board groups / sections', defaultOn: true },
-  subscribers: { label: 'Board Subscribers', mandatory: false, description: 'Add existing users as board subscribers', defaultOn: true },
-  guests:      { label: 'Guest Users',      mandatory: false, description: 'Assign guest users to boards', defaultOn: false },
-  documents:   { label: 'Documents',        mandatory: false, description: 'Workspace documents (name only — content requires manual copy)', defaultOn: false }
+  boards:         { label: 'Boards',            mandatory: true,  description: 'Board structure (always included)' },
+  columns:        { label: 'Columns',           mandatory: true,  description: 'Column definitions (always included)' },
+  items:          { label: 'Items (Rows)',      mandatory: true,  description: 'All item data (always included)' },
+  groups:         { label: 'Groups',            mandatory: false, description: 'Board groups / sections', defaultOn: true },
+  managedColumns: { label: 'Managed Columns',   mandatory: false, description: 'Preserve account-level managed column links for status/dropdown consistency', defaultOn: true },
+  subscribers:    { label: 'Board Subscribers',  mandatory: false, description: 'Add existing users as board subscribers', defaultOn: true },
+  guests:         { label: 'Guest Users',        mandatory: false, description: 'Assign guest users to boards', defaultOn: false },
+  documents:      { label: 'Documents',          mandatory: false, description: 'Workspace documents (name only — content requires manual copy)', defaultOn: false }
 };
 
 /**
@@ -130,6 +131,7 @@ function testMigration(workspaceId, components) {
         columns: 0,
         items: 0,
         subscribers: 0,
+        managedColumns: 0,
         documents: 0
       },
       estimatedApiCalls: 0,
@@ -184,9 +186,41 @@ function testMigration(workspaceId, components) {
       }
     }
 
+    // Managed columns analysis
+    if (components.managedColumns !== false) {
+      try {
+        var managedCols = getActiveManagedColumns();
+        var managedMatches = [];
+        boards.forEach(function(board) {
+          try {
+            var matches = detectManagedColumnsOnBoard(board.id);
+            matches.forEach(function(m) {
+              m.boardName = board.name;
+              m.boardId = String(board.id);
+              managedMatches.push(m);
+            });
+          } catch (e) {
+            console.warn('Failed to detect managed columns on board ' + board.name + ':', e);
+          }
+        });
+        plan.managedColumns = {
+          accountTotal: managedCols.length,
+          detectedOnBoards: managedMatches.length,
+          matches: managedMatches
+        };
+        plan.totals.managedColumns = managedMatches.length;
+        if (managedMatches.length > 0) {
+          plan.notes.push(managedMatches.length + ' managed column link(s) detected across boards — these will be attached (not recreated) on the target to preserve account-level consistency.');
+        }
+      } catch (e) {
+        plan.warnings.push('Could not analyze managed columns: ' + e.toString());
+      }
+    }
+
     // Estimate API calls
     var apiCalls = plan.totals.boards + plan.totals.columns + plan.totals.items + 10;
     if (components.groups !== false) apiCalls += plan.totals.groups;
+    if (components.managedColumns !== false) apiCalls += plan.totals.managedColumns;
     if (components.subscribers) apiCalls += plan.totals.boards; // 1 call per board for subscribers
     if (components.documents) apiCalls += plan.totals.documents;
     plan.estimatedApiCalls = apiCalls;
@@ -368,7 +402,8 @@ function startMigration(params) {
           targetBoardName: bm.targetBoardName,
           status: bm.status,
           itemsMigrated: bm.itemsMigrated,
-          itemsTotal: bm.itemsTotal
+          itemsTotal: bm.itemsTotal,
+          managedColumnsAttached: bm.managedColumnsAttached || 0
         };
       }),
       docMapping: docMapping,
@@ -412,8 +447,22 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
     targetWorkspaceId
   );
 
+  // Detect managed column matches if enabled
+  var managedColMap = {};
+  if (components.managedColumns !== false) {
+    try {
+      var managedMatches = detectManagedColumnsOnBoard(sourceBoard.id);
+      managedMatches.forEach(function(m) {
+        managedColMap[m.columnId] = m;
+      });
+    } catch (e) {
+      console.warn('Could not detect managed columns for board ' + sourceBoard.name + ':', e);
+    }
+  }
+
   // Create columns (mandatory — skip system columns)
   var columnMapping = {};
+  var managedColumnMapping = [];
   var skippedColumns = [];
   var systemColumns = ['name', 'subitems', 'item_id'];
 
@@ -421,7 +470,34 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
     if (systemColumns.indexOf(col.id) >= 0 || systemColumns.indexOf(col.type) >= 0) return;
 
     try {
-      var newCol = createColumn(targetBoard.id, col.title, col.type);
+      var newCol;
+
+      // Check if this column should be attached as a managed column
+      var managedMatch = managedColMap[col.id];
+      if (managedMatch) {
+        try {
+          if (managedMatch.managedColumnType === 'color') {
+            newCol = attachStatusManagedColumn(targetBoard.id, managedMatch.managedColumnId, col.title);
+          } else {
+            newCol = attachDropdownManagedColumn(targetBoard.id, managedMatch.managedColumnId, col.title);
+          }
+          managedColumnMapping.push({
+            sourceColumnId: col.id,
+            targetColumnId: newCol.id,
+            managedColumnId: managedMatch.managedColumnId,
+            title: col.title,
+            type: col.type
+          });
+          columnMapping[col.id] = { targetId: newCol.id, title: col.title, type: col.type, managed: true };
+          Utilities.sleep(100);
+          return; // Skip normal createColumn
+        } catch (attachErr) {
+          console.warn('Managed column attach failed for ' + col.title + ', falling back to regular column: ' + attachErr);
+          // Fall through to regular createColumn
+        }
+      }
+
+      newCol = createColumn(targetBoard.id, col.title, col.type);
       columnMapping[col.id] = { targetId: newCol.id, title: col.title, type: col.type };
       Utilities.sleep(100);
     } catch (e) {
@@ -520,8 +596,10 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
     columnsMapped: Object.keys(columnMapping).length,
     columnsSkipped: skippedColumns.length,
     groupsMapped: Object.keys(groupMapping).length,
+    managedColumnsAttached: managedColumnMapping.length,
     columnMapping: columnMapping,
-    groupMapping: groupMapping
+    groupMapping: groupMapping,
+    managedColumnMapping: managedColumnMapping
   };
 }
 
@@ -631,6 +709,30 @@ function saveMigrationMapping(migrationId, sourceWsId, targetWsId, targetWsName,
         });
       }
     });
+
+    // Managed column mapping
+    var hasManagedCols = false;
+    boardMapping.forEach(function(bm) {
+      if (bm.managedColumnMapping && bm.managedColumnMapping.length > 0) hasManagedCols = true;
+    });
+    if (hasManagedCols) {
+      headerRows.push(['']);
+      headerRows.push(['=== MANAGED COLUMN MAPPING ===']);
+      headerRows.push(['Board', 'Source Column ID', 'Column Title', 'Target Column ID', 'Managed Column ID']);
+      boardMapping.forEach(function(bm) {
+        if (bm.managedColumnMapping) {
+          bm.managedColumnMapping.forEach(function(mc) {
+            headerRows.push([
+              bm.sourceBoardName,
+              mc.sourceColumnId,
+              mc.title,
+              mc.targetColumnId,
+              mc.managedColumnId
+            ]);
+          });
+        }
+      });
+    }
 
     // Document mapping
     if (docMapping && docMapping.length > 0) {
