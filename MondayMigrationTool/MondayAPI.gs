@@ -658,7 +658,7 @@ function getBoardsInWorkspace(workspaceId) {
     { wsId: [Number(workspaceId)] }
   );
   var allBoards = data.boards || [];
-  // Separate regular boards from subitem boards
+  // Step 1: Filter by board_kind
   var boards = [];
   var subitemBoards = [];
   allBoards.forEach(function(b) {
@@ -668,7 +668,41 @@ function getBoardsInWorkspace(workspaceId) {
       boards.push(b);
     }
   });
-  console.log('Migration: getBoardsInWorkspace(' + workspaceId + ') returned ' + allBoards.length + ' total boards (' + boards.length + ' regular, ' + subitemBoards.length + ' subitem boards)');
+
+  // Step 2: Also filter boards referenced as subitems via subtasks column settings.
+  // Monday.com sometimes reports subitem boards as board_kind="public" instead of
+  // "sub_items_board", so we cross-reference subtasks column settings to catch them.
+  var subitemBoardIds = {};
+  boards.forEach(function(board) {
+    (board.columns || []).forEach(function(col) {
+      if (col.type === 'subtasks' && col.settings_str) {
+        try {
+          var settings = JSON.parse(col.settings_str);
+          if (settings.boardIds) {
+            settings.boardIds.forEach(function(bid) {
+              subitemBoardIds[String(bid)] = board.name;
+            });
+          }
+        } catch (e) {}
+      }
+    });
+  });
+
+  var extraSubitemBoards = [];
+  if (Object.keys(subitemBoardIds).length > 0) {
+    var filtered = [];
+    boards.forEach(function(board) {
+      if (subitemBoardIds[String(board.id)]) {
+        extraSubitemBoards.push(board);
+        subitemBoards.push(board);
+      } else {
+        filtered.push(board);
+      }
+    });
+    boards = filtered;
+  }
+
+  console.log('Migration: getBoardsInWorkspace(' + workspaceId + ') returned ' + allBoards.length + ' total boards (' + boards.length + ' regular, ' + subitemBoards.length + ' subitem boards' + (extraSubitemBoards.length > 0 ? ', ' + extraSubitemBoards.length + ' detected via subtasks columns' : '') + ')');
   if (boards.length > 0) {
     boards.forEach(function(b) {
       console.log('Migration:   Board: "' + b.name + '" (id=' + b.id + ', kind=' + b.board_kind + ', state=' + b.state + ', cols=' + (b.columns || []).length + ', groups=' + (b.groups || []).length + ')');
@@ -678,7 +712,7 @@ function getBoardsInWorkspace(workspaceId) {
   }
   if (subitemBoards.length > 0) {
     subitemBoards.forEach(function(b) {
-      console.log('Migration:   Subitem board (excluded): "' + b.name + '" (id=' + b.id + ')');
+      console.log('Migration:   Subitem board (excluded): "' + b.name + '" (id=' + b.id + ', kind=' + b.board_kind + ')');
     });
   }
   return boards;
@@ -869,7 +903,7 @@ function createFormQuestion(formToken, questionInput) {
  */
 function activateForm(formToken) {
   return callMondayAPI(
-    'mutation ($token: String!) { activate_form (formToken: $token) { id token active } }',
+    'mutation ($token: String!) { activate_form (formToken: $token) }',
     { token: formToken }
   );
 }

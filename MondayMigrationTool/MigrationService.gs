@@ -474,7 +474,7 @@ function updateFormQuestionOrderOnTarget(targetApiKey, formToken, questionOrder)
 
 function activateFormOnTarget(targetApiKey, formToken) {
   return _targetAPI(targetApiKey,
-    'mutation ($token: String!) { activate_form (formToken: $token) { id token active } }',
+    'mutation ($token: String!) { activate_form (formToken: $token) }',
     { token: formToken }
   );
 }
@@ -574,10 +574,34 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
           settings.features = features;
         }
         if (sourceForm.appearance) {
-          settings.appearance = sourceForm.appearance;
+          // Sanitize appearance: background only accepts { type, value }
+          var appearance = JSON.parse(JSON.stringify(sourceForm.appearance));
+          if (appearance.background) {
+            var validTypes = ['Image', 'Color', 'None'];
+            if (appearance.background.type && validTypes.indexOf(appearance.background.type) >= 0) {
+              appearance.background = {
+                type: appearance.background.type,
+                value: appearance.background.value || null
+              };
+            } else {
+              // Unknown background type — skip to avoid validation error
+              delete appearance.background;
+            }
+          }
+          settings.appearance = appearance;
         }
         if (sourceForm.accessibility) {
-          settings.accessibility = sourceForm.accessibility;
+          // Sanitize accessibility: strip null values (logoAltText must be a string if present)
+          var accessibility = {};
+          if (sourceForm.accessibility.language && typeof sourceForm.accessibility.language === 'string') {
+            accessibility.language = sourceForm.accessibility.language;
+          }
+          if (sourceForm.accessibility.logoAltText && typeof sourceForm.accessibility.logoAltText === 'string') {
+            accessibility.logoAltText = sourceForm.accessibility.logoAltText;
+          }
+          if (Object.keys(accessibility).length > 0) {
+            settings.accessibility = accessibility;
+          }
         }
 
         if (Object.keys(settings).length > 0) {
@@ -621,6 +645,7 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
             // Update the matching target question
             try {
               var updateInput = {
+                type: srcQ.type, // Required field — e.g. "Name", "ShortText", "Email", "MultiSelect"
                 visible: srcQ.visible,
                 required: srcQ.required
               };
@@ -679,10 +704,11 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
       if (sourceForm.tags && sourceForm.tags.length > 0) {
         sourceForm.tags.forEach(function(tag) {
           try {
+            var tagValue = (tag.value != null) ? String(tag.value) : '';
             if (targetApiKey) {
-              createFormTagOnTarget(targetApiKey, targetFormView.token, tag.name, tag.value);
+              createFormTagOnTarget(targetApiKey, targetFormView.token, tag.name, tagValue);
             } else {
-              createFormTag(targetFormView.token, tag.name, tag.value);
+              createFormTag(targetFormView.token, tag.name, tagValue);
             }
           } catch (e) {
             console.warn('Migration:   Could not create tag "' + tag.name + '": ' + e);
