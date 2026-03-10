@@ -168,17 +168,6 @@ function testMigration(workspaceId, components) {
       });
       if (complexCols.length > 0) hasComplexColumns = true;
 
-      // Check template origin
-      var createdFromBoardId = null;
-      if (components.useTemplates) {
-        try {
-          var origin = getBoardOrigin(board.id);
-          if (origin && origin.created_from_board_id) {
-            createdFromBoardId = String(origin.created_from_board_id);
-          }
-        } catch (e) {}
-      }
-
       plan.boards.push({
         id: String(board.id),
         name: board.name,
@@ -188,8 +177,7 @@ function testMigration(workspaceId, components) {
         items: itemCount,
         subscribers: subscribers.length,
         columnTypes: (board.columns || []).map(function(c) { return c.type; }),
-        complexColumns: complexCols.map(function(c) { return { title: c.title, type: c.type }; }),
-        createdFromBoardId: createdFromBoardId
+        complexColumns: complexCols.map(function(c) { return { title: c.title, type: c.type }; })
       });
 
       plan.totals.groups += groupCount;

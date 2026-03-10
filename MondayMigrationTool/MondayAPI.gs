@@ -1194,13 +1194,13 @@ function getWorkspaceFolders(workspaceId) {
 // managed column links — things that manual column-by-column creation loses.
 
 /**
- * Get board metadata including created_from_board_id to detect template origin.
+ * Get board metadata (columns, groups, kind).
  * @param {string} boardId - Board ID
- * @returns {Object} Board metadata with created_from_board_id
+ * @returns {Object} Board metadata
  */
 function getBoardOrigin(boardId) {
   var data = callMondayAPI(
-    'query ($id: [ID!]!) { boards (ids: $id) { id name board_kind created_from_board_id columns { id title type } groups { id title } } }',
+    'query ($id: [ID!]!) { boards (ids: $id) { id name board_kind columns { id title type } groups { id title } } }',
     { id: [Number(boardId)] }
   );
   var boards = data.boards || [];
