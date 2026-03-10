@@ -323,11 +323,22 @@ function createGroupOnTarget(targetApiKey, boardId, groupName) {
   return data.create_group;
 }
 
-function createColumnOnTarget(targetApiKey, boardId, title, columnType) {
-  var data = _targetAPI(targetApiKey,
-    'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }',
-    { boardId: Number(boardId), title: title, type: columnType }
-  );
+function createColumnOnTarget(targetApiKey, boardId, title, columnType, defaults) {
+  var variables = {
+    boardId: Number(boardId),
+    title: title,
+    type: columnType
+  };
+
+  var query;
+  if (defaults) {
+    query = 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }';
+    variables.defaults = typeof defaults === 'string' ? defaults : JSON.stringify(defaults);
+  } else {
+    query = 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }';
+  }
+
+  var data = _targetAPI(targetApiKey, query, variables);
   return data.create_column;
 }
 
@@ -860,7 +871,44 @@ function startMigration(params) {
     // Step 3: Get source boards
     console.log('Migration: Step 3 - Fetching boards from source workspace ' + sourceWsId + '...');
     var sourceBoards = getBoardsInWorkspace(sourceWsId);
-    console.log('Migration: Step 3 DONE - Found ' + sourceBoards.length + ' boards');
+
+    // Filter out subitem boards — these are referenced in parent boards' subtasks column settings
+    // but often report board_kind="public" instead of "sub_items_board"
+    var subitemBoardIds = {};
+    sourceBoards.forEach(function(board) {
+      (board.columns || []).forEach(function(col) {
+        if (col.type === 'subtasks' && col.settings_str) {
+          try {
+            var settings = JSON.parse(col.settings_str);
+            if (settings.boardIds) {
+              settings.boardIds.forEach(function(bid) {
+                subitemBoardIds[String(bid)] = board.name;
+              });
+            }
+          } catch (e) {}
+        }
+      });
+    });
+
+    var filteredBoards = [];
+    var removedSubitemBoards = [];
+    sourceBoards.forEach(function(board) {
+      if (subitemBoardIds[String(board.id)]) {
+        removedSubitemBoards.push(board);
+      } else {
+        filteredBoards.push(board);
+      }
+    });
+
+    if (removedSubitemBoards.length > 0) {
+      console.log('Migration: Filtered out ' + removedSubitemBoards.length + ' subitem boards:');
+      removedSubitemBoards.forEach(function(b) {
+        console.log('Migration:   Subitem board excluded: "' + b.name + '" (id=' + b.id + ', parent="' + subitemBoardIds[String(b.id)] + '")');
+      });
+    }
+
+    sourceBoards = filteredBoards;
+    console.log('Migration: Step 3 DONE - Found ' + sourceBoards.length + ' boards (after excluding ' + removedSubitemBoards.length + ' subitem boards)');
 
     if (sourceBoards.length === 0) {
       console.warn('Migration: ⚠ WARNING - 0 boards found in source workspace "' + sourceWs.name + '" (id=' + sourceWsId + ', kind=' + sourceWs.kind + ')');
@@ -1296,14 +1344,21 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     }
   }
 
-  // Create columns (mandatory — skip system columns)
+  // Create columns (mandatory — skip system columns and non-creatable types)
   var columnMapping = {};
   var managedColumnMapping = [];
   var skippedColumns = [];
-  var systemColumns = ['name', 'subitems', 'item_id'];
+  var systemColumnIds = ['name', 'subitems', 'item_id'];
+  var nonCreatableTypes = ['subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
+                           'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
 
   (structure.columns || []).forEach(function(col) {
-    if (systemColumns.indexOf(col.id) >= 0 || systemColumns.indexOf(col.type) >= 0) return;
+    if (systemColumnIds.indexOf(col.id) >= 0) return;
+    if (nonCreatableTypes.indexOf(col.type) >= 0) {
+      console.log('Migration: Skipping non-creatable column "' + col.title + '" (type=' + col.type + ')');
+      skippedColumns.push({ id: col.id, title: col.title, type: col.type, error: 'Non-creatable type' });
+      return;
+    }
 
     try {
       var newCol;
@@ -1333,7 +1388,20 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
         }
       }
 
-      newCol = createColumnOnTarget(targetApiKey, targetBoard.id, col.title, col.type);
+      // Pass column settings (labels, etc.) for status/dropdown columns
+      var defaults = null;
+      if (col.settings_str && col.settings_str !== '{}') {
+        try {
+          var settings = JSON.parse(col.settings_str);
+          if (col.type === 'status' && settings.labels) {
+            defaults = settings;
+          } else if (col.type === 'dropdown' && settings.labels) {
+            defaults = settings;
+          }
+        } catch (parseErr) {}
+      }
+
+      newCol = createColumnOnTarget(targetApiKey, targetBoard.id, col.title, col.type, defaults);
       columnMapping[col.id] = { targetId: newCol.id, title: col.title, type: col.type };
       Utilities.sleep(100);
     } catch (e) {
