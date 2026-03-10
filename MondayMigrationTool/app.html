@@ -300,6 +300,141 @@ const InventoryTab = () => {
   );
 };
 
+// ── Target Account Selector (shared between Test Run & Migration) ───────────
+
+const TargetAccountSelector = ({ selectedAccountId, onAccountChange, label }) => {
+  const toast = useToast();
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newApiKey, setNewApiKey] = useState('');
+  const [validating, setValidating] = useState(false);
+
+  useEffect(() => { loadAccounts(); }, []);
+
+  const loadAccounts = async () => {
+    setLoading(true);
+    try {
+      const result = await api.call('getTargetAccounts');
+      if (result.success) setAccounts(result.accounts || []);
+    } catch (e) { console.warn('Failed to load target accounts'); }
+    setLoading(false);
+  };
+
+  const addAccount = async () => {
+    if (!newApiKey.trim()) { toast.show('Enter an API key', 'warning'); return; }
+    setValidating(true);
+    try {
+      const result = await api.call('addTargetAccount', newApiKey.trim());
+      if (result.success) {
+        setAccounts(result.accounts || []);
+        setNewApiKey('');
+        setShowAddForm(false);
+        onAccountChange(result.account.accountId);
+        toast.show(`Added: ${result.account.accountName} (${result.account.userEmail})`, 'success');
+      } else {
+        toast.show(result.error || 'Invalid API key', 'danger');
+      }
+    } catch (e) { toast.show(e.message, 'danger'); }
+    setValidating(false);
+  };
+
+  const removeAccount = async (accountId) => {
+    try {
+      const result = await api.call('removeTargetAccount', accountId);
+      if (result.success) {
+        setAccounts(result.accounts || []);
+        if (selectedAccountId === accountId) onAccountChange('');
+        toast.show('Account removed', 'info');
+      }
+    } catch (e) { toast.show(e.message, 'danger'); }
+  };
+
+  const selectedAccount = accounts.find(a => a.accountId === selectedAccountId);
+  const isCrossAccount = !!selectedAccountId;
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <i className="bi bi-box-arrow-in-right me-1" /> {label || 'Target Monday.com Account'}
+        {isCrossAccount && <span className="badge bg-warning text-dark ms-2">Cross-Account</span>}
+        {!isCrossAccount && <span className="badge bg-secondary ms-2">Same Account</span>}
+      </div>
+      <div className="card-body">
+        <p className="text-muted mb-3">
+          Select "Same Account" to migrate within your current account, or choose a connected target account.
+        </p>
+
+        <div className="d-flex gap-2 align-items-start">
+          <select className="form-select" value={selectedAccountId || ''} onChange={e => onAccountChange(e.target.value)}
+            disabled={loading}>
+            <option value="">Same Account (no cross-account)</option>
+            {accounts.map(a => (
+              <option key={a.accountId} value={a.accountId}>
+                {a.accountName} — {a.userEmail}
+              </option>
+            ))}
+          </select>
+
+          <button className="btn btn-outline-primary flex-shrink-0" onClick={() => setShowAddForm(!showAddForm)}
+            title="Add a new target account">
+            <i className={`bi ${showAddForm ? 'bi-x-lg' : 'bi-plus-lg'}`} />
+          </button>
+
+          {selectedAccountId && (
+            <button className="btn btn-outline-danger flex-shrink-0" onClick={() => removeAccount(selectedAccountId)}
+              title="Remove this account">
+              <i className="bi bi-trash" />
+            </button>
+          )}
+        </div>
+
+        {showAddForm && (
+          <div className="mt-3 p-3 border rounded bg-light">
+            <label className="form-label fw-bold">Add New Target Account</label>
+            <div className="row g-2 align-items-end">
+              <div className="col">
+                <input type="password" className="form-control" value={newApiKey}
+                  onChange={e => setNewApiKey(e.target.value)}
+                  placeholder="Paste target Monday.com API key..."
+                  onKeyDown={e => e.key === 'Enter' && addAccount()} />
+              </div>
+              <div className="col-auto">
+                <button className="btn btn-primary" onClick={addAccount} disabled={validating || !newApiKey.trim()}>
+                  {validating ? <><span className="spinner-border spinner-border-sm me-1" />Validating...</> : <><i className="bi bi-check-circle me-1" />Add Account</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedAccount && (
+          <div className="alert alert-success mt-3 mb-0 d-flex align-items-center">
+            <div>
+              <strong><i className="bi bi-check-circle me-1" />Target:</strong>{' '}
+              {selectedAccount.accountName} ({selectedAccount.userEmail})
+              <br /><small className="text-muted">Account ID: {selectedAccount.accountId}</small>
+            </div>
+          </div>
+        )}
+
+        {isCrossAccount && (
+          <div className="alert alert-warning mt-3 mb-0">
+            <i className="bi bi-exclamation-triangle me-1" />
+            <strong>Cross-account notes:</strong>
+            <ul className="mb-0 mt-1">
+              <li>People columns will be <strong>skipped</strong> (user IDs differ between accounts)</li>
+              <li>Board subscribers will <strong>not</strong> be transferred</li>
+              <li>Template Clone will use <strong>manual mode</strong> (duplicate_board only works within the same account)</li>
+              <li>Managed columns may need to be <strong>recreated</strong> in the target account</li>
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ── Shared Component Selector ────────────────────────────────────────────────
 
 const ComponentSelector = ({ components, componentDefs, toggleComponent }) => (
@@ -482,6 +617,7 @@ const TestRunTab = () => {
   const toast = useToast();
   const [workspaces, setWorkspaces] = useState([]);
   const [selectedWs, setSelectedWs] = useState('');
+  const [selectedTargetAccount, setSelectedTargetAccount] = useState('');
   const [components, setComponents] = useState({
     groups: true,
     useTemplates: true,
@@ -559,6 +695,14 @@ const TestRunTab = () => {
           <ComponentSelector components={components} componentDefs={componentDefs} toggleComponent={toggleComponent} />
         </div>
 
+        <div className="col-12">
+          <TargetAccountSelector
+            selectedAccountId={selectedTargetAccount}
+            onAccountChange={setSelectedTargetAccount}
+            label="Target Monday.com Account (Dry Run)"
+          />
+        </div>
+
         <div className="col-12 text-end">
           <button className="btn btn-gw-primary btn-lg" onClick={runDryRun} disabled={!selectedWs || loading}>
             {loading ? <><span className="spinner-border spinner-border-sm me-1" />Analyzing...</> : <><i className="bi bi-search me-1" />Run Analysis</>}
@@ -596,11 +740,8 @@ const MigrationTab = () => {
   const pollRef = useRef(null);
   const pollCountRef = useRef(0);
 
-  // Target API key state
-  const [targetApiKey, setTargetApiKey] = useState('');
-  const [targetAccountInfo, setTargetAccountInfo] = useState(null);
-  const [validatingKey, setValidatingKey] = useState(false);
-  const [isCrossAccount, setIsCrossAccount] = useState(false);
+  // Target account state
+  const [selectedTargetAccount, setSelectedTargetAccount] = useState('');
 
   useEffect(() => {
     loadWorkspaces();
@@ -626,39 +767,6 @@ const MigrationTab = () => {
     setComponents(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const validateKey = async () => {
-    if (!targetApiKey.trim()) {
-      toast.show('Enter a target API key', 'warning');
-      return;
-    }
-    setValidatingKey(true);
-    try {
-      const result = await api.call('validateTargetApiKey', targetApiKey.trim());
-      if (result.success) {
-        setTargetAccountInfo(result.accountInfo);
-        setIsCrossAccount(true);
-        // Save key for the migration
-        await api.call('saveTargetApiKey', targetApiKey.trim());
-        toast.show(`Connected to: ${result.accountInfo.accountName} (${result.accountInfo.userEmail})`, 'success');
-      } else {
-        toast.show(result.error || 'Invalid API key', 'danger');
-        setTargetAccountInfo(null);
-      }
-    } catch (e) {
-      toast.show(e.message, 'danger');
-      setTargetAccountInfo(null);
-    }
-    setValidatingKey(false);
-  };
-
-  const clearTargetKey = async () => {
-    setTargetApiKey('');
-    setTargetAccountInfo(null);
-    setIsCrossAccount(false);
-    try { await api.call('clearTargetApiKey'); } catch (e) {}
-    toast.show('Target API key cleared. Migration will use same account.', 'info');
-  };
-
   const startMigration = async () => {
     if (!selectedWs) { toast.show('Select a source workspace', 'warning'); return; }
 
@@ -670,8 +778,8 @@ const MigrationTab = () => {
         targetWorkspaceName: wsName,
         components: components
       };
-      if (isCrossAccount && targetApiKey.trim()) {
-        params.targetApiKey = targetApiKey.trim();
+      if (selectedTargetAccount) {
+        params.targetAccountId = selectedTargetAccount;
       }
 
       const result = await api.call('startMigration', params);
@@ -775,60 +883,13 @@ const MigrationTab = () => {
             <ComponentSelector components={components} componentDefs={componentDefs} toggleComponent={toggleComponent} />
           </div>
 
-          {/* Target API Key */}
+          {/* Target Account */}
           <div className="col-12">
-            <div className="card">
-              <div className="card-header">
-                <i className="bi bi-key me-1" /> Target Monday.com Instance
-                {isCrossAccount && <span className="badge bg-warning text-dark ms-2">Cross-Account</span>}
-                {!isCrossAccount && <span className="badge bg-secondary ms-2">Same Account</span>}
-              </div>
-              <div className="card-body">
-                <p className="text-muted mb-3">
-                  Leave blank to migrate within the same account. Enter a different API key to migrate to a new Monday.com instance.
-                </p>
-
-                {!targetAccountInfo ? (
-                  <div className="row g-2 align-items-end">
-                    <div className="col">
-                      <label className="form-label">Target API Key</label>
-                      <input type="password" className="form-control" value={targetApiKey}
-                        onChange={e => setTargetApiKey(e.target.value)}
-                        placeholder="Paste target Monday.com API key..." />
-                    </div>
-                    <div className="col-auto">
-                      <button className="btn btn-outline-primary" onClick={validateKey} disabled={validatingKey || !targetApiKey.trim()}>
-                        {validatingKey ? <><span className="spinner-border spinner-border-sm me-1" />Validating...</> : <><i className="bi bi-check-circle me-1" />Validate</>}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="alert alert-success d-flex justify-content-between align-items-center mb-0">
-                    <div>
-                      <strong><i className="bi bi-check-circle me-1" />Connected to target account:</strong>{' '}
-                      {targetAccountInfo.accountName} ({targetAccountInfo.userEmail})
-                      <br /><small className="text-muted">Account ID: {targetAccountInfo.accountId}</small>
-                    </div>
-                    <button className="btn btn-sm btn-outline-danger" onClick={clearTargetKey}>
-                      <i className="bi bi-x me-1" />Disconnect
-                    </button>
-                  </div>
-                )}
-
-                {isCrossAccount && (
-                  <div className="alert alert-warning mt-3 mb-0">
-                    <i className="bi bi-exclamation-triangle me-1" />
-                    <strong>Cross-account migration notes:</strong>
-                    <ul className="mb-0 mt-1">
-                      <li>People columns will be <strong>skipped</strong> (user IDs differ between accounts)</li>
-                      <li>Board subscribers will <strong>not</strong> be transferred</li>
-                      <li>Template Clone will use <strong>manual mode</strong> (duplicate_board only works within the same account)</li>
-                      <li>Managed columns may need to be <strong>recreated</strong> in the target account</li>
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </div>
+            <TargetAccountSelector
+              selectedAccountId={selectedTargetAccount}
+              onAccountChange={setSelectedTargetAccount}
+              label="Target Monday.com Account"
+            />
           </div>
 
           <div className="col-12 text-end">

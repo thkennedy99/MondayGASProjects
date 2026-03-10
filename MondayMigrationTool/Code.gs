@@ -156,7 +156,11 @@ function logMigrationAction(migrationId, action, sourceWs, targetWs, status, det
   }
 }
 
-// ── Target API Key Management ────────────────────────────────────────────────
+// ── Target Account Management ────────────────────────────────────────────────
+// Supports multiple saved target Monday.com accounts stored per-user.
+// Each account is stored as { accountId, accountName, userEmail, apiKey }.
+
+var TARGET_ACCOUNTS_KEY = 'TARGET_MONDAY_ACCOUNTS';
 
 /**
  * Validate a Monday.com API key by querying the /me endpoint.
@@ -209,26 +213,114 @@ function validateTargetApiKey(apiKey) {
 }
 
 /**
- * Store the target API key in user properties (per-user, not shared).
+ * Add a validated target account to the saved accounts list.
+ * Validates the key first, then stores it.
  * @param {string} apiKey - The target Monday.com API key
- * @returns {Object} { success }
+ * @returns {Object} { success, account, accounts }
  */
-function saveTargetApiKey(apiKey) {
+function addTargetAccount(apiKey) {
   try {
-    PropertiesService.getUserProperties().setProperty('TARGET_MONDAY_API_KEY', apiKey.trim());
-    return { success: true };
+    if (!apiKey || apiKey.trim().length < 10) {
+      return { success: false, error: 'API key is too short or empty.' };
+    }
+
+    // Validate first
+    var validation = validateTargetApiKey(apiKey);
+    if (!validation.success) return validation;
+
+    var accounts = _getTargetAccounts();
+    var info = validation.accountInfo;
+
+    // Check if this account is already saved (by accountId)
+    var existing = accounts.findIndex(function(a) { return a.accountId === info.accountId; });
+    var account = {
+      accountId: info.accountId,
+      accountName: info.accountName,
+      userEmail: info.userEmail,
+      userName: info.userName,
+      apiKey: apiKey.trim(),
+      addedAt: new Date().toISOString()
+    };
+
+    if (existing >= 0) {
+      // Update existing
+      accounts[existing] = account;
+    } else {
+      accounts.push(account);
+    }
+
+    _saveTargetAccounts(accounts);
+
+    return safeReturn({
+      success: true,
+      account: {
+        accountId: account.accountId,
+        accountName: account.accountName,
+        userEmail: account.userEmail,
+        userName: account.userName
+      },
+      accounts: _getTargetAccountsList()
+    });
   } catch (error) {
-    return handleError('saveTargetApiKey', error);
+    return handleError('addTargetAccount', error);
   }
 }
 
 /**
- * Clear the stored target API key.
- * @returns {Object} { success }
+ * Remove a saved target account.
+ * @param {string} accountId - The account ID to remove
+ * @returns {Object} { success, accounts }
  */
+function removeTargetAccount(accountId) {
+  try {
+    var accounts = _getTargetAccounts();
+    accounts = accounts.filter(function(a) { return a.accountId !== accountId; });
+    _saveTargetAccounts(accounts);
+    return safeReturn({ success: true, accounts: _getTargetAccountsList() });
+  } catch (error) {
+    return handleError('removeTargetAccount', error);
+  }
+}
+
+/**
+ * Get list of saved target accounts (without exposing API keys).
+ * @returns {Object} { success, accounts: [{ accountId, accountName, userEmail }] }
+ */
+function getTargetAccounts() {
+  try {
+    return safeReturn({ success: true, accounts: _getTargetAccountsList() });
+  } catch (error) {
+    return handleError('getTargetAccounts', error);
+  }
+}
+
+/**
+ * Get the API key for a specific target account.
+ * @param {string} accountId - The account ID
+ * @returns {string|null}
+ */
+function getTargetApiKeyForAccount(accountId) {
+  if (!accountId) return null;
+  var accounts = _getTargetAccounts();
+  var match = accounts.find(function(a) { return a.accountId === accountId; });
+  return match ? match.apiKey : null;
+}
+
+// Legacy compatibility — returns the first saved target key or null
+function getTargetApiKey() {
+  var accounts = _getTargetAccounts();
+  return accounts.length > 0 ? accounts[0].apiKey : null;
+}
+
+// Legacy compatibility
+function saveTargetApiKey(apiKey) {
+  return addTargetAccount(apiKey);
+}
+
+// Legacy compatibility
 function clearTargetApiKey() {
   try {
-    PropertiesService.getUserProperties().deleteProperty('TARGET_MONDAY_API_KEY');
+    PropertiesService.getUserProperties().deleteProperty(TARGET_ACCOUNTS_KEY);
     return { success: true };
   } catch (error) {
     return handleError('clearTargetApiKey', error);
@@ -236,26 +328,43 @@ function clearTargetApiKey() {
 }
 
 /**
- * Get the stored target API key (if any).
- * @returns {string|null}
- */
-function getTargetApiKey() {
-  return PropertiesService.getUserProperties().getProperty('TARGET_MONDAY_API_KEY') || null;
-}
-
-/**
- * Get workspaces from the target Monday.com account.
- * @param {string} apiKey - Target account API key
+ * Get workspaces from a target Monday.com account.
+ * @param {string} accountId - Target account ID (looks up stored API key)
  * @returns {Object} { success, workspaces }
  */
-function getTargetWorkspaces(apiKey) {
+function getTargetWorkspaces(accountId) {
   try {
-    if (!apiKey) throw new Error('Target API key is required');
+    var apiKey = getTargetApiKeyForAccount(accountId);
+    if (!apiKey) throw new Error('No API key found for account: ' + accountId);
     var data = callMondayAPIWithKey(apiKey, 'query { workspaces (limit: 100) { id name kind description } }');
     return safeReturn({ success: true, workspaces: data.workspaces || [] });
   } catch (error) {
     return handleError('getTargetWorkspaces', error);
   }
+}
+
+// ── Internal helpers ──
+
+function _getTargetAccounts() {
+  var json = PropertiesService.getUserProperties().getProperty(TARGET_ACCOUNTS_KEY);
+  if (!json) return [];
+  try { return JSON.parse(json); } catch (e) { return []; }
+}
+
+function _saveTargetAccounts(accounts) {
+  PropertiesService.getUserProperties().setProperty(TARGET_ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+function _getTargetAccountsList() {
+  return _getTargetAccounts().map(function(a) {
+    return {
+      accountId: a.accountId,
+      accountName: a.accountName,
+      userEmail: a.userEmail,
+      userName: a.userName,
+      addedAt: a.addedAt
+    };
+  });
 }
 
 // ── Utility ──────────────────────────────────────────────────────────────────

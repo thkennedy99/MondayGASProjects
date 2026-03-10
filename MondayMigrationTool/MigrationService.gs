@@ -495,7 +495,7 @@ function startMigration(params) {
     var sourceWsId = params.sourceWorkspaceId;
     var targetName = params.targetWorkspaceName || null;
     var components = params.components || {};
-    var targetApiKey = params.targetApiKey || getTargetApiKey() || null;
+    var targetApiKey = params.targetApiKey || (params.targetAccountId ? getTargetApiKeyForAccount(params.targetAccountId) : null) || null;
     var isCrossAccount = !!targetApiKey;
 
     // Mandatory components are always on
