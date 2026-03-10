@@ -23,6 +23,9 @@ const CONFIG = {
   // Source Monday.com API key (primary account)
   MONDAY_API_KEY: PropertiesService.getScriptProperties().getProperty('MONDAY_API_KEY'),
 
+  // Target Monday.com API key (migration destination account)
+  MONDAY_MIGRATION_API_KEY: PropertiesService.getScriptProperties().getProperty('MONDAY_MIGRATION_API_KEY'),
+
   MONDAY_API_URL: 'https://api.monday.com/v2',
 
   // Google Sheet for logging migration state
@@ -63,8 +66,8 @@ function include(filename) {
 function setupScriptProperties() {
   PropertiesService.getScriptProperties().setProperties({
     'MONDAY_API_KEY': 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjQ3MjI3MDMwNywiYWFpIjoxMSwidWlkIjo2MzU1MTg0NCwiaWFkIjoiMjAyNS0wMi0xM1QxNjowOTozNC4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MjQ0MzgzMjcsInJnbiI6InVzZTEifQ.8QsKLrmBSa7DyaRlefC9KBx38ZI0y7EUdlsVTPw7fS8',
+    'MONDAY_MIGRATION_API_KEY': 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjU4MzM5MzU5MCwiYWFpIjoxMSwidWlkIjo3ODcyNDQ3MSwiaWFkIjoiMjAyNS0xMS0wNlQxNzowMzo0Ny4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MjkxMTQ4OTIsInJnbiI6InVzZTEifQ.yRNbcnAmL7YT5FbcoLKpwdMMPu3QzBbHDbYOKYRG25s',
     'MIGRATION_SPREADSHEET_ID': '1H6IySq686XFkyBFiPwX1twJvy-CkntO5hajzVf6jMyU'
-    'MONDAY_MIGRATION_API_KEY': 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjU4MzM5MzU5MCwiYWFpIjoxMSwidWlkIjo3ODcyNDQ3MSwiaWFkIjoiMjAyNS0xMS0wNlQxNzowMzo0Ny4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MjkxMTQ4OTIsInJnbiI6InVzZTEifQ.yRNbcnAmL7YT5FbcoLKpwdMMPu3QzBbHDbYOKYRG25s"
   });
   console.log('Script properties set. Update with real values.');
 }
@@ -158,179 +161,145 @@ function logMigrationAction(migrationId, action, sourceWs, targetWs, status, det
 }
 
 // ── Target Account Management ────────────────────────────────────────────────
-// Supports multiple saved target Monday.com accounts stored per-user.
-// Each account is stored as { accountId, accountName, userEmail, apiKey }.
-
-var TARGET_ACCOUNTS_KEY = 'TARGET_MONDAY_ACCOUNTS';
+// Uses MONDAY_MIGRATION_API_KEY from Script Properties as the target account.
+// Both the source and target accounts are validated via /me and returned to the UI
+// so the user can pick which one to migrate to from a dropdown.
 
 /**
  * Validate a Monday.com API key by querying the /me endpoint.
- * Returns account info if valid, error if not.
  * @param {string} apiKey - The API key to validate
- * @returns {Object} { success, accountInfo: { userId, userName, userEmail, accountId, accountName } }
+ * @returns {Object|null} Account info or null if invalid
  */
-function validateTargetApiKey(apiKey) {
-  try {
-    if (!apiKey || apiKey.trim().length < 10) {
-      return { success: false, error: 'API key is too short or empty.' };
-    }
+function _validateApiKey(apiKey) {
+  if (!apiKey || apiKey.trim().length < 10) return null;
 
-    var options = {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': apiKey.trim(),
-        'API-Version': '2025-07'
-      },
-      payload: JSON.stringify({
-        query: '{ me { id name email account { id name } } }'
-      }),
-      muteHttpExceptions: true
-    };
+  var options = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': apiKey.trim(),
+      'API-Version': '2025-07'
+    },
+    payload: JSON.stringify({
+      query: '{ me { id name email account { id name } } }'
+    }),
+    muteHttpExceptions: true
+  };
 
-    var response = UrlFetchApp.fetch(CONFIG.MONDAY_API_URL, options);
-    var code = response.getResponseCode();
-    var body = JSON.parse(response.getContentText());
+  var response = UrlFetchApp.fetch(CONFIG.MONDAY_API_URL, options);
+  var code = response.getResponseCode();
+  var body = JSON.parse(response.getContentText());
 
-    if (code !== 200 || body.errors) {
-      var errMsg = body.errors ? body.errors[0].message : 'HTTP ' + code;
-      return { success: false, error: 'API key validation failed: ' + errMsg };
-    }
+  if (code !== 200 || body.errors) return null;
 
-    var me = body.data.me;
-    return safeReturn({
-      success: true,
-      accountInfo: {
-        userId: String(me.id),
-        userName: me.name,
-        userEmail: me.email,
-        accountId: me.account ? String(me.account.id) : '',
-        accountName: me.account ? me.account.name : ''
-      }
-    });
-  } catch (error) {
-    return handleError('validateTargetApiKey', error);
-  }
+  var me = body.data.me;
+  return {
+    userId: String(me.id),
+    userName: me.name,
+    userEmail: me.email,
+    accountId: me.account ? String(me.account.id) : '',
+    accountName: me.account ? me.account.name : ''
+  };
 }
 
 /**
- * Add a validated target account to the saved accounts list.
- * Validates the key first, then stores it.
- * @param {string} apiKey - The target Monday.com API key
- * @returns {Object} { success, account, accounts }
- */
-function addTargetAccount(apiKey) {
-  try {
-    if (!apiKey || apiKey.trim().length < 10) {
-      return { success: false, error: 'API key is too short or empty.' };
-    }
-
-    // Validate first
-    var validation = validateTargetApiKey(apiKey);
-    if (!validation.success) return validation;
-
-    var accounts = _getTargetAccounts();
-    var info = validation.accountInfo;
-
-    // Check if this account is already saved (by accountId)
-    var existing = accounts.findIndex(function(a) { return a.accountId === info.accountId; });
-    var account = {
-      accountId: info.accountId,
-      accountName: info.accountName,
-      userEmail: info.userEmail,
-      userName: info.userName,
-      apiKey: apiKey.trim(),
-      addedAt: new Date().toISOString()
-    };
-
-    if (existing >= 0) {
-      // Update existing
-      accounts[existing] = account;
-    } else {
-      accounts.push(account);
-    }
-
-    _saveTargetAccounts(accounts);
-
-    return safeReturn({
-      success: true,
-      account: {
-        accountId: account.accountId,
-        accountName: account.accountName,
-        userEmail: account.userEmail,
-        userName: account.userName
-      },
-      accounts: _getTargetAccountsList()
-    });
-  } catch (error) {
-    return handleError('addTargetAccount', error);
-  }
-}
-
-/**
- * Remove a saved target account.
- * @param {string} accountId - The account ID to remove
- * @returns {Object} { success, accounts }
- */
-function removeTargetAccount(accountId) {
-  try {
-    var accounts = _getTargetAccounts();
-    accounts = accounts.filter(function(a) { return a.accountId !== accountId; });
-    _saveTargetAccounts(accounts);
-    return safeReturn({ success: true, accounts: _getTargetAccountsList() });
-  } catch (error) {
-    return handleError('removeTargetAccount', error);
-  }
-}
-
-/**
- * Get list of saved target accounts (without exposing API keys).
- * @returns {Object} { success, accounts: [{ accountId, accountName, userEmail }] }
+ * Get available Monday.com accounts for the dropdown.
+ * Returns the source account (from MONDAY_API_KEY) and the target account
+ * (from MONDAY_MIGRATION_API_KEY) if configured.
+ * @returns {Object} { success, accounts: [{ accountId, accountName, userEmail, role }] }
  */
 function getTargetAccounts() {
   try {
-    return safeReturn({ success: true, accounts: _getTargetAccountsList() });
+    // Check cache first to avoid repeated /me calls
+    var cache = CacheService.getScriptCache();
+    var cached = cache.get('target_accounts_list');
+    if (cached) return safeReturn({ success: true, accounts: JSON.parse(cached) });
+
+    var accounts = [];
+
+    // Source account
+    if (CONFIG.MONDAY_API_KEY) {
+      var source = _validateApiKey(CONFIG.MONDAY_API_KEY);
+      if (source) {
+        accounts.push({
+          accountId: source.accountId,
+          accountName: source.accountName,
+          userEmail: source.userEmail,
+          userName: source.userName,
+          role: 'source'
+        });
+      }
+    }
+
+    // Target account (migration destination)
+    if (CONFIG.MONDAY_MIGRATION_API_KEY) {
+      var target = _validateApiKey(CONFIG.MONDAY_MIGRATION_API_KEY);
+      if (target) {
+        accounts.push({
+          accountId: target.accountId,
+          accountName: target.accountName,
+          userEmail: target.userEmail,
+          userName: target.userName,
+          role: 'target'
+        });
+      }
+    }
+
+    // Cache for 10 minutes
+    cache.put('target_accounts_list', JSON.stringify(accounts), 600);
+
+    return safeReturn({ success: true, accounts: accounts });
   } catch (error) {
     return handleError('getTargetAccounts', error);
   }
 }
 
 /**
- * Get the API key for a specific target account.
+ * Get the API key for a specific account by its ID.
+ * Uses cached account info to avoid redundant API calls.
  * @param {string} accountId - The account ID
  * @returns {string|null}
  */
 function getTargetApiKeyForAccount(accountId) {
   if (!accountId) return null;
-  var accounts = _getTargetAccounts();
-  var match = accounts.find(function(a) { return a.accountId === accountId; });
-  return match ? match.apiKey : null;
-}
 
-// Legacy compatibility — returns the first saved target key or null
-function getTargetApiKey() {
-  var accounts = _getTargetAccounts();
-  return accounts.length > 0 ? accounts[0].apiKey : null;
-}
+  // Try cache first
+  var cacheKey = 'acct_key_' + accountId;
+  var cached = CacheService.getScriptCache().get(cacheKey);
+  if (cached) return cached;
 
-// Legacy compatibility
-function saveTargetApiKey(apiKey) {
-  return addTargetAccount(apiKey);
-}
-
-// Legacy compatibility
-function clearTargetApiKey() {
-  try {
-    PropertiesService.getUserProperties().deleteProperty(TARGET_ACCOUNTS_KEY);
-    return { success: true };
-  } catch (error) {
-    return handleError('clearTargetApiKey', error);
+  // Check source key
+  if (CONFIG.MONDAY_API_KEY) {
+    var source = _validateApiKey(CONFIG.MONDAY_API_KEY);
+    if (source && source.accountId === accountId) {
+      CacheService.getScriptCache().put(cacheKey, CONFIG.MONDAY_API_KEY, 3600);
+      return CONFIG.MONDAY_API_KEY;
+    }
   }
+
+  // Check migration target key
+  if (CONFIG.MONDAY_MIGRATION_API_KEY) {
+    var target = _validateApiKey(CONFIG.MONDAY_MIGRATION_API_KEY);
+    if (target && target.accountId === accountId) {
+      CacheService.getScriptCache().put(cacheKey, CONFIG.MONDAY_MIGRATION_API_KEY, 3600);
+      return CONFIG.MONDAY_MIGRATION_API_KEY;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get the migration target API key directly.
+ * @returns {string|null}
+ */
+function getTargetApiKey() {
+  return CONFIG.MONDAY_MIGRATION_API_KEY || null;
 }
 
 /**
  * Get workspaces from a target Monday.com account.
- * @param {string} accountId - Target account ID (looks up stored API key)
+ * @param {string} accountId - Target account ID (resolves to the matching API key)
  * @returns {Object} { success, workspaces }
  */
 function getTargetWorkspaces(accountId) {
@@ -342,30 +311,6 @@ function getTargetWorkspaces(accountId) {
   } catch (error) {
     return handleError('getTargetWorkspaces', error);
   }
-}
-
-// ── Internal helpers ──
-
-function _getTargetAccounts() {
-  var json = PropertiesService.getUserProperties().getProperty(TARGET_ACCOUNTS_KEY);
-  if (!json) return [];
-  try { return JSON.parse(json); } catch (e) { return []; }
-}
-
-function _saveTargetAccounts(accounts) {
-  PropertiesService.getUserProperties().setProperty(TARGET_ACCOUNTS_KEY, JSON.stringify(accounts));
-}
-
-function _getTargetAccountsList() {
-  return _getTargetAccounts().map(function(a) {
-    return {
-      accountId: a.accountId,
-      accountName: a.accountName,
-      userEmail: a.userEmail,
-      userName: a.userName,
-      addedAt: a.addedAt
-    };
-  });
 }
 
 // ── Utility ──────────────────────────────────────────────────────────────────

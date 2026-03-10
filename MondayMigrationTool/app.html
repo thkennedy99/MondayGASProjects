@@ -306,9 +306,6 @@ const TargetAccountSelector = ({ selectedAccountId, onAccountChange, label }) =>
   const toast = useToast();
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newApiKey, setNewApiKey] = useState('');
-  const [validating, setValidating] = useState(false);
 
   useEffect(() => { loadAccounts(); }, []);
 
@@ -321,114 +318,62 @@ const TargetAccountSelector = ({ selectedAccountId, onAccountChange, label }) =>
     setLoading(false);
   };
 
-  const addAccount = async () => {
-    if (!newApiKey.trim()) { toast.show('Enter an API key', 'warning'); return; }
-    setValidating(true);
-    try {
-      const result = await api.call('addTargetAccount', newApiKey.trim());
-      if (result.success) {
-        setAccounts(result.accounts || []);
-        setNewApiKey('');
-        setShowAddForm(false);
-        onAccountChange(result.account.accountId);
-        toast.show(`Added: ${result.account.accountName} (${result.account.userEmail})`, 'success');
-      } else {
-        toast.show(result.error || 'Invalid API key', 'danger');
-      }
-    } catch (e) { toast.show(e.message, 'danger'); }
-    setValidating(false);
-  };
-
-  const removeAccount = async (accountId) => {
-    try {
-      const result = await api.call('removeTargetAccount', accountId);
-      if (result.success) {
-        setAccounts(result.accounts || []);
-        if (selectedAccountId === accountId) onAccountChange('');
-        toast.show('Account removed', 'info');
-      }
-    } catch (e) { toast.show(e.message, 'danger'); }
-  };
-
+  const sourceAccount = accounts.find(a => a.role === 'source');
   const selectedAccount = accounts.find(a => a.accountId === selectedAccountId);
-  const isCrossAccount = !!selectedAccountId;
+  const isCrossAccount = selectedAccount && sourceAccount && selectedAccount.accountId !== sourceAccount.accountId;
 
   return (
     <div className="card">
       <div className="card-header">
-        <i className="bi bi-box-arrow-in-right me-1" /> {label || 'Target Monday.com Account'}
+        <i className="bi bi-box-arrow-in-right me-1" /> {label || 'Destination Monday.com Account'}
         {isCrossAccount && <span className="badge bg-warning text-dark ms-2">Cross-Account</span>}
-        {!isCrossAccount && <span className="badge bg-secondary ms-2">Same Account</span>}
+        {!selectedAccountId && <span className="badge bg-secondary ms-2">Not Selected</span>}
+        {selectedAccountId && !isCrossAccount && <span className="badge bg-info text-dark ms-2">Same Account</span>}
       </div>
       <div className="card-body">
-        <p className="text-muted mb-3">
-          Select "Same Account" to migrate within your current account, or choose a connected target account.
-        </p>
-
-        <div className="d-flex gap-2 align-items-start">
-          <select className="form-select" value={selectedAccountId || ''} onChange={e => onAccountChange(e.target.value)}
-            disabled={loading}>
-            <option value="">Same Account (no cross-account)</option>
-            {accounts.map(a => (
-              <option key={a.accountId} value={a.accountId}>
-                {a.accountName} — {a.userEmail}
-              </option>
-            ))}
-          </select>
-
-          <button className="btn btn-outline-primary flex-shrink-0" onClick={() => setShowAddForm(!showAddForm)}
-            title="Add a new target account">
-            <i className={`bi ${showAddForm ? 'bi-x-lg' : 'bi-plus-lg'}`} />
-          </button>
-
-          {selectedAccountId && (
-            <button className="btn btn-outline-danger flex-shrink-0" onClick={() => removeAccount(selectedAccountId)}
-              title="Remove this account">
-              <i className="bi bi-trash" />
-            </button>
-          )}
-        </div>
-
-        {showAddForm && (
-          <div className="mt-3 p-3 border rounded bg-light">
-            <label className="form-label fw-bold">Add New Target Account</label>
-            <div className="row g-2 align-items-end">
-              <div className="col">
-                <input type="password" className="form-control" value={newApiKey}
-                  onChange={e => setNewApiKey(e.target.value)}
-                  placeholder="Paste target Monday.com API key..."
-                  onKeyDown={e => e.key === 'Enter' && addAccount()} />
-              </div>
-              <div className="col-auto">
-                <button className="btn btn-primary" onClick={addAccount} disabled={validating || !newApiKey.trim()}>
-                  {validating ? <><span className="spinner-border spinner-border-sm me-1" />Validating...</> : <><i className="bi bi-check-circle me-1" />Add Account</>}
-                </button>
-              </div>
-            </div>
+        {loading ? (
+          <div className="text-center py-2">
+            <span className="spinner-border spinner-border-sm me-2" />Loading accounts...
           </div>
-        )}
-
-        {selectedAccount && (
-          <div className="alert alert-success mt-3 mb-0 d-flex align-items-center">
-            <div>
-              <strong><i className="bi bi-check-circle me-1" />Target:</strong>{' '}
-              {selectedAccount.accountName} ({selectedAccount.userEmail})
-              <br /><small className="text-muted">Account ID: {selectedAccount.accountId}</small>
-            </div>
-          </div>
-        )}
-
-        {isCrossAccount && (
-          <div className="alert alert-warning mt-3 mb-0">
+        ) : accounts.length === 0 ? (
+          <div className="alert alert-warning mb-0">
             <i className="bi bi-exclamation-triangle me-1" />
-            <strong>Cross-account notes:</strong>
-            <ul className="mb-0 mt-1">
-              <li>People columns will be <strong>skipped</strong> (user IDs differ between accounts)</li>
-              <li>Board subscribers will <strong>not</strong> be transferred</li>
-              <li>Template Clone will use <strong>manual mode</strong> (duplicate_board only works within the same account)</li>
-              <li>Managed columns may need to be <strong>recreated</strong> in the target account</li>
-            </ul>
+            No Monday.com accounts configured. Set <code>MONDAY_API_KEY</code> and/or <code>MONDAY_MIGRATION_API_KEY</code> in Script Properties.
           </div>
+        ) : (
+          <>
+            <select className="form-select" value={selectedAccountId || ''} onChange={e => onAccountChange(e.target.value)}>
+              <option value="">Select destination account...</option>
+              {accounts.map(a => (
+                <option key={a.accountId} value={a.accountId}>
+                  {a.accountName} — {a.userEmail}{a.role === 'source' ? ' (source)' : ' (migration target)'}
+                </option>
+              ))}
+            </select>
+
+            {selectedAccount && (
+              <div className="alert alert-success mt-3 mb-0 d-flex align-items-center">
+                <div>
+                  <strong><i className="bi bi-check-circle me-1" />Destination:</strong>{' '}
+                  {selectedAccount.accountName} ({selectedAccount.userEmail})
+                  <br /><small className="text-muted">Account ID: {selectedAccount.accountId} &middot; {selectedAccount.role === 'source' ? 'Source account' : 'Migration target account'}</small>
+                </div>
+              </div>
+            )}
+
+            {isCrossAccount && (
+              <div className="alert alert-warning mt-3 mb-0">
+                <i className="bi bi-exclamation-triangle me-1" />
+                <strong>Cross-account notes:</strong>
+                <ul className="mb-0 mt-1">
+                  <li>People columns will be <strong>skipped</strong> (user IDs differ between accounts)</li>
+                  <li>Board subscribers will <strong>not</strong> be transferred</li>
+                  <li>Template Clone will use <strong>manual mode</strong> (duplicate_board only works within the same account)</li>
+                  <li>Managed columns may need to be <strong>recreated</strong> in the target account</li>
+                </ul>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
