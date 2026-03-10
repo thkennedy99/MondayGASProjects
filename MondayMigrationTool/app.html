@@ -16,6 +16,18 @@ const api = {
         setTimeout(() => resolve({ success: true, mock: true, data: {} }), 500);
       }
     });
+  },
+  // Fire-and-forget: calls the server function without waiting for a result.
+  // Errors are logged but not thrown. Used for long-running operations.
+  fireAndForget: (functionName, ...args) => {
+    if (google?.script?.run) {
+      google.script.run
+        .withSuccessHandler(() => {})
+        .withFailureHandler(err => console.error(`Fire-and-forget error in ${functionName}:`, err))
+        [functionName](...args);
+    } else {
+      console.log(`Mock fire-and-forget → ${functionName}`, args);
+    }
   }
 };
 
@@ -733,15 +745,24 @@ const MigrationTab = () => {
         params.targetAccountId = selectedTargetAccount;
       }
 
-      const result = await api.call('startMigration', params);
-      if (result.success) {
-        setMigrationId(result.migrationId);
-        startPolling(result.migrationId);
-        toast.show('Migration started!', 'success');
-      } else {
-        toast.show(result.error || 'Failed to start migration', 'danger');
+      // Step 1: Initialize migration (returns immediately with migrationId)
+      const initResult = await api.call('initMigration', params);
+      if (!initResult.success) {
+        toast.show(initResult.error || 'Failed to initialize migration', 'danger');
         setStep('configure');
+        return;
       }
+
+      const id = initResult.migrationId;
+      setMigrationId(id);
+
+      // Step 2: Start polling BEFORE firing the migration (so UI shows progress immediately)
+      startPolling(id);
+
+      // Step 3: Fire-and-forget the actual migration execution
+      api.fireAndForget('runMigration', id);
+
+      toast.show('Migration started!', 'success');
     } catch (e) {
       toast.show(e.message, 'danger');
       setStep('configure');
@@ -852,32 +873,70 @@ const MigrationTab = () => {
       )}
 
       {/* Step 2: Running */}
-      {step === 'running' && (
-        <div className="card migration-progress">
-          <div className="card-header"><i className="bi bi-hourglass-split me-1" /> Migration in Progress</div>
-          <div className="card-body text-center">
-            <div className="progress mb-3" style={{ height: '30px' }}>
-              <div className={`progress-bar progress-bar-striped progress-bar-animated bg-primary`}
-                style={{ width: `${progress?.percent || 0}%` }}>
-                {progress?.percent || 0}%
+      {step === 'running' && (() => {
+        const elapsed = progress?.startTime
+          ? Math.floor((Date.now() - new Date(progress.startTime).getTime()) / 1000)
+          : 0;
+        const mins = Math.floor(elapsed / 60);
+        const secs = elapsed % 60;
+        const elapsedStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+        return (
+          <div className="card migration-progress">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <span><i className="bi bi-hourglass-split me-1" /> Migration in Progress</span>
+              <span className="badge bg-secondary"><i className="bi bi-clock me-1" />{elapsedStr}</span>
+            </div>
+            <div className="card-body">
+              <div className="progress mb-3" style={{ height: '30px' }}>
+                <div className={`progress-bar progress-bar-striped progress-bar-animated bg-primary`}
+                  style={{ width: `${progress?.percent || 0}%`, transition: 'width 0.5s ease' }}>
+                  {progress?.percent || 0}%
+                </div>
+              </div>
+              <p className="mb-2 fs-5 text-center">{progress?.message || 'Initializing...'}</p>
+
+              {/* Stats row */}
+              {progress?.boardsTotal > 0 && (
+                <div className="row g-2 mt-2 mb-3">
+                  <div className="col-4 text-center">
+                    <div className="fw-bold fs-5">{progress.boardsCompleted || 0} / {progress.boardsTotal}</div>
+                    <small className="text-muted">Boards</small>
+                  </div>
+                  <div className="col-4 text-center">
+                    <div className="fw-bold fs-5">{progress.itemsMigrated || 0}{progress.itemsTotal ? ` / ${progress.itemsTotal}` : ''}</div>
+                    <small className="text-muted">Items</small>
+                  </div>
+                  <div className="col-4 text-center">
+                    <div className="fw-bold fs-5">{progress.foldersCreated || 0}{progress.foldersTotal ? ` / ${progress.foldersTotal}` : ''}</div>
+                    <small className="text-muted">Folders</small>
+                  </div>
+                </div>
+              )}
+
+              {progress?.errors?.length > 0 && (
+                <div className="alert alert-warning mt-3 text-start">
+                  <strong>Errors encountered ({progress.errors.length}):</strong>
+                  <ul className="mb-0">{progress.errors.slice(-5).map((e, i) => <li key={i}>{e.board}: {e.msg}</li>)}</ul>
+                  {progress.errors.length > 5 && <small className="text-muted">...and {progress.errors.length - 5} more</small>}
+                </div>
+              )}
+
+              {progress?.lastUpdate && (
+                <p className="text-muted text-center mt-2 mb-1" style={{ fontSize: '0.8rem' }}>
+                  Last update: {new Date(progress.lastUpdate).toLocaleTimeString()}
+                </p>
+              )}
+
+              <div className="text-center">
+                <button className="btn btn-danger mt-2" onClick={handleCancel}>
+                  <i className="bi bi-x-circle me-1" />Cancel Migration
+                </button>
               </div>
             </div>
-            <p className="mb-2 fs-5">{progress?.message || 'Initializing...'}</p>
-            {progress?.boardsTotal > 0 && (
-              <p className="text-muted">Board {progress.boardsCompleted || 0} of {progress.boardsTotal}</p>
-            )}
-            {progress?.errors?.length > 0 && (
-              <div className="alert alert-warning mt-3 text-start">
-                <strong>Errors encountered:</strong>
-                <ul className="mb-0">{progress.errors.map((e, i) => <li key={i}>{e.board}: {e.msg}</li>)}</ul>
-              </div>
-            )}
-            <button className="btn btn-danger mt-3" onClick={handleCancel}>
-              <i className="bi bi-x-circle me-1" />Cancel Migration
-            </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Step 3: Done */}
       {step === 'done' && progress && (
@@ -894,10 +953,14 @@ const MigrationTab = () => {
               <div className="col-md-3"><StatCard value={progress.errors?.length || 0} label="Errors" icon="exclamation-triangle" color="var(--match-poor)" /></div>
             </div>
             {(
+              (progress.foldersCreated > 0) ||
               (progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0)) ||
               (progress.documentMigration && progress.documentMigration.docsMigrated > 0)
             ) && (
               <div className="row g-3 mb-4">
+                {progress.foldersCreated > 0 && (
+                  <div className="col-md-3"><StatCard value={progress.foldersCreated} label="Folders Recreated" icon="folder" color="var(--gw-bright-blue)" /></div>
+                )}
                 {progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0) && (
                   <div className="col-md-3"><StatCard value={progress.boardMapping.reduce((sum, bm) => sum + (bm.managedColumnsAttached || 0), 0)} label="Managed Columns Linked" icon="link-45deg" color="var(--gw-bright-blue)" /></div>
                 )}
@@ -933,11 +996,12 @@ const MigrationTab = () => {
             {progress.boardMapping && (
               <div className="scrollable-table mt-3">
                 <table className="table table-gw table-sm mb-0">
-                  <thead><tr><th>Source Board</th><th>Target Board ID</th><th>Method</th><th>Status</th><th>Items</th></tr></thead>
+                  <thead><tr><th>Source Board</th><th>Folder</th><th>Target Board ID</th><th>Method</th><th>Status</th><th>Items</th></tr></thead>
                   <tbody>
                     {progress.boardMapping.map((bm, i) => (
                       <tr key={i}>
                         <td>{bm.sourceBoardName}</td>
+                        <td>{bm.folderName ? <span className="badge bg-light text-dark"><i className="bi bi-folder me-1" />{bm.folderName}</span> : <span className="text-muted">—</span>}</td>
                         <td><code>{bm.targetBoardId || 'N/A'}</code></td>
                         <td>
                           <span className={`badge ${bm.migrationMethod === 'template' ? 'bg-info' : 'bg-secondary'}`}>

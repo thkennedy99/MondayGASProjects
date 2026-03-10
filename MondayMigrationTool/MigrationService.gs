@@ -870,7 +870,75 @@ function addMarkdownToDocOnTarget(targetApiKey, docId, markdown) {
 // ── Execute Migration ────────────────────────────────────────────────────────
 
 /**
- * Clone a workspace to a new workspace (same or different account).
+ * Initialize a migration session — validates inputs, generates ID, stores params.
+ * Returns immediately so the client can start polling before firing runMigration().
+ * @param {Object} params - { sourceWorkspaceId, targetWorkspaceName, targetAccountId, components }
+ * @returns {Object} { success, migrationId }
+ */
+function initMigration(params) {
+  try {
+    if (!params || !params.sourceWorkspaceId) {
+      throw new Error('sourceWorkspaceId is required');
+    }
+
+    var migrationId = generateMigrationId();
+
+    // Store params so runMigration() can retrieve them
+    var json = JSON.stringify(params);
+    PropertiesService.getScriptProperties().setProperty('migParams_' + migrationId, json);
+    try {
+      CacheService.getScriptCache().put('migParams_' + migrationId, json, 600);
+    } catch (e) {}
+
+    // Initialize progress state
+    updateMigrationProgress(migrationId, {
+      state: 'running',
+      percent: 1,
+      message: 'Initializing migration...',
+      sourceWorkspaceId: params.sourceWorkspaceId,
+      isCrossAccount: !!params.targetAccountId
+    });
+
+    return safeReturn({ success: true, migrationId: migrationId });
+  } catch (error) {
+    return handleError('initMigration', error);
+  }
+}
+
+/**
+ * Execute the migration (fire-and-forget from client).
+ * Reads stored params for the given migrationId, then runs the full migration.
+ * @param {string} migrationId
+ */
+function runMigration(migrationId) {
+  try {
+    // Retrieve stored params
+    var paramStr = CacheService.getScriptCache().get('migParams_' + migrationId)
+      || PropertiesService.getScriptProperties().getProperty('migParams_' + migrationId);
+    if (!paramStr) throw new Error('Migration params not found for: ' + migrationId);
+    var params = JSON.parse(paramStr);
+
+    // Clean up stored params
+    CacheService.getScriptCache().remove('migParams_' + migrationId);
+    PropertiesService.getScriptProperties().deleteProperty('migParams_' + migrationId);
+
+    // Delegate to the actual migration logic
+    return _executeMigration(migrationId, params);
+  } catch (error) {
+    if (migrationId) {
+      updateMigrationProgress(migrationId, {
+        state: 'error',
+        percent: 0,
+        message: 'Migration failed: ' + error.toString()
+      });
+    }
+    return handleError('runMigration', error, migrationId);
+  }
+}
+
+/**
+ * Legacy entry point — validates, generates ID, and runs the full migration in one call.
+ * Kept for backward compatibility. New UI should use initMigration() + runMigration().
  * @param {Object} params - {
  *   sourceWorkspaceId, targetWorkspaceName, targetApiKey (optional),
  *   components: { groups: true, subscribers: true, guests: false, documents: false }
@@ -886,6 +954,25 @@ function startMigration(params) {
     }
 
     migrationId = generateMigrationId();
+    return _executeMigration(migrationId, params);
+  } catch (error) {
+    if (migrationId) {
+      updateMigrationProgress(migrationId, {
+        state: 'error',
+        percent: 0,
+        message: 'Migration failed: ' + error.toString()
+      });
+      logMigrationAction(migrationId, 'ERROR', params.sourceWorkspaceId, '', 'error', error.toString());
+    }
+    return handleError('startMigration', error, migrationId);
+  }
+}
+
+/**
+ * Internal: executes the full migration workflow.
+ */
+function _executeMigration(migrationId, params) {
+  try {
     var sourceWsId = params.sourceWorkspaceId;
     var targetName = params.targetWorkspaceName || null;
     var components = params.components || {};
@@ -1001,6 +1088,7 @@ function startMigration(params) {
 
     // Step 3b: Recreate folder structure from source workspace in target workspace
     var folderMapping = {}; // source folder ID -> target folder ID
+    var folderList = []; // flattened list of all folders (for name lookup during board moves)
     try {
       console.log('Migration: Step 3b - Fetching source workspace folder structure...');
       updateMigrationProgress(migrationId, { message: 'Scanning workspace folder structure...' });
@@ -1009,7 +1097,7 @@ function startMigration(params) {
         console.log('Migration: Found ' + sourceFolders.length + ' top-level folders');
 
         // Flatten the folder tree into a list with parent references for ordered creation
-        var folderList = [];
+        folderList = [];
         var flattenFolders = function(folders, parentSourceId) {
           folders.forEach(function(folder) {
             folderList.push({
@@ -1098,7 +1186,14 @@ function startMigration(params) {
         if (sourceFolderId && folderMapping[sourceFolderId] && result.targetBoardId) {
           try {
             moveBoardToFolderOnTarget(targetApiKey, result.targetBoardId, folderMapping[sourceFolderId]);
-            console.log('Migration:   Moved board "' + sourceBoard.name + '" to target folder (source folder=' + sourceFolderId + ' → target folder=' + folderMapping[sourceFolderId] + ')');
+            // Find folder name for UI display
+            var folderName = '';
+            for (var fi2 = 0; fi2 < folderList.length; fi2++) {
+              if (folderList[fi2].id === sourceFolderId) { folderName = folderList[fi2].name; break; }
+            }
+            result.targetFolderId = folderMapping[sourceFolderId];
+            result.folderName = folderName;
+            console.log('Migration:   Moved board "' + sourceBoard.name + '" to target folder "' + folderName + '" (source folder=' + sourceFolderId + ' → target folder=' + folderMapping[sourceFolderId] + ')');
           } catch (moveErr) {
             console.warn('Migration:   Failed to move board "' + sourceBoard.name + '" to folder: ' + moveErr);
           }
@@ -1179,10 +1274,14 @@ function startMigration(params) {
     console.log('Migration: ═══════════════════════════════════════════════════════');
 
     // Build completion message
+    var foldersCreated = Object.keys(folderMapping).length;
     var completionMsg = finalState === 'completed'
       ? 'Migration complete! ' + sourceBoards.length + ' boards cloned to "' + wsName + '".'
       : 'Migration finished with some errors. Check details.';
 
+    if (foldersCreated > 0) {
+      completionMsg += ' ' + foldersCreated + ' folder(s) recreated.';
+    }
     if (docMigrationResult && docMigrationResult.docsMigrated > 0) {
       completionMsg += ' ' + docMigrationResult.docsMigrated + ' document(s) migrated with Drive backup.';
     }
@@ -1194,6 +1293,8 @@ function startMigration(params) {
       boardsCompleted: sourceBoards.length,
       itemsTotal: totalItemsExpected,
       itemsMigrated: totalItemsMigrated,
+      foldersCreated: foldersCreated,
+      foldersTotal: folderList.length,
       targetWorkspaceId: String(targetWs.id),
       targetWorkspaceName: wsName,
       boardMapping: boardMapping.map(function(bm) {
@@ -1209,7 +1310,9 @@ function startMigration(params) {
           subitemsMigrated: bm.subitemsMigrated || 0,
           formsMigrated: bm.formsMigrated || 0,
           formsTotal: bm.formsTotal || 0,
-          managedColumnsAttached: bm.managedColumnsAttached || 0
+          managedColumnsAttached: bm.managedColumnsAttached || 0,
+          folderName: bm.folderName || null,
+          targetFolderId: bm.targetFolderId || null
         };
       }),
       docMapping: docMapping,
@@ -1243,7 +1346,7 @@ function startMigration(params) {
       });
       logMigrationAction(migrationId, 'ERROR', params.sourceWorkspaceId, '', 'error', error.toString());
     }
-    return handleError('startMigration', error, migrationId);
+    return handleError('_executeMigration', error, migrationId);
   }
 }
 
