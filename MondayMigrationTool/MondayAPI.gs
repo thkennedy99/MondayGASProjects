@@ -1,41 +1,548 @@
 /**
- * MondayAPI.gs - Monday.com GraphQL API wrapper
+ * MondayAPI.gs - Monday.com API Integration
+ * Reuses the proven MondayAPI class from the parent project.
  * Single-account operations — same API key for source and target workspaces.
  * Users/guests already exist, so people columns are preserved by user ID.
  */
 
-// ── Core API Call ────────────────────────────────────────────────────────────
+// ── Proven MondayAPI Class (copied from parent project) ──────────────────────
 
-/**
- * Execute a GraphQL query/mutation against Monday.com API.
- * @param {string} query - GraphQL query string
- * @param {Object} variables - Query variables
- * @returns {Object} API response data
- */
-function callMondayAPI(query, variables) {
-  var apiKey = CONFIG.MONDAY_API_KEY;
+class MondayAPI {
+  constructor() {
+    this.apiKey = CONFIG.MONDAY_API_KEY;
+    this.apiUrl = CONFIG.MONDAY_API_URL;
 
-  if (!apiKey) {
-    throw new Error('MONDAY_API_KEY not configured in Script Properties');
+    if (!this.apiKey) {
+      throw new Error('Monday.com API key not configured');
+    }
   }
 
-  var options = {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { 'Authorization': apiKey },
-    payload: JSON.stringify({ query: query, variables: variables || {} }),
-    muteHttpExceptions: true
-  };
+  /**
+   * Execute GraphQL query
+   */
+  query(graphqlQuery, variables = {}) {
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': this.apiKey
+      },
+      payload: JSON.stringify({
+        query: graphqlQuery,
+        variables: variables
+      }),
+      muteHttpExceptions: true
+    };
 
-  var result = retryableFetch(CONFIG.MONDAY_API_URL, options);
-  var parsed = JSON.parse(result.getContentText());
+    try {
+      const response = retryableFetch(this.apiUrl, options);
+      const responseText = response.getContentText();
+      const responseCode = response.getResponseCode();
 
-  if (parsed.errors) {
-    throw new Error('Monday API error: ' + JSON.stringify(parsed.errors));
+      console.log(`Debug: Monday API response code: ${responseCode}`);
+      console.log(`Debug: Monday API raw response: ${responseText.substring(0, 1000)}`);
+
+      const result = JSON.parse(responseText);
+
+      if (result.errors) {
+        console.error('Monday.com API errors:', result.errors);
+        throw new Error(result.errors[0].message);
+      }
+
+      if (result.account_id) {
+        console.log(`Debug: Monday account_id: ${result.account_id}`);
+      }
+
+      return result.data;
+    } catch (error) {
+      console.error('Monday.com API request failed:', error);
+      throw error;
+    }
   }
 
-  return parsed.data;
+  /**
+   * Get board data
+   */
+  getBoardData(boardId, limit = 500) {
+    const graphqlQuery = `
+      query GetBoardData($boardId: ID!, $limit: Int) {
+        boards(ids: [$boardId]) {
+          name
+          items_page(limit: $limit) {
+            items {
+              id
+              name
+              created_at
+              updated_at
+              column_values {
+                id
+                text
+                value
+              }
+              group {
+                id
+                title
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const result = this.query(graphqlQuery, { boardId: boardId, limit: limit });
+    return result.boards[0];
+  }
+
+  /**
+   * Get board columns
+   */
+  getBoardColumns(boardId) {
+    const graphqlQuery = `
+      query GetBoardColumns($boardId: ID!) {
+        boards(ids: [$boardId]) {
+          columns {
+            id
+            title
+            type
+            settings_str
+          }
+        }
+      }
+    `;
+
+    const result = this.query(graphqlQuery, { boardId: boardId });
+    return result.boards[0].columns;
+  }
+
+  /**
+   * Update item column value
+   */
+  updateItemColumnValue(boardId, itemId, columnId, value) {
+    const graphqlQuery = `
+      mutation UpdateItemColumnValue($boardId: ID!, $itemId: ID!, $columnId: String!, $value: JSON!) {
+        change_column_value(
+          board_id: $boardId,
+          item_id: $itemId,
+          column_id: $columnId,
+          value: $value
+        ) {
+          id
+        }
+      }
+    `;
+
+    return this.query(graphqlQuery, {
+      boardId: boardId,
+      itemId: itemId,
+      columnId: columnId,
+      value: JSON.stringify(value)
+    });
+  }
+
+  /**
+   * Create new item
+   */
+  createItem(boardId, groupId, itemName, columnValues = {}) {
+    const graphqlQuery = `
+      mutation CreateItem($boardId: ID!, $groupId: String!, $itemName: String!, $columnValues: JSON!) {
+        create_item(
+          board_id: $boardId,
+          group_id: $groupId,
+          item_name: $itemName,
+          column_values: $columnValues
+        ) {
+          id
+          name
+        }
+      }
+    `;
+
+    return this.query(graphqlQuery, {
+      boardId: boardId,
+      groupId: groupId,
+      itemName: itemName,
+      columnValues: JSON.stringify(columnValues)
+    });
+  }
+
+  /**
+   * Delete item
+   */
+  deleteItem(itemId) {
+    const graphqlQuery = `
+      mutation DeleteItem($itemId: ID!) {
+        delete_item(item_id: $itemId) {
+          id
+        }
+      }
+    `;
+
+    return this.query(graphqlQuery, { itemId: itemId });
+  }
+
+  /**
+   * Get board columns with settings (for dropdowns and other column types)
+   */
+  getBoardColumnsWithSettings(boardId) {
+    const graphqlQuery = `
+      query GetBoardColumnsWithSettings($boardId: ID!) {
+        boards(ids: [$boardId]) {
+          columns {
+            id
+            title
+            type
+            settings_str
+          }
+        }
+      }
+    `;
+
+    const result = this.query(graphqlQuery, { boardId: boardId });
+
+    if (!result.boards || result.boards.length === 0) {
+      return [];
+    }
+
+    // Parse settings_str for each column
+    const columns = result.boards[0].columns.map(col => {
+      let settings = {};
+      try {
+        if (col.settings_str) {
+          settings = JSON.parse(col.settings_str);
+        }
+      } catch (e) {
+        console.error(`Failed to parse settings for column ${col.title}:`, e);
+      }
+
+      return {
+        id: col.id,
+        title: col.title,
+        type: col.type,
+        settings: settings
+      };
+    });
+
+    return columns;
+  }
+
+  /**
+   * Get users on the board/workspace
+   */
+  getBoardUsers(boardId) {
+    const graphqlQuery = `
+      query GetBoardUsers($boardId: ID!) {
+        boards(ids: [$boardId]) {
+          owners {
+            id
+            name
+            email
+          }
+          subscribers {
+            id
+            name
+            email
+          }
+        }
+      }
+    `;
+
+    const result = this.query(graphqlQuery, { boardId: boardId });
+
+    if (!result.boards || result.boards.length === 0) {
+      return [];
+    }
+
+    const board = result.boards[0];
+
+    // Combine owners and subscribers, remove duplicates
+    const usersMap = new Map();
+
+    if (board.owners) {
+      board.owners.forEach(user => {
+        usersMap.set(user.id, user);
+      });
+    }
+
+    if (board.subscribers) {
+      board.subscribers.forEach(user => {
+        usersMap.set(user.id, user);
+      });
+    }
+
+    return Array.from(usersMap.values());
+  }
+
+  /**
+   * Update multiple columns at once
+   */
+  updateMultipleColumns(boardId, itemId, columnValues) {
+    const graphqlQuery = `
+      mutation UpdateMultipleColumns($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
+        change_multiple_column_values(
+          board_id: $boardId,
+          item_id: $itemId,
+          column_values: $columnValues
+        ) {
+          id
+        }
+      }
+    `;
+
+    console.log('Debug: Column values for API:', JSON.stringify(columnValues));
+
+    return this.query(graphqlQuery, {
+      boardId: boardId,
+      itemId: itemId,
+      columnValues: JSON.stringify(columnValues)
+    });
+  }
+
+  /**
+   * Format column value based on column type
+   */
+  formatColumnValue(columnType, value, settings = {}, columnId = '') {
+    switch (columnType) {
+      case 'text':
+        // Plain text columns - return value as-is
+        return value;
+
+      case 'long-text':
+      case 'long_text':
+        // Long text columns - Monday.com expects {"text": "value"} format
+        return { text: value };
+
+      case 'status':
+      case 'color':
+        // Status/color columns - detailed logging for debugging
+        console.log(`Debug: STATUS COLUMN FORMATTING for columnId="${columnId}"`);
+        console.log(`Debug: Input value: "${value}"`);
+        console.log(`Debug: Settings available: ${!!settings}`);
+        console.log(`Debug: Labels in settings: ${settings && settings.labels ? JSON.stringify(settings.labels) : 'none'}`);
+
+        if (settings && settings.labels) {
+          // Convert deactivated_labels to integers for consistent comparison
+          const deactivatedLabels = (settings.deactivated_labels || []).map(id => parseInt(id));
+          console.log(`Debug: Deactivated labels: ${JSON.stringify(deactivatedLabels)}`);
+
+          // Find all label IDs that match this label name
+          const matchingLabelIds = Object.keys(settings.labels).filter(
+            id => settings.labels[id] === value
+          );
+          console.log(`Debug: Matching label IDs for "${value}": ${JSON.stringify(matchingLabelIds)}`);
+
+          // Filter out deactivated labels from matches (compare as integers)
+          const activeLabelIds = matchingLabelIds.filter(id => !deactivatedLabels.includes(parseInt(id)));
+          console.log(`Debug: Active (non-deactivated) label IDs: ${JSON.stringify(activeLabelIds)}`);
+
+          if (activeLabelIds.length > 0) {
+            // Use the first active label
+            const activeLabelId = activeLabelIds[0];
+            console.log(`Debug: Using label "${value}" (ID: ${activeLabelId}, found ${matchingLabelIds.length} matches, ${activeLabelIds.length} active)`);
+            // Use index format to ensure we select the exact label ID
+            const result = { index: parseInt(activeLabelId) };
+            console.log(`Debug: Returning status value: ${JSON.stringify(result)}`);
+            return result;
+          } else if (matchingLabelIds.length > 0) {
+            // All matching labels are deactivated
+            console.warn(`All matching labels for "${value}" are deactivated: ${JSON.stringify(matchingLabelIds)}`);
+            return null;
+          } else {
+            console.warn(`Label "${value}" not found in column settings. Available labels: ${JSON.stringify(Object.values(settings.labels))}`);
+            return null;
+          }
+        }
+        // Fallback if settings not available - return null to prevent errors
+        console.warn(`Status/color column "${columnId}" has no settings - cannot format value safely`);
+        return null;
+
+      case 'date':
+        // Date format: YYYY-MM-DD
+        if (value) {
+          // Ensure date is in correct format (remove time if present)
+          const dateStr = String(value).split('T')[0];
+          return { date: dateStr };
+        }
+        return null;
+
+      case 'people':
+      case 'multiple-person':
+        // People column expects person IDs
+        // value should be array of person IDs or single ID
+        if (Array.isArray(value)) {
+          const persons = value
+            .map(id => parseInt(id))
+            .filter(id => !isNaN(id) && id !== null)
+            .map(id => ({ id: id, kind: 'person' }));
+
+          return persons.length > 0 ? { personsAndTeams: persons } : null;
+        } else if (value) {
+          const personId = parseInt(value);
+          if (!isNaN(personId) && personId !== null) {
+            return { personsAndTeams: [{ id: personId, kind: 'person' }] };
+          }
+        }
+        return null;
+
+      case 'numeric':
+      case 'numbers':
+        if (value === '' || value === null || value === undefined) {
+          return null;
+        }
+        const numValue = parseFloat(value);
+        return !isNaN(numValue) ? numValue : null;
+
+      case 'dropdown':
+        // Dropdown expects ids array
+        // Helper function to find label ID by name (handles both object and string labels)
+        // Returns the actual label ID (from label.id property if object, or the key if string label)
+        const findDropdownLabelId = (labels, searchValue) => {
+          for (const key of Object.keys(labels)) {
+            const label = labels[key];
+            // Dropdown labels can be objects with {id, name} or simple strings
+            if (label && typeof label === 'object' && label.name) {
+              if (label.name === searchValue) {
+                // Use the label's id property, not the key
+                console.log(`Debug: Found dropdown label "${searchValue}" with id=${label.id} (key=${key})`);
+                return label.id;
+              }
+            } else if (label === searchValue) {
+              // Simple string label - use the key as the ID
+              return parseInt(key);
+            }
+          }
+          return null;
+        };
+
+        // First, check if settings has labels to look up the ID
+        if (settings && settings.labels && typeof value === 'string') {
+          // Try to find the label ID by matching the label name
+          const labelId = findDropdownLabelId(settings.labels, value);
+          if (labelId) {
+            return { ids: [parseInt(labelId)] };
+          }
+        }
+
+        // Handle array of values (could be string names OR numeric IDs)
+        if (Array.isArray(value)) {
+          const ids = [];
+
+          for (const v of value) {
+            // First, try to look up as string name in settings.labels
+            if (settings && settings.labels && typeof v === 'string') {
+              const labelId = findDropdownLabelId(settings.labels, v);
+              if (labelId) {
+                ids.push(parseInt(labelId));
+                continue;
+              }
+            }
+
+            // Fallback: try to parse as numeric ID
+            const numericId = parseInt(v);
+            if (!isNaN(numericId)) {
+              ids.push(numericId);
+            }
+          }
+
+          if (ids.length > 0) {
+            console.log(`Debug: Dropdown formatted ${value.length} values to IDs: [${ids.join(', ')}]`);
+            return { ids: ids };
+          }
+          console.warn(`Dropdown array values could not be resolved: ${JSON.stringify(value)}`);
+          return null;
+        } else if (value) {
+          // Single non-array value - try as numeric ID
+          const dropdownId = parseInt(value);
+          if (!isNaN(dropdownId)) {
+            return { ids: [dropdownId] };
+          }
+        }
+
+        console.warn(`Dropdown value "${value}" not found in settings and is not a valid ID`);
+        return null;
+
+      case 'link':
+      case 'url':
+        return value ? { url: value, text: value } : null;
+
+      default:
+        // Unknown column type - return value as-is
+        // Do NOT make assumptions based on column ID, as it can be misleading
+        // (e.g., status_1_mkn1ekgr is actually a long_text column)
+        console.warn(`Unknown column type "${columnType}" for column ID "${columnId}" - returning value as-is`);
+        return value;
+    }
+  }
+
+  /**
+   * Get user info
+   */
+  getUserInfo() {
+    const graphqlQuery = `
+      query GetUserInfo {
+        me {
+          id
+          name
+          email
+          teams {
+            id
+            name
+          }
+        }
+      }
+    `;
+
+    return this.query(graphqlQuery);
+  }
+
+  /**
+   * Archive item
+   */
+  archiveItem(itemId) {
+    const graphqlQuery = `
+      mutation ArchiveItem($itemId: ID!) {
+        archive_item(item_id: $itemId) {
+          id
+        }
+      }
+    `;
+
+    return this.query(graphqlQuery, { itemId: itemId });
+  }
+
+  /**
+   * Move item to group
+   */
+  moveItemToGroup(itemId, groupId) {
+    const graphqlQuery = `
+      mutation MoveItemToGroup($itemId: ID!, $groupId: String!) {
+        move_item_to_group(item_id: $itemId, group_id: $groupId) {
+          id
+        }
+      }
+    `;
+
+    return this.query(graphqlQuery, { itemId: itemId, groupId: groupId });
+  }
+
+  /**
+   * Add update to item
+   */
+  addUpdate(itemId, body) {
+    const graphqlQuery = `
+      mutation AddUpdate($itemId: ID!, $body: String!) {
+        create_update(item_id: $itemId, body: $body) {
+          id
+          body
+          created_at
+        }
+      }
+    `;
+
+    return this.query(graphqlQuery, { itemId: itemId, body: body });
+  }
 }
+
+// ── Retry Helper ─────────────────────────────────────────────────────────────
 
 /**
  * Retry-capable UrlFetchApp.fetch with exponential backoff.
@@ -68,6 +575,21 @@ function retryableFetch(url, options, maxAttempts) {
   }
 
   throw new Error('Failed after ' + maxAttempts + ' attempts: ' + lastError);
+}
+
+// ── Shared instance ──────────────────────────────────────────────────────────
+// All standalone functions below use this instance to call the proven class methods.
+
+function _monday() {
+  return new MondayAPI();
+}
+
+// ── Standalone Functions (migration-specific + wrappers) ─────────────────────
+// These are called from InventoryService, MigrationService, ValidationService.
+// They delegate to the proven MondayAPI class wherever possible.
+
+function callMondayAPI(query, variables) {
+  return _monday().query(query, variables);
 }
 
 // ── Workspace Queries ────────────────────────────────────────────────────────
@@ -161,6 +683,10 @@ function getBoardStructure(boardId) {
   return data.boards && data.boards[0] ? data.boards[0] : null;
 }
 
+function getBoardColumnsWithSettings(boardId) {
+  return _monday().getBoardColumnsWithSettings(boardId);
+}
+
 // ── User Queries ─────────────────────────────────────────────────────────────
 
 function getAccountUsers() {
@@ -195,7 +721,15 @@ function getBoardSubscribers(boardId) {
   return board ? (board.subscribers || []) : [];
 }
 
-// ── Mutation Helpers ─────────────────────────────────────────────────────────
+function getBoardUsers(boardId) {
+  return _monday().getBoardUsers(boardId);
+}
+
+function getUserInfo() {
+  return _monday().getUserInfo();
+}
+
+// ── Mutation Wrappers ────────────────────────────────────────────────────────
 
 function createBoard(name, kind, workspaceId) {
   var data = callMondayAPI(
@@ -264,84 +798,37 @@ function addUsersToBoard(boardId, userIds) {
   return data.add_users_to_board;
 }
 
-// ── Additional API functions (ported from parent project) ────────────────────
+// ── Class method wrappers for use outside the class ──────────────────────────
 
 function updateItemColumnValue(boardId, itemId, columnId, value) {
-  var data = callMondayAPI(
-    'mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $value: JSON!) { change_column_value (board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $value) { id } }',
-    { boardId: String(boardId), itemId: String(itemId), columnId: columnId, value: JSON.stringify(value) }
-  );
-  return data.change_column_value;
+  return _monday().updateItemColumnValue(boardId, itemId, columnId, value);
 }
 
 function updateMultipleColumns(boardId, itemId, columnValues) {
-  var data = callMondayAPI(
-    'mutation ($boardId: ID!, $itemId: ID!, $values: JSON!) { change_multiple_column_values (board_id: $boardId, item_id: $itemId, column_values: $values) { id } }',
-    { boardId: String(boardId), itemId: String(itemId), values: JSON.stringify(columnValues) }
-  );
-  return data.change_multiple_column_values;
+  return _monday().updateMultipleColumns(boardId, itemId, columnValues);
 }
 
 function deleteItem(itemId) {
-  var data = callMondayAPI(
-    'mutation ($itemId: ID!) { delete_item (item_id: $itemId) { id } }',
-    { itemId: String(itemId) }
-  );
-  return data.delete_item;
+  return _monday().deleteItem(itemId);
 }
 
 function archiveItem(itemId) {
-  var data = callMondayAPI(
-    'mutation ($itemId: ID!) { archive_item (item_id: $itemId) { id } }',
-    { itemId: String(itemId) }
-  );
-  return data.archive_item;
+  return _monday().archiveItem(itemId);
 }
 
 function moveItemToGroup(itemId, groupId) {
-  var data = callMondayAPI(
-    'mutation ($itemId: ID!, $groupId: String!) { move_item_to_group (item_id: $itemId, group_id: $groupId) { id } }',
-    { itemId: String(itemId), groupId: groupId }
-  );
-  return data.move_item_to_group;
+  return _monday().moveItemToGroup(itemId, groupId);
 }
 
 function addUpdate(itemId, body) {
-  var data = callMondayAPI(
-    'mutation ($itemId: ID!, $body: String!) { create_update (item_id: $itemId, body: $body) { id } }',
-    { itemId: String(itemId), body: body }
-  );
-  return data.create_update;
+  return _monday().addUpdate(itemId, body);
 }
 
-function getUserInfo() {
-  var data = callMondayAPI(
-    'query { me { id name email teams { id name } } }'
-  );
-  return data.me;
+function formatColumnValue(columnType, value, settings, columnId) {
+  return _monday().formatColumnValue(columnType, value, settings || {}, columnId || '');
 }
 
-function getBoardColumnsWithSettings(boardId) {
-  var data = callMondayAPI(
-    'query ($boardId: [ID!]) { boards (ids: $boardId) { columns { id title type settings_str } } }',
-    { boardId: [Number(boardId)] }
-  );
-  var board = data.boards && data.boards[0];
-  if (!board) return [];
-
-  return board.columns.map(function(col) {
-    var settings = {};
-    try {
-      settings = JSON.parse(col.settings_str || '{}');
-    } catch (e) {}
-    return {
-      id: col.id,
-      title: col.title,
-      type: col.type,
-      settings: settings
-    };
-  });
-}
+// ── Migration-specific functions (not in parent project) ─────────────────────
 
 function getDocs(workspaceId) {
   var data = callMondayAPI(
@@ -363,98 +850,4 @@ function duplicateBoard(boardId, duplicateType, workspaceId) {
     variables
   );
   return data.duplicate_board.board;
-}
-
-/**
- * Format a column value for the Monday.com API.
- * Ported from parent project MondayAPI class.
- */
-function formatColumnValue(columnType, value, settings, columnId) {
-  settings = settings || {};
-  columnId = columnId || '';
-
-  switch (columnType) {
-    case 'text':
-      return value;
-
-    case 'long-text':
-    case 'long_text':
-      return { text: value };
-
-    case 'status':
-    case 'color':
-      if (settings && settings.labels) {
-        var deactivatedLabels = (settings.deactivated_labels || []).map(function(id) { return parseInt(id); });
-        var matchingLabelIds = Object.keys(settings.labels).filter(function(id) {
-          return settings.labels[id] === value;
-        });
-        var activeLabelIds = matchingLabelIds.filter(function(id) {
-          return deactivatedLabels.indexOf(parseInt(id)) < 0;
-        });
-
-        if (activeLabelIds.length > 0) {
-          return { index: parseInt(activeLabelIds[0]) };
-        }
-        return null;
-      }
-      return null;
-
-    case 'date':
-      if (value) {
-        var dateStr = String(value).split('T')[0];
-        return { date: dateStr };
-      }
-      return null;
-
-    case 'people':
-    case 'multiple-person':
-      if (Array.isArray(value)) {
-        var persons = value
-          .map(function(id) { return parseInt(id); })
-          .filter(function(id) { return !isNaN(id); })
-          .map(function(id) { return { id: id, kind: 'person' }; });
-        return persons.length > 0 ? { personsAndTeams: persons } : null;
-      } else if (value) {
-        var personId = parseInt(value);
-        if (!isNaN(personId)) {
-          return { personsAndTeams: [{ id: personId, kind: 'person' }] };
-        }
-      }
-      return null;
-
-    case 'numeric':
-    case 'numbers':
-      if (value === '' || value === null || value === undefined) return null;
-      var numValue = parseFloat(value);
-      return !isNaN(numValue) ? numValue : null;
-
-    case 'dropdown':
-      if (settings && settings.labels && typeof value === 'string') {
-        var keys = Object.keys(settings.labels);
-        for (var i = 0; i < keys.length; i++) {
-          var label = settings.labels[keys[i]];
-          if (label && typeof label === 'object' && label.name === value) {
-            return { ids: [parseInt(label.id)] };
-          } else if (label === value) {
-            return { ids: [parseInt(keys[i])] };
-          }
-        }
-      }
-      if (Array.isArray(value)) {
-        var ids = value.map(function(v) { return parseInt(v); }).filter(function(id) { return !isNaN(id); });
-        return ids.length > 0 ? { ids: ids } : null;
-      }
-      if (value) {
-        var dropdownId = parseInt(value);
-        if (!isNaN(dropdownId)) return { ids: [dropdownId] };
-      }
-      return null;
-
-    case 'link':
-    case 'url':
-      return value ? { url: value, text: value } : null;
-
-    default:
-      return value;
-  }
 }
