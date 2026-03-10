@@ -203,7 +203,7 @@ const InventoryTab = () => {
               <div className="card">
                 <div className="card-header"><i className="bi bi-building me-1" /> Workspaces</div>
                 <div className="list-group list-group-flush scrollable-table" style={{ maxHeight: '500px' }}>
-                  {inventory.workspaces.map(ws => (
+                  {[...inventory.workspaces].sort((a, b) => a.name.localeCompare(b.name)).map(ws => (
                     <button key={ws.id}
                       className={`list-group-item list-group-item-action workspace-card ${selectedWs === ws.id ? 'selected' : ''}`}
                       onClick={() => loadWorkspace(ws.id)}>
@@ -583,7 +583,10 @@ const TestRunTab = () => {
   const loadWorkspaces = async () => {
     try {
       const result = await api.call('getAccountInventory');
-      if (result.success) setWorkspaces(result.data.workspaces || []);
+      if (result.success) {
+        const ws = (result.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name));
+        setWorkspaces(ws);
+      }
     } catch (e) { toast.show(e.message, 'danger'); }
   };
 
@@ -697,7 +700,10 @@ const MigrationTab = () => {
   const loadWorkspaces = async () => {
     try {
       const result = await api.call('getAccountInventory');
-      if (result.success) setWorkspaces(result.data.workspaces || []);
+      if (result.success) {
+        const ws = (result.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name));
+        setWorkspaces(ws);
+      }
     } catch (e) { toast.show(e.message, 'danger'); }
   };
 
@@ -1007,7 +1013,10 @@ const ValidationTab = () => {
         api.call('getAccountInventory'),
         api.call('getSavedMigrations')
       ]);
-      if (invResult.success) setWorkspaces(invResult.data.workspaces || []);
+      if (invResult.success) {
+        const ws = (invResult.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name));
+        setWorkspaces(ws);
+      }
       if (migResult.success) setSavedMigrations(migResult.data || []);
     } catch (e) {
       toast.show(e.message, 'danger');
