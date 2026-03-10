@@ -1346,35 +1346,20 @@ function exportDocAsMarkdown(docId) {
  * @param {string} kind - 'public' or 'private'
  * @returns {Object} Created document with id and object_id
  */
-function createDoc(workspaceId, name, kind) {
-  var variables = {
-    workspace: { workspace_id: Number(workspaceId) },
-    doc: {}
+function createDoc(workspaceId, name, kind, folderId) {
+  var workspace = {
+    workspace_id: Number(workspaceId),
+    name: name || 'Untitled Document'
   };
-  if (kind) {
-    variables.doc.kind = kind;
-  }
+  if (kind) workspace.kind = kind;
+  if (folderId) workspace.folder_id = Number(folderId);
 
   var data = callMondayAPI(
-    'mutation ($workspace: CreateDocWorkspaceInput!, $doc: CreateDocInput) { create_doc (workspace: $workspace, doc: $doc) { id object_id } }',
-    variables
+    'mutation ($location: CreateDocInput!) { create_doc (location: $location) { id object_id } }',
+    { location: { workspace: workspace } }
   );
 
-  var doc = data.create_doc;
-
-  // Rename the doc (create_doc doesn't accept a name directly)
-  if (name && doc && doc.id) {
-    try {
-      callMondayAPI(
-        'mutation ($docId: ID!, $name: String!) { update_doc_name (docId: $docId, name: $name) { id } }',
-        { docId: Number(doc.id), name: name }
-      );
-    } catch (e) {
-      console.warn('Failed to rename doc to "' + name + '":', e);
-    }
-  }
-
-  return doc;
+  return data.create_doc;
 }
 
 /**

@@ -343,7 +343,7 @@ function createFolderOnTarget(targetApiKey, workspaceId, name, parentFolderId, c
 
 function moveBoardToFolderOnTarget(targetApiKey, boardId, folderId) {
   var data = _targetAPI(targetApiKey,
-    'mutation ($boardId: ID!, $attrs: UpdateBoardHierarchyAttributesInput!) { update_board_hierarchy (board_id: $boardId, attributes: $attrs) { id } }',
+    'mutation ($boardId: ID!, $attrs: UpdateBoardHierarchyAttributesInput!) { update_board_hierarchy (board_id: $boardId, attributes: $attrs) { success message } }',
     { boardId: Number(boardId), attrs: { folder_id: Number(folderId) } }
   );
   return data.update_board_hierarchy;
@@ -355,6 +355,34 @@ function createGroupOnTarget(targetApiKey, boardId, groupName) {
     { boardId: Number(boardId), name: groupName }
   );
   return data.create_group;
+}
+
+function deleteGroupOnTarget(targetApiKey, boardId, groupId) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($boardId: ID!, $groupId: String!) { delete_group (board_id: $boardId, group_id: $groupId) { id } }',
+    { boardId: Number(boardId), groupId: groupId }
+  );
+  return data.delete_group;
+}
+
+function deleteItemOnTarget(targetApiKey, itemId) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($itemId: ID!) { delete_item (item_id: $itemId) { id } }',
+    { itemId: Number(itemId) }
+  );
+  return data.delete_item;
+}
+
+function getGroupItemsOnTarget(targetApiKey, boardId, groupId) {
+  var data = _targetAPI(targetApiKey,
+    'query ($boardId: [ID!]!) { boards (ids: $boardId) { groups { id title items_page (limit: 50) { items { id name } } } } }',
+    { boardId: [Number(boardId)] }
+  );
+  var board = data.boards && data.boards[0];
+  if (!board) return [];
+  var group = (board.groups || []).find(function(g) { return g.id === groupId; });
+  if (!group || !group.items_page) return [];
+  return group.items_page.items || [];
 }
 
 function createColumnOnTarget(targetApiKey, boardId, title, columnType, defaults) {
@@ -566,29 +594,125 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
       try {
         var settings = {};
 
-        // Features (strip password.enabled since we can't set passwords via update_form_settings)
+        // Features — sanitize each sub-object to match FormFeaturesInput schema.
+        // The source form returns extra/null fields that the mutation rejects.
         if (sourceForm.features) {
-          var features = JSON.parse(JSON.stringify(sourceForm.features));
-          // Remove password — must use set_form_password mutation separately
-          delete features.password;
-          settings.features = features;
+          var features = {};
+          var srcF = sourceForm.features;
+          if (srcF.reCaptchaChallenge != null) features.reCaptchaChallenge = !!srcF.reCaptchaChallenge;
+          if (srcF.draftSubmission && srcF.draftSubmission.enabled != null) {
+            features.draftSubmission = { enabled: !!srcF.draftSubmission.enabled };
+          }
+          if (srcF.requireLogin) {
+            var rl = {};
+            if (srcF.requireLogin.enabled != null) rl.enabled = !!srcF.requireLogin.enabled;
+            if (srcF.requireLogin.redirectToLogin != null) rl.redirectToLogin = !!srcF.requireLogin.redirectToLogin;
+            if (Object.keys(rl).length > 0) features.requireLogin = rl;
+          }
+          if (srcF.responseLimit) {
+            var rsl = {};
+            if (srcF.responseLimit.enabled != null) rsl.enabled = !!srcF.responseLimit.enabled;
+            if (srcF.responseLimit.limit != null && typeof srcF.responseLimit.limit === 'number') {
+              rsl.limit = srcF.responseLimit.limit;
+            }
+            if (Object.keys(rsl).length > 0) features.responseLimit = rsl;
+          }
+          if (srcF.closeDate) {
+            var cd = {};
+            if (srcF.closeDate.enabled != null) cd.enabled = !!srcF.closeDate.enabled;
+            if (srcF.closeDate.date && typeof srcF.closeDate.date === 'string') cd.date = srcF.closeDate.date;
+            if (Object.keys(cd).length > 0) features.closeDate = cd;
+          }
+          if (srcF.preSubmissionView) {
+            var psv = {};
+            if (srcF.preSubmissionView.enabled != null) psv.enabled = !!srcF.preSubmissionView.enabled;
+            if (srcF.preSubmissionView.title) psv.title = srcF.preSubmissionView.title;
+            if (srcF.preSubmissionView.description) psv.description = srcF.preSubmissionView.description;
+            if (srcF.preSubmissionView.startButton && srcF.preSubmissionView.startButton.text) {
+              psv.startButton = { text: srcF.preSubmissionView.startButton.text };
+            }
+            if (Object.keys(psv).length > 0) features.preSubmissionView = psv;
+          }
+          if (srcF.afterSubmissionView) {
+            var asv = {};
+            if (srcF.afterSubmissionView.title) asv.title = srcF.afterSubmissionView.title;
+            if (srcF.afterSubmissionView.description) asv.description = srcF.afterSubmissionView.description;
+            if (srcF.afterSubmissionView.allowResubmit != null) asv.allowResubmit = !!srcF.afterSubmissionView.allowResubmit;
+            if (srcF.afterSubmissionView.showSuccessImage != null) asv.showSuccessImage = !!srcF.afterSubmissionView.showSuccessImage;
+            if (srcF.afterSubmissionView.allowEditSubmission != null) asv.allowEditSubmission = !!srcF.afterSubmissionView.allowEditSubmission;
+            if (srcF.afterSubmissionView.allowViewSubmission != null) asv.allowViewSubmission = !!srcF.afterSubmissionView.allowViewSubmission;
+            if (srcF.afterSubmissionView.redirectAfterSubmission) {
+              asv.redirectAfterSubmission = srcF.afterSubmissionView.redirectAfterSubmission;
+            }
+            if (Object.keys(asv).length > 0) features.afterSubmissionView = asv;
+          }
+          if (srcF.monday) {
+            var mon = {};
+            if (srcF.monday.itemGroupId) mon.itemGroupId = srcF.monday.itemGroupId;
+            if (srcF.monday.includeNameQuestion != null) mon.includeNameQuestion = !!srcF.monday.includeNameQuestion;
+            if (srcF.monday.includeUpdateQuestion != null) mon.includeUpdateQuestion = !!srcF.monday.includeUpdateQuestion;
+            if (srcF.monday.syncQuestionAndColumnsTitles != null) mon.syncQuestionAndColumnsTitles = !!srcF.monday.syncQuestionAndColumnsTitles;
+            if (Object.keys(mon).length > 0) features.monday = mon;
+          }
+          // password is excluded — must use set_form_password mutation separately
+          if (Object.keys(features).length > 0) {
+            settings.features = features;
+          }
         }
         if (sourceForm.appearance) {
-          // Sanitize appearance: background only accepts { type, value }
-          var appearance = JSON.parse(JSON.stringify(sourceForm.appearance));
-          if (appearance.background) {
-            var validTypes = ['Image', 'Color', 'None'];
-            if (appearance.background.type && validTypes.indexOf(appearance.background.type) >= 0) {
+          // Sanitize appearance to only include fields from FormAppearanceInput schema.
+          // The source form returns extra read-only fields that the mutation rejects.
+          var appearance = {};
+          var srcApp = sourceForm.appearance;
+          if (srcApp.hideBranding != null) appearance.hideBranding = !!srcApp.hideBranding;
+          if (srcApp.showProgressBar != null) appearance.showProgressBar = !!srcApp.showProgressBar;
+          if (srcApp.primaryColor && typeof srcApp.primaryColor === 'string') appearance.primaryColor = srcApp.primaryColor;
+
+          // layout: { format, alignment, direction }
+          if (srcApp.layout) {
+            var layout = {};
+            if (srcApp.layout.format) layout.format = srcApp.layout.format;
+            if (srcApp.layout.alignment) layout.alignment = srcApp.layout.alignment;
+            if (srcApp.layout.direction) layout.direction = srcApp.layout.direction;
+            if (Object.keys(layout).length > 0) appearance.layout = layout;
+          }
+
+          // background: { type: FormBackgrounds!, value: String }
+          if (srcApp.background && srcApp.background.type) {
+            var validBgTypes = ['Image', 'Color', 'None'];
+            if (validBgTypes.indexOf(srcApp.background.type) >= 0) {
               appearance.background = {
-                type: appearance.background.type,
-                value: appearance.background.value || null
+                type: srcApp.background.type,
+                value: srcApp.background.value || null
               };
-            } else {
-              // Unknown background type — skip to avoid validation error
-              delete appearance.background;
             }
           }
-          settings.appearance = appearance;
+
+          // text: { font, color, size }
+          if (srcApp.text) {
+            var text = {};
+            if (srcApp.text.font) text.font = srcApp.text.font;
+            if (srcApp.text.color) text.color = srcApp.text.color;
+            if (srcApp.text.size) text.size = srcApp.text.size;
+            if (Object.keys(text).length > 0) appearance.text = text;
+          }
+
+          // logo: { position, size }
+          if (srcApp.logo) {
+            var logo = {};
+            if (srcApp.logo.position) logo.position = srcApp.logo.position;
+            if (srcApp.logo.size) logo.size = srcApp.logo.size;
+            if (Object.keys(logo).length > 0) appearance.logo = logo;
+          }
+
+          // submitButton: { text }
+          if (srcApp.submitButton && srcApp.submitButton.text) {
+            appearance.submitButton = { text: srcApp.submitButton.text };
+          }
+
+          if (Object.keys(appearance).length > 0) {
+            settings.appearance = appearance;
+          }
         }
         if (sourceForm.accessibility) {
           // Sanitize accessibility: strip null values (logoAltText must be a string if present)
@@ -831,32 +955,20 @@ function attachDropdownManagedColumnOnTarget(targetApiKey, boardId, managedColum
   return data.attach_dropdown_managed_column;
 }
 
-function createDocOnTarget(targetApiKey, workspaceId, name, kind) {
-  var variables = {
-    workspace: { workspace_id: Number(workspaceId) },
-    doc: {}
+function createDocOnTarget(targetApiKey, workspaceId, name, kind, folderId) {
+  var workspace = {
+    workspace_id: Number(workspaceId),
+    name: name || 'Untitled Document'
   };
-  if (kind) variables.doc.kind = kind;
+  if (kind) workspace.kind = kind;
+  if (folderId) workspace.folder_id = Number(folderId);
 
   var data = _targetAPI(targetApiKey,
-    'mutation ($workspace: CreateDocWorkspaceInput!, $doc: CreateDocInput) { create_doc (workspace: $workspace, doc: $doc) { id object_id } }',
-    variables
+    'mutation ($location: CreateDocInput!) { create_doc (location: $location) { id object_id } }',
+    { location: { workspace: workspace } }
   );
 
-  var doc = data.create_doc;
-
-  if (name && doc && doc.id) {
-    try {
-      _targetAPI(targetApiKey,
-        'mutation ($docId: ID!, $name: String!) { update_doc_name (docId: $docId, name: $name) { id } }',
-        { docId: Number(doc.id), name: name }
-      );
-    } catch (e) {
-      console.warn('Failed to rename doc to "' + name + '":', e);
-    }
-  }
-
-  return doc;
+  return data.create_doc;
 }
 
 function addMarkdownToDocOnTarget(targetApiKey, docId, markdown) {
@@ -1722,6 +1834,45 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
         console.warn('Failed to create group ' + grp.title + ':', e);
       }
     });
+  }
+
+  // Delete the auto-created default group ("Group Title") and its default item ("Task 1")
+  // Monday.com always creates this when a board is manually created via create_board
+  try {
+    var targetBoardGroups = _targetAPI(targetApiKey,
+      'query ($boardId: [ID!]!) { boards (ids: $boardId) { groups { id title items_page (limit: 50) { items { id name } } } } }',
+      { boardId: [Number(targetBoard.id)] }
+    );
+    var tBoard = targetBoardGroups.boards && targetBoardGroups.boards[0];
+    if (tBoard && tBoard.groups) {
+      tBoard.groups.forEach(function(grp) {
+        // Find the default group — it's named "Group Title" and not in our groupMapping values
+        var isMigratedGroup = Object.keys(groupMapping).some(function(key) {
+          return groupMapping[key].targetId === grp.id;
+        });
+        if (!isMigratedGroup) {
+          // Delete items in the default group first
+          var items = (grp.items_page && grp.items_page.items) || [];
+          items.forEach(function(item) {
+            try {
+              deleteItemOnTarget(targetApiKey, item.id);
+              console.log('Deleted default item "' + item.name + '" (id=' + item.id + ') from group "' + grp.title + '"');
+            } catch (delItemErr) {
+              console.warn('Failed to delete default item "' + item.name + '": ' + delItemErr);
+            }
+          });
+          // Now delete the group itself
+          try {
+            deleteGroupOnTarget(targetApiKey, targetBoard.id, grp.id);
+            console.log('Deleted default group "' + grp.title + '" (id=' + grp.id + ') from board ' + targetBoard.id);
+          } catch (delGrpErr) {
+            console.warn('Failed to delete default group "' + grp.title + '": ' + delGrpErr);
+          }
+        }
+      });
+    }
+  } catch (cleanupErr) {
+    console.warn('Failed to clean up default group on board ' + targetBoard.id + ':', cleanupErr);
   }
 
   // Add subscribers (optional — only for same-account; skip for cross-account)
