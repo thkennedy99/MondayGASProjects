@@ -25,7 +25,8 @@ class MondayAPI {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': this.apiKey
+        'Authorization': this.apiKey,
+        'API-Version': '2025-07'
       },
       payload: JSON.stringify({
         query: graphqlQuery,
