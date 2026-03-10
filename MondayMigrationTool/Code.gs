@@ -62,8 +62,9 @@ function include(filename) {
  */
 function setupScriptProperties() {
   PropertiesService.getScriptProperties().setProperties({
-    'MONDAY_API_KEY': 'YOUR_API_KEY_HERE',
-    'MIGRATION_SPREADSHEET_ID': 'YOUR_SPREADSHEET_ID_HERE'
+    'MONDAY_API_KEY': 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjQ3MjI3MDMwNywiYWFpIjoxMSwidWlkIjo2MzU1MTg0NCwiaWFkIjoiMjAyNS0wMi0xM1QxNjowOTozNC4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MjQ0MzgzMjcsInJnbiI6InVzZTEifQ.8QsKLrmBSa7DyaRlefC9KBx38ZI0y7EUdlsVTPw7fS8',
+    'MIGRATION_SPREADSHEET_ID': '1H6IySq686XFkyBFiPwX1twJvy-CkntO5hajzVf6jMyU'
+    'MONDAY_MIGRATION_API_KEY': 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjU4MzM5MzU5MCwiYWFpIjoxMSwidWlkIjo3ODcyNDQ3MSwiaWFkIjoiMjAyNS0xMS0wNlQxNzowMzo0Ny4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MjkxMTQ4OTIsInJnbiI6InVzZTEifQ.yRNbcnAmL7YT5FbcoLKpwdMMPu3QzBbHDbYOKYRG25s"
   });
   console.log('Script properties set. Update with real values.');
 }
