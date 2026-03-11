@@ -388,6 +388,34 @@ function quickValidation(sourceWorkspaceId, targetWorkspaceId) {
  * @param {Object} targetBoardByName - lookup by name
  * @returns {Object} User verification report
  */
+/**
+ * Get the raw (unfiltered) subscriber and owner list for a board.
+ * Unlike _getBoardAccessDetails, this does NOT filter public boards to owners-only.
+ * Used for validation where we need to check if a user exists at all on the target board.
+ */
+function _getRawBoardSubscribers(boardId) {
+  var data = callMondayAPI(
+    'query ($boardId: [ID!]) { boards (ids: $boardId) { board_kind subscribers { id name email is_guest } owners { id name email } } }',
+    { boardId: [Number(boardId)] }
+  );
+  var board = data.boards && data.boards[0];
+  if (!board) return { subscribers: {}, owners: {} };
+
+  var subs = {};
+  (board.subscribers || []).forEach(function(s) {
+    subs[String(s.id)] = { id: String(s.id), name: s.name, email: s.email || '', isGuest: !!s.is_guest, role: 'subscriber' };
+  });
+  var owners = {};
+  (board.owners || []).forEach(function(o) {
+    var oid = String(o.id);
+    owners[oid] = true;
+    if (subs[oid]) subs[oid].role = 'owner';
+    else subs[oid] = { id: oid, name: o.name, email: o.email || '', isGuest: false, role: 'owner' };
+  });
+
+  return { subscribers: subs, owners: owners };
+}
+
 function _verifyUsersAndGuests(sourceWsId, targetWsId, sourceBoards, targetBoardByName) {
   // Per-board subscriber, owner, and team comparison
   var boardDetails = [];
@@ -406,10 +434,15 @@ function _verifyUsersAndGuests(sourceWsId, targetWsId, sourceBoards, targetBoard
     try { sourceAccess = _getBoardAccessDetails(sb.id, null); } catch (e) { return; }
     try { targetAccess = _getBoardAccessDetails(targetBoard.id, null); } catch (e) { return; }
 
-    // Build target subscriber lookup
+    // For the target board, get the RAW subscriber list (not owner-filtered)
+    // so we can accurately detect who is actually present on the target board
+    var targetRaw;
+    try { targetRaw = _getRawBoardSubscribers(targetBoard.id); } catch (e) { targetRaw = { subscribers: {}, owners: {} }; }
+
+    // Build target subscriber lookup from raw data (includes all actual subscribers)
     var targetSubMap = {};
-    targetAccess.subscribers.forEach(function(ts) { targetSubMap[ts.id] = ts; });
-    // Also include team members
+    Object.keys(targetRaw.subscribers).forEach(function(id) { targetSubMap[id] = targetRaw.subscribers[id]; });
+    // Also include team members from the structured access data
     (targetAccess.teams || []).forEach(function(t) {
       (t.memberIds || []).forEach(function(mid) {
         if (!targetSubMap[mid]) targetSubMap[mid] = { id: mid, role: 'team_subscriber', viaTeam: t.name };
@@ -487,7 +520,7 @@ function _verifyUsersAndGuests(sourceWsId, targetWsId, sourceBoards, targetBoard
       boardName: sb.name,
       boardKind: sourceAccess.kind,
       sourceSubscriberCount: sourceAccess.subscribers.length,
-      targetSubscriberCount: targetAccess.subscribers.length,
+      targetSubscriberCount: Object.keys(targetRaw.subscribers).length,
       matchedSubscribers: matchedSubs,
       missingSubscribers: missingSubs,
       roleMismatches: roleMismatches,
