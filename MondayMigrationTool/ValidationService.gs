@@ -7,13 +7,15 @@
  * Run a full validation comparing source workspace to target workspace.
  * @param {string} sourceWorkspaceId
  * @param {string} targetWorkspaceId
+ * @param {Object} [options] - Optional flags (e.g. { verifyUsers: true })
  * @returns {Object} Detailed comparison report
  */
-function validateMigration(sourceWorkspaceId, targetWorkspaceId) {
+function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
   try {
     if (!sourceWorkspaceId || !targetWorkspaceId) {
       throw new Error('Both sourceWorkspaceId and targetWorkspaceId are required');
     }
+    options = options || {};
 
     var sourceWs = getWorkspaceDetails(sourceWorkspaceId);
     var targetWs = getWorkspaceDetails(targetWorkspaceId);
@@ -153,6 +155,21 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId) {
       }
     });
 
+    // ── User & Guest Verification (optional) ──────────────────────────────────
+    var userVerification = null;
+    if (options.verifyUsers) {
+      userVerification = _verifyUsersAndGuests(sourceWorkspaceId, targetWorkspaceId, sourceBoards, targetBoardByName);
+      // Enrich board comparisons with subscriber data
+      boardComparisons.forEach(function(bc) {
+        var boardUsers = (userVerification.boardDetails || []).find(function(bu) {
+          return bu.sourceBoardId === bc.sourceBoardId;
+        });
+        if (boardUsers) {
+          bc.users = boardUsers;
+        }
+      });
+    }
+
     // Calculate overall match percentages
     var boardMatchPct = sourceBoards.length > 0
       ? Math.round((matchedBoards / sourceBoards.length) * 100) : 100;
@@ -163,7 +180,13 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId) {
     var columnMatchPct = totalSourceColumns > 0
       ? Math.round((totalTargetColumns / totalSourceColumns) * 100) : 100;
 
-    var overallPct = Math.round((boardMatchPct + itemMatchPct + groupMatchPct + columnMatchPct) / 4);
+    var pcts = [boardMatchPct, itemMatchPct, groupMatchPct, columnMatchPct];
+    var userMatchPct = null;
+    if (userVerification) {
+      userMatchPct = userVerification.matchPercentage;
+      pcts.push(userMatchPct);
+    }
+    var overallPct = Math.round(pcts.reduce(function(a, b) { return a + b; }, 0) / pcts.length);
 
     return safeReturn({
       success: true,
@@ -190,7 +213,8 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId) {
           boards: boardMatchPct,
           items: itemMatchPct,
           groups: groupMatchPct,
-          columns: columnMatchPct
+          columns: columnMatchPct,
+          users: userMatchPct
         },
         boardComparisons: boardComparisons,
         unmatchedBoards: unmatchedBoards,
@@ -198,7 +222,8 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId) {
           .filter(function(b) {
             return !sourceBoards.some(function(sb) { return sb.name === b.name; });
           })
-          .map(function(b) { return b.name; })
+          .map(function(b) { return b.name; }),
+        userVerification: userVerification
       }
     });
   } catch (error) {
@@ -349,4 +374,155 @@ function quickValidation(sourceWorkspaceId, targetWorkspaceId) {
   } catch (error) {
     return handleError('quickValidation', error);
   }
+}
+
+
+// ── User & Guest Verification ────────────────────────────────────────────────
+
+/**
+ * Compare workspace subscribers, board subscribers, owners, and teams
+ * between source and target workspaces.
+ * @param {string} sourceWsId
+ * @param {string} targetWsId
+ * @param {Array} sourceBoards
+ * @param {Object} targetBoardByName - lookup by name
+ * @returns {Object} User verification report
+ */
+function _verifyUsersAndGuests(sourceWsId, targetWsId, sourceBoards, targetBoardByName) {
+  // 1. Compare workspace-level subscribers
+  var sourceWsSubs = _getWorkspaceSubscribers(sourceWsId, null);
+  var targetWsSubs = _getWorkspaceSubscribers(targetWsId, null);
+
+  var sourceWsMap = {};
+  sourceWsSubs.subscribers.forEach(function(s) { sourceWsMap[s.id] = s; });
+  var targetWsMap = {};
+  targetWsSubs.subscribers.forEach(function(s) { targetWsMap[s.id] = s; });
+
+  var wsMatchedCount = 0;
+  var wsMissingUsers = [];
+  var wsRoleMismatches = [];
+
+  sourceWsSubs.subscribers.forEach(function(s) {
+    var t = targetWsMap[s.id];
+    if (!t) {
+      wsMissingUsers.push({ id: s.id, name: s.name, email: s.email, role: s.role, isGuest: s.isGuest });
+    } else {
+      wsMatchedCount++;
+      if (s.role === 'owner' && t.role !== 'owner') {
+        wsRoleMismatches.push({ id: s.id, name: s.name, sourceRole: s.role, targetRole: t.role });
+      }
+    }
+  });
+
+  // 2. Per-board subscriber, owner, and team comparison
+  var boardDetails = [];
+  var totalSourceSubs = 0;
+  var totalMatchedSubs = 0;
+
+  sourceBoards.forEach(function(sb) {
+    var targetBoard = targetBoardByName[sb.name];
+    if (!targetBoard) return;
+
+    var sourceAccess, targetAccess;
+    try { sourceAccess = _getBoardAccessDetails(sb.id, null); } catch (e) { return; }
+    try { targetAccess = _getBoardAccessDetails(targetBoard.id, null); } catch (e) { return; }
+
+    // Build target subscriber lookup
+    var targetSubMap = {};
+    targetAccess.subscribers.forEach(function(ts) { targetSubMap[ts.id] = ts; });
+    // Also include team members
+    (targetAccess.teams || []).forEach(function(t) {
+      (t.memberIds || []).forEach(function(mid) {
+        if (!targetSubMap[mid]) targetSubMap[mid] = { id: mid, role: 'team_subscriber', viaTeam: t.name };
+      });
+    });
+
+    // Compare individual subscribers
+    var missingSubs = [];
+    var roleMismatches = [];
+    var matchedSubs = 0;
+
+    sourceAccess.subscribers.forEach(function(ss) {
+      totalSourceSubs++;
+      var ts = targetSubMap[ss.id];
+      if (!ts) {
+        missingSubs.push({ id: ss.id, name: ss.name, email: ss.email, role: ss.role, isGuest: ss.isGuest });
+      } else {
+        matchedSubs++;
+        totalMatchedSubs++;
+        // Check role: source owner should be target owner
+        if (ss.role === 'owner' && ts.role !== 'owner') {
+          roleMismatches.push({ id: ss.id, name: ss.name, sourceRole: 'owner', targetRole: ts.role || 'subscriber' });
+        }
+      }
+    });
+
+    // Also check team members from source
+    (sourceAccess.teams || []).forEach(function(srcTeam) {
+      (srcTeam.memberIds || []).forEach(function(mid) {
+        // Only count if not already in individual subscribers
+        var alreadyCounted = sourceAccess.subscribers.some(function(ss) { return ss.id === mid; });
+        if (!alreadyCounted) {
+          totalSourceSubs++;
+          if (targetSubMap[mid]) {
+            totalMatchedSubs++;
+          }
+        }
+      });
+    });
+
+    // Compare teams
+    var sourceTeamNames = (sourceAccess.teams || []).map(function(t) { return t.name; });
+    var targetTeamNames = (targetAccess.teams || []).map(function(t) { return t.name; });
+    var targetTeamSet = {};
+    targetTeamNames.forEach(function(n) { targetTeamSet[n] = true; });
+
+    var missingTeams = [];
+    var matchedTeams = 0;
+    sourceTeamNames.forEach(function(n) {
+      if (targetTeamSet[n]) {
+        matchedTeams++;
+      } else {
+        var srcTeam = (sourceAccess.teams || []).find(function(t) { return t.name === n; });
+        missingTeams.push({ name: n, memberCount: srcTeam ? srcTeam.memberCount : 0 });
+      }
+    });
+
+    boardDetails.push({
+      sourceBoardId: String(sb.id),
+      boardName: sb.name,
+      boardKind: sourceAccess.kind,
+      sourceSubscriberCount: sourceAccess.subscribers.length,
+      targetSubscriberCount: targetAccess.subscribers.length,
+      matchedSubscribers: matchedSubs,
+      missingSubscribers: missingSubs,
+      roleMismatches: roleMismatches,
+      sourceTeamCount: sourceTeamNames.length,
+      targetTeamCount: targetTeamNames.length,
+      matchedTeams: matchedTeams,
+      missingTeams: missingTeams
+    });
+  });
+
+  var userMatchPct = totalSourceSubs > 0
+    ? Math.round((totalMatchedSubs / totalSourceSubs) * 100) : 100;
+
+  return {
+    matchPercentage: userMatchPct,
+    workspace: {
+      sourceSubscribers: sourceWsSubs.subscribers.length,
+      targetSubscribers: targetWsSubs.subscribers.length,
+      matched: wsMatchedCount,
+      missing: wsMissingUsers,
+      roleMismatches: wsRoleMismatches
+    },
+    boardDetails: boardDetails,
+    summary: {
+      totalSourceSubscribers: totalSourceSubs,
+      totalMatchedSubscribers: totalMatchedSubs,
+      totalMissingSubscribers: totalSourceSubs - totalMatchedSubs,
+      totalRoleMismatches: boardDetails.reduce(function(acc, bd) { return acc + bd.roleMismatches.length; }, 0) + wsRoleMismatches.length,
+      totalMissingTeams: boardDetails.reduce(function(acc, bd) { return acc + bd.missingTeams.length; }, 0)
+    }
+  };
 }

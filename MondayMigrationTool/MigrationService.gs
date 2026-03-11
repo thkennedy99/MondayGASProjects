@@ -18,8 +18,6 @@ var MIGRATION_COMPONENTS = {
   groups:         { label: 'Groups',            mandatory: false, description: 'Board groups / sections', defaultOn: true },
   useTemplates:   { label: 'Template Clone',    mandatory: false, description: 'Use duplicate_board to preserve views, automations, formulas, and managed column links (recommended)', defaultOn: true },
   managedColumns: { label: 'Managed Columns',   mandatory: false, description: 'Preserve account-level managed column links for status/dropdown consistency (used when Template Clone is off)', defaultOn: true },
-  subscribers:    { label: 'Board Subscribers',  mandatory: false, description: 'Add existing users as board subscribers', defaultOn: true },
-  guests:         { label: 'Guest Users',        mandatory: false, description: 'Assign guest users to boards', defaultOn: false },
   documents:      { label: 'Documents',          mandatory: false, description: 'Export docs as markdown, backup to Google Drive, and recreate in target workspace', defaultOn: true }
 };
 
@@ -131,7 +129,6 @@ function testMigration(workspaceId, components) {
         groups: 0,
         columns: 0,
         items: 0,
-        subscribers: 0,
         managedColumns: 0,
         documents: 0
       },
@@ -140,9 +137,9 @@ function testMigration(workspaceId, components) {
       warnings: [],
       notes: [
         'Migration runs within the same Monday.com account.',
-        'Users and guests are already in the system — no invitations will be sent.',
         'People columns will be preserved because user IDs remain the same.',
-        'A new workspace will be created with " (Migrated)" suffix by default.'
+        'A new workspace will be created with " (Migrated)" suffix by default.',
+        'Users, guests, and board subscribers should be assigned separately via the Users & Guests tab after migration.'
       ]
     };
 
@@ -151,11 +148,6 @@ function testMigration(workspaceId, components) {
       var itemCount = 0;
       try { itemCount = getBoardItemCount(board.id); } catch (e) {
         plan.warnings.push('Could not get item count for board: ' + board.name);
-      }
-
-      var subscribers = [];
-      if (components.subscribers !== false) {
-        try { subscribers = getBoardSubscribers(board.id); } catch (e) {}
       }
 
       var groupCount = board.groups ? board.groups.length : 0;
@@ -181,7 +173,6 @@ function testMigration(workspaceId, components) {
         groups: groupCount,
         columns: columnCount,
         items: itemCount,
-        subscribers: subscribers.length,
         columnTypes: (board.columns || []).map(function(c) { return c.type; }),
         complexColumns: complexCols.map(function(c) { return { title: c.title, type: c.type }; })
       });
@@ -189,7 +180,6 @@ function testMigration(workspaceId, components) {
       plan.totals.groups += groupCount;
       plan.totals.columns += columnCount;
       plan.totals.items += itemCount;
-      plan.totals.subscribers += subscribers.length;
     });
 
     // Template clone analysis
@@ -261,7 +251,6 @@ function testMigration(workspaceId, components) {
     var apiCalls = plan.totals.boards + plan.totals.columns + plan.totals.items + 10;
     if (components.groups !== false) apiCalls += plan.totals.groups;
     if (components.managedColumns !== false) apiCalls += plan.totals.managedColumns;
-    if (components.subscribers) apiCalls += plan.totals.boards; // 1 call per board for subscribers
     if (components.documents) apiCalls += plan.totals.documents;
     plan.estimatedApiCalls = apiCalls;
 
@@ -1593,7 +1582,7 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
     sourceBoard.id,
     targetWorkspaceId,
     null, // keep original name
-    !!components.subscribers
+    false // subscribers handled separately in Users & Guests tab
   );
 
   var targetBoard = dupResult.board;
@@ -1887,23 +1876,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     console.warn('Failed to clean up default group on board ' + targetBoard.id + ':', cleanupErr);
   }
 
-  // Add subscribers (optional — only for same-account; skip for cross-account)
-  if (components.subscribers && !targetApiKey) {
-    try {
-      var subscribers = getBoardSubscribers(sourceBoard.id);
-      var subscriberIds = [];
-      subscribers.forEach(function(s) {
-        if (components.guests || !isGuestUser(s.email)) {
-          subscriberIds.push(String(s.id));
-        }
-      });
-      if (subscriberIds.length > 0) {
-        addUsersToBoardOnTarget(targetApiKey, targetBoard.id, subscriberIds);
-      }
-    } catch (e) {
-      console.warn('Failed to add subscribers to board ' + structure.name + ':', e);
-    }
-  }
+  // Note: Subscribers/guests are handled separately via the Users & Guests tab
 
   // Migrate items (mandatory) and their subitems
   if (migrationId) {
