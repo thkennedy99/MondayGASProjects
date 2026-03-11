@@ -1226,12 +1226,14 @@ const ValidationTab = () => {
   const downloadReport = () => {
     if (!report) return;
     try {
-    if (!window.jspdf || !window.jspdf.jsPDF) {
+    const jsPDFLib = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF || (typeof jspdf !== 'undefined' && jspdf.jsPDF);
+    if (!jsPDFLib) {
       toast.show('PDF library not loaded. Please refresh the page and try again.', 'danger');
+      console.error('jsPDF not found. window.jspdf =', window.jspdf, 'window.jsPDF =', window.jsPDF);
       return;
     }
     const r = report;
-    const { jsPDF } = window.jspdf;
+    const jsPDF = jsPDFLib;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pw = doc.internal.pageSize.getWidth();
     const ph = doc.internal.pageSize.getHeight();
