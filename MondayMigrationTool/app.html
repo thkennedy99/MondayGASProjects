@@ -786,7 +786,7 @@ const MigrationTab = () => {
             return;
           }
         }
-        const interval = pollCountRef.current < 5 ? 1500 : pollCountRef.current < 15 ? 3000 : 5000;
+        const interval = 30000; // Poll every 30 seconds to avoid filling execution log
         pollRef.current = setTimeout(poll, interval);
       } catch (e) {
         console.error('Polling error:', e);
