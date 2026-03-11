@@ -98,6 +98,139 @@ function setupScriptProperties() {
   console.log('Script properties set. Update with real values.');
 }
 
+// ── File Transfer Test ──────────────────────────────────────────────────────
+
+/**
+ * Test function: Copy a file from one item to another on the same board.
+ * Uses the TARGET account (MONDAY_MIGRATION_API_KEY) to:
+ *   1. Read the asset's public_url from a source item
+ *   2. Download the file
+ *   3. Upload it to a new item's file column
+ *
+ * Run this from the Apps Script editor to verify file migration works.
+ *
+ * To test cross-account: change sourceApiKey to CONFIG.MONDAY_API_KEY
+ * and targetApiKey to CONFIG.MONDAY_MIGRATION_API_KEY.
+ */
+function testFileTransfer() {
+  // ── Configuration — update these values as needed ──
+  var SOURCE_BOARD_ID = 18402167020;    // MCP getting started (target account)
+  var SOURCE_ITEM_ID  = '11402968038';  // Item "Doc Comments" — has a PNG file
+  var TARGET_ITEM_ID  = '11483882312';  // Item "File Transfer Test - from Claude"
+  var TARGET_FILE_COL = 'files';        // File column ID on target board
+
+  // Both on the target account — use migration key
+  var apiKey = CONFIG.MONDAY_MIGRATION_API_KEY;
+
+  console.log('=== File Transfer Test ===');
+  console.log('Source item: ' + SOURCE_ITEM_ID);
+  console.log('Target item: ' + TARGET_ITEM_ID);
+  console.log('Target column: ' + TARGET_FILE_COL);
+
+  // Step 1: Get file assets from source item
+  console.log('\nStep 1: Fetching assets from source item...');
+  var assetMap = getItemAssets([SOURCE_ITEM_ID], apiKey);
+  var assets = assetMap[SOURCE_ITEM_ID];
+
+  if (!assets || assets.length === 0) {
+    console.error('FAIL: No assets found on source item ' + SOURCE_ITEM_ID);
+    return { success: false, error: 'No assets found on source item' };
+  }
+
+  console.log('Found ' + assets.length + ' asset(s):');
+  assets.forEach(function(a, i) {
+    console.log('  [' + i + '] ' + a.name + ' (' + a.file_extension + ', ' +
+      Math.round((a.file_size || 0) / 1024) + ' KB)');
+    console.log('      public_url: ' + (a.public_url ? 'YES (' + a.public_url.substring(0, 80) + '...)' : 'NO'));
+  });
+
+  // Step 2: Download the first asset
+  var asset = assets[0];
+  if (!asset.public_url) {
+    console.error('FAIL: Asset "' + asset.name + '" has no public_url');
+    return { success: false, error: 'No public_url on asset' };
+  }
+
+  console.log('\nStep 2: Downloading "' + asset.name + '"...');
+  var fileName = asset.name || ('file_' + asset.id + (asset.file_extension || ''));
+  var blob;
+  try {
+    blob = downloadMondayAsset(asset.public_url, fileName);
+    console.log('Downloaded: ' + blob.getName() + ' (' + Math.round(blob.getBytes().length / 1024) + ' KB)');
+  } catch (dlErr) {
+    console.error('FAIL: Download error — ' + dlErr);
+    return { success: false, error: 'Download failed: ' + dlErr.toString() };
+  }
+
+  // Step 3: Upload to target item
+  console.log('\nStep 3: Uploading to target item ' + TARGET_ITEM_ID + ', column "' + TARGET_FILE_COL + '"...');
+  try {
+    var result = uploadFileToMondayItem(TARGET_ITEM_ID, TARGET_FILE_COL, blob, apiKey);
+    console.log('Upload result: ' + JSON.stringify(result));
+    console.log('\n=== SUCCESS: File transferred! ===');
+    console.log('Check item ' + TARGET_ITEM_ID + ' on board ' + SOURCE_BOARD_ID + ' — the file should be there.');
+    return { success: true, assetId: result ? result.id : null, fileName: fileName };
+  } catch (upErr) {
+    console.error('FAIL: Upload error — ' + upErr);
+    return { success: false, error: 'Upload failed: ' + upErr.toString() };
+  }
+}
+
+/**
+ * Test function: Cross-account file transfer.
+ * Reads a file from the SOURCE account and uploads it to the TARGET account.
+ * Update the IDs below to match your source/target boards.
+ */
+function testCrossAccountFileTransfer() {
+  // ── Source (old account) ──
+  var SOURCE_ITEM_ID = '11402968038';  // Update with a source account item ID
+  var sourceApiKey = CONFIG.MONDAY_API_KEY;
+
+  // ── Target (new account) ──
+  var TARGET_ITEM_ID = '11483882312';  // Update with a target account item ID
+  var TARGET_FILE_COL = 'files';       // File column ID on target board
+  var targetApiKey = CONFIG.MONDAY_MIGRATION_API_KEY;
+
+  console.log('=== Cross-Account File Transfer Test ===');
+  console.log('Source item: ' + SOURCE_ITEM_ID + ' (source account)');
+  console.log('Target item: ' + TARGET_ITEM_ID + ' (target account)');
+
+  // Step 1: Get assets from source account
+  console.log('\nStep 1: Fetching assets from source account...');
+  var assetMap = getItemAssets([SOURCE_ITEM_ID], sourceApiKey);
+  var assets = assetMap[SOURCE_ITEM_ID];
+
+  if (!assets || assets.length === 0) {
+    console.error('FAIL: No assets found on source item');
+    return { success: false, error: 'No assets on source item' };
+  }
+
+  console.log('Found ' + assets.length + ' asset(s)');
+
+  // Step 2: Download from source
+  var asset = assets[0];
+  if (!asset.public_url) {
+    console.error('FAIL: No public_url');
+    return { success: false, error: 'No public_url' };
+  }
+
+  console.log('\nStep 2: Downloading "' + asset.name + '"...');
+  var blob = downloadMondayAsset(asset.public_url, asset.name);
+  console.log('Downloaded: ' + Math.round(blob.getBytes().length / 1024) + ' KB');
+
+  // Step 3: Upload to target account
+  console.log('\nStep 3: Uploading to target account...');
+  try {
+    var result = uploadFileToMondayItem(TARGET_ITEM_ID, TARGET_FILE_COL, blob, targetApiKey);
+    console.log('Upload result: ' + JSON.stringify(result));
+    console.log('\n=== SUCCESS: Cross-account file transfer complete! ===');
+    return { success: true, assetId: result ? result.id : null };
+  } catch (err) {
+    console.error('FAIL: ' + err);
+    return { success: false, error: err.toString() };
+  }
+}
+
 /**
  * Create the migration tracking spreadsheet with required sheets.
  */
