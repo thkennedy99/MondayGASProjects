@@ -430,6 +430,7 @@ function _executeMigrationBatched(migrationId, params) {
     components: components,
     targetApiKey: targetApiKey,
     isCrossAccount: isCrossAccount,
+    selectedBoardIds: params.selectedBoardIds || null,
     // Populated during INIT phase
     targetWsId: null,
     targetWsName: null,
@@ -616,6 +617,17 @@ function _phaseInit(migrationId, state) {
     }
   });
   sourceBoards = filteredBoards;
+
+  // Step 3b: Apply user-selected board filter (if provided)
+  if (state.selectedBoardIds && state.selectedBoardIds.length > 0) {
+    var selectedSet = {};
+    state.selectedBoardIds.forEach(function(bid) { selectedSet[String(bid)] = true; });
+    var beforeCount = sourceBoards.length;
+    sourceBoards = sourceBoards.filter(function(board) {
+      return selectedSet[String(board.id)];
+    });
+    console.log('Migration: Board filter applied — ' + sourceBoards.length + ' of ' + beforeCount + ' boards selected by user');
+  }
 
   console.log('Migration: Step 3 DONE - Found ' + sourceBoards.length + ' boards');
 

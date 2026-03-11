@@ -472,6 +472,36 @@ function getTargetWorkspaces(accountId) {
   }
 }
 
+/**
+ * Get boards in a source workspace (for UI board selector).
+ * Returns filtered boards (no subitem boards, no dashboards) with minimal info.
+ * @param {string} workspaceId
+ * @returns {Object} { success, boards: [{ id, name, board_kind, itemCount }] }
+ */
+function getWorkspaceBoardsList(workspaceId) {
+  try {
+    if (!workspaceId) throw new Error('workspaceId is required');
+    var boards = getBoardsInWorkspace(workspaceId);
+    var result = boards.map(function(b) {
+      var itemCount = 0;
+      try {
+        itemCount = (b.groups || []).length;
+      } catch (e) {}
+      return {
+        id: String(b.id),
+        name: b.name,
+        board_kind: b.board_kind || 'public',
+        groupCount: (b.groups || []).length,
+        columnCount: (b.columns || []).length
+      };
+    });
+    result.sort(function(a, b) { return a.name.localeCompare(b.name); });
+    return safeReturn({ success: true, boards: result });
+  } catch (error) {
+    return handleError('getWorkspaceBoardsList', error);
+  }
+}
+
 // ── Diagnostics ─────────────────────────────────────────────────────────────
 
 /**
