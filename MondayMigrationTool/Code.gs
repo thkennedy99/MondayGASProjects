@@ -313,6 +313,82 @@ function getTargetWorkspaces(accountId) {
   }
 }
 
+// ── Diagnostics ─────────────────────────────────────────────────────────────
+
+/**
+ * Query the destination Monday.com account to get:
+ * - API key owner (name, email, role)
+ * - All boards they have access to (id, name, board_kind, their permission level)
+ * @returns {Object} { success, user, boards }
+ */
+function diagnoseDestinationAccount() {
+  try {
+    var apiKey = CONFIG.MONDAY_MIGRATION_API_KEY;
+    if (!apiKey) throw new Error('MONDAY_MIGRATION_API_KEY not configured');
+
+    // 1. Get user info and role
+    var userData = callMondayAPIWithKey(apiKey,
+      '{ me { id name email is_admin is_guest created_at title phone account { id name plan { max_users period tier } } } }'
+    );
+
+    // 2. Get all boards the user can see (paginated, up to 500)
+    var allBoards = [];
+    var page = 1;
+    var hasMore = true;
+    while (hasMore) {
+      var boardData = callMondayAPIWithKey(apiKey,
+        'query ($page: Int!) { boards (limit: 100, page: $page) { id name board_kind state board_folder_id permissions } }',
+        { page: page }
+      );
+      var boards = boardData.boards || [];
+      allBoards = allBoards.concat(boards);
+      hasMore = boards.length === 100 && page < 5; // safety cap at 500 boards
+      page++;
+    }
+
+    var me = userData.me;
+    var result = {
+      success: true,
+      user: {
+        id: me.id,
+        name: me.name,
+        email: me.email,
+        title: me.title || '',
+        phone: me.phone || '',
+        isAdmin: me.is_admin,
+        isGuest: me.is_guest,
+        createdAt: me.created_at,
+        account: me.account
+      },
+      boards: allBoards.map(function(b) {
+        return {
+          id: b.id,
+          name: b.name,
+          kind: b.board_kind,
+          state: b.state,
+          folderId: b.board_folder_id,
+          permissions: b.permissions
+        };
+      }),
+      boardCount: allBoards.length
+    };
+
+    console.log('=== DESTINATION ACCOUNT DIAGNOSTICS ===');
+    console.log('User: ' + me.name + ' (' + me.email + ')');
+    console.log('Admin: ' + me.is_admin + ' | Guest: ' + me.is_guest);
+    console.log('Account: ' + (me.account ? me.account.name + ' (ID: ' + me.account.id + ')' : 'N/A'));
+    console.log('Boards accessible: ' + allBoards.length);
+    allBoards.forEach(function(b) {
+      console.log('  Board ' + b.id + ': ' + b.name + ' [' + b.board_kind + '] permissions=' + b.permissions);
+    });
+    console.log('=======================================');
+
+    return safeReturn(result);
+  } catch (error) {
+    return handleError('diagnoseDestinationAccount', error);
+  }
+}
+
 // ── Utility ──────────────────────────────────────────────────────────────────
 
 function generateMigrationId() {
