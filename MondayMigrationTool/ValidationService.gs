@@ -47,6 +47,12 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
     var nonCreatableTypes = ['name', 'subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
                              'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
 
+    // Helper: returns true if a column should be excluded from comparison
+    // Excludes non-creatable types AND form-generated columns (ID contains '_form')
+    var isExcludedColumn = function(col) {
+      return nonCreatableTypes.indexOf(col.type) >= 0 || (col.id && col.id.indexOf('_form') >= 0);
+    };
+
     sourceBoards.forEach(function(sourceBoard) {
       var targetBoard = targetBoardByName[sourceBoard.name];
 
@@ -55,7 +61,7 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
 
       var sourceGroupCount = sourceBoard.groups ? sourceBoard.groups.length : 0;
       var sourceCreatableCols = (sourceBoard.columns || []).filter(function(c) {
-        return nonCreatableTypes.indexOf(c.type) < 0;
+        return !isExcludedColumn(c);
       });
       var sourceColumnCount = sourceCreatableCols.length;
 
@@ -71,7 +77,7 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
 
         var targetGroupCount = targetBoard.groups ? targetBoard.groups.length : 0;
         var targetCreatableCols = (targetBoard.columns || []).filter(function(c) {
-          return nonCreatableTypes.indexOf(c.type) < 0;
+          return !isExcludedColumn(c);
         });
         var targetColumnCount = targetCreatableCols.length;
 

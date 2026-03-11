@@ -1225,6 +1225,11 @@ const ValidationTab = () => {
 
   const downloadReport = () => {
     if (!report) return;
+    try {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      toast.show('PDF library not loaded. Please refresh the page and try again.', 'danger');
+      return;
+    }
     const r = report;
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -1444,15 +1449,19 @@ const ValidationTab = () => {
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(7);
           doc.setTextColor(...GW.red);
-          doc.text('Missing columns: ' + bc.columns.missing.map(c => c.title + ' (' + c.type + ')').join(', '), margin + 4, y, { maxWidth: cw - 8 });
-          y += Math.ceil(doc.getTextDimensions(bc.columns.missing.map(c => c.title + ' (' + c.type + ')').join(', '), { maxWidth: cw - 8, fontSize: 7 }).h) + 2;
+          const missingText = 'Missing columns: ' + bc.columns.missing.map(c => c.title + ' (' + c.type + ')').join(', ');
+          const missingLines = doc.splitTextToSize(missingText, cw - 8);
+          doc.text(missingLines, margin + 4, y);
+          y += missingLines.length * 3.5 + 2;
         }
         if (bc.columns.extra?.length > 0) {
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(7);
           doc.setTextColor(...GW.blue);
-          doc.text('Extra in target: ' + bc.columns.extra.map(c => c.title + ' (' + c.type + ')').join(', '), margin + 4, y, { maxWidth: cw - 8 });
-          y += Math.ceil(doc.getTextDimensions(bc.columns.extra.map(c => c.title + ' (' + c.type + ')').join(', '), { maxWidth: cw - 8, fontSize: 7 }).h) + 2;
+          const extraText = 'Extra in target: ' + bc.columns.extra.map(c => c.title + ' (' + c.type + ')').join(', ');
+          const extraLines = doc.splitTextToSize(extraText, cw - 8);
+          doc.text(extraLines, margin + 4, y);
+          y += extraLines.length * 3.5 + 2;
         }
         y += 2;
       });
@@ -1646,8 +1655,22 @@ const ValidationTab = () => {
       doc.text('Page ' + p + ' of ' + totalPages, pw - margin, ph - 5, { align: 'right' });
     }
 
-    doc.save('validation-report-' + new Date().toISOString().slice(0, 10) + '.pdf');
+    // Use blob + temporary link to avoid GAS iframe / base target="_top" issues
+    const pdfBlob = doc.output('blob');
+    const url = URL.createObjectURL(pdfBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'validation-report-' + new Date().toISOString().slice(0, 10) + '.pdf';
+    a.target = '_self';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast.show('PDF report downloaded!', 'success');
+    } catch (err) {
+      console.error('PDF generation error:', err);
+      toast.show('Error generating PDF: ' + err.message, 'danger');
+    }
   };
 
   return (
