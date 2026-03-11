@@ -1318,37 +1318,13 @@ const ValidationTab = () => {
                   <div className="card-header"><i className="bi bi-people me-1" /> User & Guest Verification</div>
                   <div className="card-body">
                     <div className="row g-3 mb-3">
-                      <div className="col-md-2"><StatCard value={uv.summary.totalSourceSubscribers} label="Source Users" icon="people" /></div>
+                      <div className="col-md-2"><StatCard value={uv.summary.totalSourceSubscribers} label="Subscribers" icon="people" /></div>
                       <div className="col-md-2"><StatCard value={uv.summary.totalMatchedSubscribers} label="Matched" icon="check-circle" color="var(--match-great)" /></div>
                       <div className="col-md-2"><StatCard value={uv.summary.totalMissingSubscribers} label="Missing" icon="x-circle" color={uv.summary.totalMissingSubscribers > 0 ? 'var(--match-poor)' : undefined} /></div>
                       <div className="col-md-2"><StatCard value={uv.summary.totalRoleMismatches} label="Role Mismatches" icon="exclamation-triangle" color={uv.summary.totalRoleMismatches > 0 ? 'var(--gw-orange)' : undefined} /></div>
                       <div className="col-md-2"><StatCard value={uv.summary.totalMissingTeams} label="Missing Teams" icon="people-fill" color={uv.summary.totalMissingTeams > 0 ? 'var(--gw-orange)' : undefined} /></div>
                     </div>
 
-                    {/* Workspace-level subscriber comparison */}
-                    <h6 className="mt-3">Workspace Subscribers</h6>
-                    <p className="mb-2">
-                      Source: <strong>{uv.workspace.sourceSubscribers}</strong> &rarr; Target: <strong>{uv.workspace.targetSubscribers}</strong>
-                      {' '}({uv.workspace.matched} matched
-                      {uv.workspace.missing.length > 0 && <span className="text-danger">, {uv.workspace.missing.length} missing</span>}
-                      {uv.workspace.roleMismatches.length > 0 && <span className="text-warning">, {uv.workspace.roleMismatches.length} role mismatches</span>})
-                    </p>
-
-                    {uv.workspace.missing.length > 0 && (
-                      <div className="alert alert-danger py-2 mb-2">
-                        <small><strong>Missing from target workspace:</strong>{' '}
-                          {uv.workspace.missing.map(u => u.name + (u.role === 'owner' ? ' (owner)' : '') + (u.isGuest ? ' [guest]' : '')).join(', ')}
-                        </small>
-                      </div>
-                    )}
-
-                    {uv.workspace.roleMismatches.length > 0 && (
-                      <div className="alert alert-warning py-2 mb-2">
-                        <small><strong>Role mismatches:</strong>{' '}
-                          {uv.workspace.roleMismatches.map(u => u.name + ': ' + u.sourceRole + ' → ' + u.targetRole).join(', ')}
-                        </small>
-                      </div>
-                    )}
                   </div>
                 </div>
 

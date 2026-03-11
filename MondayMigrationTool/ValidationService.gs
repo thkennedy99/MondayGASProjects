@@ -389,32 +389,7 @@ function quickValidation(sourceWorkspaceId, targetWorkspaceId) {
  * @returns {Object} User verification report
  */
 function _verifyUsersAndGuests(sourceWsId, targetWsId, sourceBoards, targetBoardByName) {
-  // 1. Compare workspace-level subscribers
-  var sourceWsSubs = _getWorkspaceSubscribers(sourceWsId, null);
-  var targetWsSubs = _getWorkspaceSubscribers(targetWsId, null);
-
-  var sourceWsMap = {};
-  sourceWsSubs.subscribers.forEach(function(s) { sourceWsMap[s.id] = s; });
-  var targetWsMap = {};
-  targetWsSubs.subscribers.forEach(function(s) { targetWsMap[s.id] = s; });
-
-  var wsMatchedCount = 0;
-  var wsMissingUsers = [];
-  var wsRoleMismatches = [];
-
-  sourceWsSubs.subscribers.forEach(function(s) {
-    var t = targetWsMap[s.id];
-    if (!t) {
-      wsMissingUsers.push({ id: s.id, name: s.name, email: s.email, role: s.role, isGuest: s.isGuest });
-    } else {
-      wsMatchedCount++;
-      if (s.role === 'owner' && t.role !== 'owner') {
-        wsRoleMismatches.push({ id: s.id, name: s.name, sourceRole: s.role, targetRole: t.role });
-      }
-    }
-  });
-
-  // 2. Per-board subscriber, owner, and team comparison
+  // Per-board subscriber, owner, and team comparison
   var boardDetails = [];
   var totalSourceSubs = 0;
   var totalMatchedSubs = 0;
@@ -509,19 +484,12 @@ function _verifyUsersAndGuests(sourceWsId, targetWsId, sourceBoards, targetBoard
 
   return {
     matchPercentage: userMatchPct,
-    workspace: {
-      sourceSubscribers: sourceWsSubs.subscribers.length,
-      targetSubscribers: targetWsSubs.subscribers.length,
-      matched: wsMatchedCount,
-      missing: wsMissingUsers,
-      roleMismatches: wsRoleMismatches
-    },
     boardDetails: boardDetails,
     summary: {
       totalSourceSubscribers: totalSourceSubs,
       totalMatchedSubscribers: totalMatchedSubs,
       totalMissingSubscribers: totalSourceSubs - totalMatchedSubs,
-      totalRoleMismatches: boardDetails.reduce(function(acc, bd) { return acc + bd.roleMismatches.length; }, 0) + wsRoleMismatches.length,
+      totalRoleMismatches: boardDetails.reduce(function(acc, bd) { return acc + bd.roleMismatches.length; }, 0),
       totalMissingTeams: boardDetails.reduce(function(acc, bd) { return acc + bd.missingTeams.length; }, 0)
     }
   };
