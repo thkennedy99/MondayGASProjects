@@ -1373,8 +1373,15 @@ function attachDropdownManagedColumn(boardId, managedColumnId, title, descriptio
  * @param {string} boardId - Source board ID
  * @returns {Array} Array of { columnId, columnTitle, columnType, managedColumnId, managedColumnTitle }
  */
-function detectManagedColumnsOnBoard(boardId) {
-  var boardColumns = getBoardColumnsWithSettings(boardId);
+function detectManagedColumnsOnBoard(boardId, preloadedColumns) {
+  var boardColumns = preloadedColumns || getBoardColumnsWithSettings(boardId);
+  // Parse settings_str into settings object if not already done
+  boardColumns = boardColumns.map(function(col) {
+    if (!col.settings && col.settings_str) {
+      try { col.settings = JSON.parse(col.settings_str); } catch (e) {}
+    }
+    return col;
+  });
   var managedCols = getActiveManagedColumns();
   var matches = [];
 

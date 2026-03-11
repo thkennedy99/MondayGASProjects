@@ -224,7 +224,7 @@ function testMigration(workspaceId, components) {
         var managedMatches = [];
         boards.forEach(function(board) {
           try {
-            var matches = detectManagedColumnsOnBoard(board.id);
+            var matches = detectManagedColumnsOnBoard(board.id, board.columns);
             matches.forEach(function(m) {
               m.boardName = board.name;
               m.boardId = String(board.id);
@@ -2002,7 +2002,8 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
   var managedColMap = {};
   if (components.managedColumns !== false) {
     try {
-      var managedMatches = detectManagedColumnsOnBoard(sourceBoard.id);
+      // Pass pre-loaded columns to avoid redundant API call
+      var managedMatches = detectManagedColumnsOnBoard(sourceBoard.id, structure.columns);
       managedMatches.forEach(function(m) {
         managedColMap[m.columnId] = m;
       });
@@ -2011,23 +2012,19 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     }
   }
 
-  // Create columns (mandatory — skip system columns and non-creatable types)
+  // Create columns (BATCHED — parallel via fetchAll for non-managed columns)
   var columnMapping = {};
   var managedColumnMapping = [];
   var skippedColumns = [];
   var systemColumnIds = ['name', 'subitems', 'item_id'];
   var nonCreatableTypes = ['subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
                            'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
-  var colTotal = (structure.columns || []).length;
-  var colIndex = 0;
+
+  // Separate columns into managed (sequential) and regular (batchable)
+  var managedColumns = [];
+  var regularColumns = [];
 
   (structure.columns || []).forEach(function(col) {
-    colIndex++;
-    if (migrationId && (colIndex === 1 || colIndex % 5 === 0 || colIndex === colTotal)) {
-      updateMigrationProgress(migrationId, {
-        message: progressPrefix + ' — creating columns ' + colIndex + '/' + colTotal
-      });
-    }
     if (systemColumnIds.indexOf(col.id) >= 0) return;
     if (nonCreatableTypes.indexOf(col.type) >= 0) {
       console.log('Migration: Skipping non-creatable column "' + col.title + '" (type=' + col.type + ')');
@@ -2035,63 +2032,110 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
       return;
     }
 
+    var managedMatch = managedColMap[col.id];
+    if (managedMatch) {
+      managedColumns.push({ col: col, managed: managedMatch });
+    } else {
+      regularColumns.push(col);
+    }
+  });
+
+  // 1) Create managed columns sequentially (different mutation types)
+  managedColumns.forEach(function(entry) {
+    var col = entry.col;
+    var managedMatch = entry.managed;
     try {
       var newCol;
-
-      // Check if this column should be attached as a managed column
-      var managedMatch = managedColMap[col.id];
-      if (managedMatch) {
-        try {
-          if (managedMatch.managedColumnType === 'color') {
-            newCol = attachStatusManagedColumnOnTarget(targetApiKey, targetBoard.id, managedMatch.managedColumnId, col.title);
-          } else {
-            newCol = attachDropdownManagedColumnOnTarget(targetApiKey, targetBoard.id, managedMatch.managedColumnId, col.title);
-          }
-          managedColumnMapping.push({
-            sourceColumnId: col.id,
-            targetColumnId: newCol.id,
-            managedColumnId: managedMatch.managedColumnId,
-            title: col.title,
-            type: col.type
-          });
-          columnMapping[col.id] = { targetId: newCol.id, title: col.title, type: col.type, managed: true };
-          return; // Skip normal createColumn
-        } catch (attachErr) {
-          console.warn('Managed column attach failed for ' + col.title + ', falling back to regular column: ' + attachErr);
-          // Fall through to regular createColumn
-        }
+      if (managedMatch.managedColumnType === 'color') {
+        newCol = attachStatusManagedColumnOnTarget(targetApiKey, targetBoard.id, managedMatch.managedColumnId, col.title);
+      } else {
+        newCol = attachDropdownManagedColumnOnTarget(targetApiKey, targetBoard.id, managedMatch.managedColumnId, col.title);
       }
+      managedColumnMapping.push({
+        sourceColumnId: col.id,
+        targetColumnId: newCol.id,
+        managedColumnId: managedMatch.managedColumnId,
+        title: col.title,
+        type: col.type
+      });
+      columnMapping[col.id] = { targetId: newCol.id, title: col.title, type: col.type, managed: true };
+    } catch (attachErr) {
+      console.warn('Managed column attach failed for ' + col.title + ', adding to regular batch: ' + attachErr);
+      regularColumns.push(col); // Fall back to regular creation
+    }
+  });
 
-      // Pass column settings (labels, etc.) for status/dropdown columns
+  // 2) Batch-create regular columns using fetchAll
+  if (regularColumns.length > 0) {
+    if (migrationId) {
+      updateMigrationProgress(migrationId, {
+        message: progressPrefix + ' — creating ' + regularColumns.length + ' columns...'
+      });
+    }
+
+    var colRequests = regularColumns.map(function(col) {
       var defaults = null;
       if (col.settings_str && col.settings_str !== '{}') {
         try {
           var settings = JSON.parse(col.settings_str);
-          if (col.type === 'status' && settings.labels) {
-            defaults = settings;
-          } else if (col.type === 'dropdown' && settings.labels) {
+          if ((col.type === 'status' || col.type === 'dropdown') && settings.labels) {
             defaults = settings;
           }
         } catch (parseErr) {}
       }
 
-      newCol = createColumnOnTarget(targetApiKey, targetBoard.id, col.title, col.type, defaults);
-      columnMapping[col.id] = { targetId: newCol.id, title: col.title, type: col.type };
-    } catch (e) {
-      console.warn('Skipped column ' + col.title + ' (' + col.type + '): ' + e);
-      skippedColumns.push({ id: col.id, title: col.title, type: col.type, error: e.toString() });
-    }
-  });
+      var variables = {
+        boardId: Number(targetBoard.id),
+        title: col.title,
+        type: col.type
+      };
 
-  // Create groups (optional)
+      var query;
+      if (defaults) {
+        query = 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }';
+        variables.defaults = typeof defaults === 'string' ? defaults : JSON.stringify(defaults);
+      } else {
+        query = 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }';
+      }
+
+      return { query: query, variables: variables };
+    });
+
+    // Execute in parallel batches (6 at a time to avoid complexity limits)
+    var colResults = batchMondayAPICalls(targetApiKey, colRequests, 6);
+
+    for (var ci = 0; ci < colResults.length; ci++) {
+      var col = regularColumns[ci];
+      var result = colResults[ci];
+
+      if (result && result.create_column && result.create_column.id) {
+        columnMapping[col.id] = { targetId: result.create_column.id, title: col.title, type: col.type };
+      } else {
+        var errMsg = (result && result.error) ? result.error : 'No result';
+        console.warn('Skipped column ' + col.title + ' (' + col.type + '): ' + errMsg);
+        skippedColumns.push({ id: col.id, title: col.title, type: col.type, error: errMsg });
+      }
+    }
+  }
+
+  // Create groups (BATCHED via fetchAll)
   var groupMapping = {};
-  if (components.groups !== false) {
-    (structure.groups || []).forEach(function(grp) {
-      try {
-        var newGroup = createGroupOnTarget(targetApiKey, targetBoard.id, grp.title);
-        groupMapping[grp.id] = { targetId: newGroup.id, title: grp.title };
-      } catch (e) {
-        console.warn('Failed to create group ' + grp.title + ':', e);
+  if (components.groups !== false && (structure.groups || []).length > 0) {
+    var groupRequests = (structure.groups || []).map(function(grp) {
+      return {
+        query: 'mutation ($boardId: ID!, $name: String!) { create_group (board_id: $boardId, group_name: $name) { id title } }',
+        variables: { boardId: Number(targetBoard.id), name: grp.title }
+      };
+    });
+
+    var grpResults = batchMondayAPICalls(targetApiKey, groupRequests, 6);
+
+    (structure.groups || []).forEach(function(grp, gi) {
+      var result = grpResults[gi];
+      if (result && result.create_group && result.create_group.id) {
+        groupMapping[grp.id] = { targetId: result.create_group.id, title: grp.title };
+      } else {
+        console.warn('Failed to create group ' + grp.title + ': ' + (result ? result.error : 'no result'));
       }
     });
   }
