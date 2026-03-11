@@ -1541,3 +1541,128 @@ function buildGroupMappingByTitle(sourceGroups, targetGroups) {
 
   return { mapping: mapping, unmapped: unmapped };
 }
+
+// ── File / Asset Operations ──────────────────────────────────────────────────
+
+/**
+ * Get assets (files) attached to specific items.
+ * Returns a map of itemId → [{ id, name, public_url, file_extension, file_size }].
+ * @param {string[]} itemIds - Array of item IDs to fetch assets for
+ * @param {string} [apiKey] - Optional API key for cross-account reads
+ * @returns {Object} Map of itemId → asset array
+ */
+function getItemAssets(itemIds, apiKey) {
+  var assetMap = {};
+  // Process in batches of 25 to stay within complexity limits
+  var BATCH = 25;
+  for (var i = 0; i < itemIds.length; i += BATCH) {
+    var batch = itemIds.slice(i, i + BATCH);
+    var ids = batch.map(function(id) { return Number(id); });
+
+    var query = 'query ($ids: [ID!]) { items (ids: $ids) { id assets { id name public_url file_extension file_size } } }';
+    var data = apiKey
+      ? callMondayAPIWithKey(apiKey, query, { ids: ids })
+      : callMondayAPI(query, { ids: ids });
+
+    (data.items || []).forEach(function(item) {
+      if (item.assets && item.assets.length > 0) {
+        assetMap[String(item.id)] = item.assets;
+      }
+    });
+
+    if (i + BATCH < itemIds.length) Utilities.sleep(300);
+  }
+  return assetMap;
+}
+
+/**
+ * Identify file columns on a board.
+ * @param {Array} columns - Board columns array [{ id, title, type }]
+ * @returns {Array} File column definitions [{ id, title }]
+ */
+function getFileColumns(columns) {
+  return (columns || []).filter(function(col) {
+    return col.type === 'file';
+  });
+}
+
+/**
+ * Upload a file blob to a Monday.com item's file column.
+ * Uses the special /v2/file multipart endpoint.
+ * @param {string} itemId - Target item ID
+ * @param {string} columnId - File column ID on the target board
+ * @param {Blob} fileBlob - Google Apps Script Blob of the file
+ * @param {string} [apiKey] - API key (defaults to source account key)
+ * @returns {Object} Upload result { id }
+ */
+function uploadFileToMondayItem(itemId, columnId, fileBlob, apiKey) {
+  var key = apiKey || CONFIG.MONDAY_API_KEY;
+  var mutation = 'mutation ($file: File!) { add_file_to_column (item_id: ' + Number(itemId) + ', column_id: "' + columnId + '", file: $file) { id } }';
+
+  var boundary = '----MigrationBoundary' + Utilities.getUuid().replace(/-/g, '');
+
+  // Build multipart payload parts as byte arrays
+  var partQuery = '--' + boundary + '\r\n' +
+    'Content-Disposition: form-data; name="query"\r\n\r\n' +
+    mutation + '\r\n';
+
+  var partMap = '--' + boundary + '\r\n' +
+    'Content-Disposition: form-data; name="map"\r\n\r\n' +
+    '{"image": "variables.file"}\r\n';
+
+  var partFileHeader = '--' + boundary + '\r\n' +
+    'Content-Disposition: form-data; name="image"; filename="' + fileBlob.getName() + '"\r\n' +
+    'Content-Type: ' + (fileBlob.getContentType() || 'application/octet-stream') + '\r\n\r\n';
+
+  var partEnd = '\r\n--' + boundary + '--\r\n';
+
+  // Combine into single byte array
+  var payload = [];
+  var textBytes = Utilities.newBlob(partQuery + partMap + partFileHeader).getBytes();
+  var fileBytes = fileBlob.getBytes();
+  var endBytes = Utilities.newBlob(partEnd).getBytes();
+
+  for (var t = 0; t < textBytes.length; t++) payload.push(textBytes[t]);
+  for (var f = 0; f < fileBytes.length; f++) payload.push(fileBytes[f]);
+  for (var e = 0; e < endBytes.length; e++) payload.push(endBytes[e]);
+
+  var options = {
+    method: 'POST',
+    headers: { 'Authorization': key },
+    contentType: 'multipart/form-data; boundary=' + boundary,
+    payload: payload,
+    muteHttpExceptions: true
+  };
+
+  var response = retryableFetch('https://api.monday.com/v2/file', options);
+  var result = JSON.parse(response.getContentText());
+
+  if (result.errors) {
+    throw new Error('File upload failed: ' + result.errors[0].message);
+  }
+
+  return result.data ? result.data.add_file_to_column : null;
+}
+
+/**
+ * Download a file from a Monday.com public_url and return as a Blob.
+ * public_url is valid for 1 hour after querying.
+ * @param {string} publicUrl - The asset's public_url
+ * @param {string} fileName - Desired file name
+ * @returns {Blob} File blob
+ */
+function downloadMondayAsset(publicUrl, fileName) {
+  var response = retryableFetch(publicUrl, {
+    method: 'GET',
+    muteHttpExceptions: true
+  });
+
+  var code = response.getResponseCode();
+  if (code < 200 || code >= 300) {
+    throw new Error('Failed to download asset (HTTP ' + code + '): ' + fileName);
+  }
+
+  var blob = response.getBlob();
+  if (fileName) blob.setName(fileName);
+  return blob;
+}

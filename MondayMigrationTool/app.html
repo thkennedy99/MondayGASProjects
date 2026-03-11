@@ -961,6 +961,7 @@ const MigrationTab = () => {
             {(
               (progress.foldersCreated > 0) ||
               (progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0)) ||
+              (progress.boardMapping && progress.boardMapping.some(bm => (bm.filesMigrated || 0) > 0)) ||
               (progress.documentMigration && progress.documentMigration.docsMigrated > 0)
             ) && (
               <div className="row g-3 mb-4">
@@ -969,6 +970,9 @@ const MigrationTab = () => {
                 )}
                 {progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0) && (
                   <div className="col-md-3"><StatCard value={progress.boardMapping.reduce((sum, bm) => sum + (bm.managedColumnsAttached || 0), 0)} label="Managed Columns Linked" icon="link-45deg" color="var(--gw-bright-blue)" /></div>
+                )}
+                {progress.boardMapping && progress.boardMapping.some(bm => (bm.filesMigrated || 0) > 0) && (
+                  <div className="col-md-3"><StatCard value={progress.boardMapping.reduce((sum, bm) => sum + (bm.filesMigrated || 0), 0)} label="Files Migrated" icon="paperclip" color="var(--match-great)" /></div>
                 )}
                 {progress.documentMigration && (
                   <>
@@ -1002,7 +1006,7 @@ const MigrationTab = () => {
             {progress.boardMapping && (
               <div className="scrollable-table mt-3">
                 <table className="table table-gw table-sm mb-0">
-                  <thead><tr><th>Source Board</th><th>Folder</th><th>Target Board ID</th><th>Method</th><th>Status</th><th>Items</th></tr></thead>
+                  <thead><tr><th>Source Board</th><th>Folder</th><th>Target Board ID</th><th>Method</th><th>Status</th><th>Items</th><th>Files</th></tr></thead>
                   <tbody>
                     {progress.boardMapping.map((bm, i) => (
                       <tr key={i}>
@@ -1017,6 +1021,7 @@ const MigrationTab = () => {
                         </td>
                         <td><span className={`badge status-${bm.status}`}>{bm.status}</span></td>
                         <td>{bm.itemsMigrated} / {bm.itemsTotal}</td>
+                        <td>{bm.filesMigrated > 0 ? <span className="badge bg-success"><i className="bi bi-paperclip me-1" />{bm.filesMigrated}</span> : <span className="text-muted">—</span>}</td>
                       </tr>
                     ))}
                   </tbody>

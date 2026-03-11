@@ -1530,7 +1530,7 @@ function migrateSubitems(sourceItem, targetParentItemId, targetApiKey) {
         if (cv.value) {
           try {
             var parsed = JSON.parse(cv.value);
-            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency'];
+            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency', 'file'];
             if (skipTypes.indexOf(cv.type) < 0) {
               colValues[cv.id] = parsed;
             }
@@ -1630,6 +1630,7 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
   var itemsTotal = allItems.length;
   var itemsMigrated = 0;
   var subitemsMigrated = 0;
+  var itemIdMap = {}; // sourceItemId → targetItemId for file migration
 
   for (var i = 0; i < allItems.length; i++) {
     var item = allItems[i];
@@ -1648,7 +1649,7 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
         if (cv.value && mapped) {
           try {
             var parsed = JSON.parse(cv.value);
-            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency'];
+            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency', 'file'];
             if (skipTypes.indexOf(cv.type) < 0) {
               columnValues[mapped.targetId] = parsed;
             }
@@ -1673,6 +1674,9 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
       );
 
       itemsMigrated++;
+      if (newItem && newItem.id) {
+        itemIdMap[String(item.id)] = String(newItem.id);
+      }
 
       // Migrate subitems if present
       if (item.subitems && item.subitems.length > 0 && newItem && newItem.id) {
@@ -1685,6 +1689,16 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
     } catch (itemError) {
       console.warn('Failed to migrate item "' + item.name + '":', itemError);
     }
+  }
+
+  // Step 7: Migrate file column contents
+  var filesMigrated = 0;
+  var fileColumns = getFileColumns(sourceStructure.columns);
+  if (fileColumns.length > 0 && Object.keys(itemIdMap).length > 0) {
+    var fileResult = migrateFileColumns(
+      itemIdMap, fileColumns, columnMapping, null, null, migrationId, progressPrefix
+    );
+    filesMigrated = fileResult.filesMigrated;
   }
 
   return {
@@ -1700,6 +1714,7 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
     columnsSkipped: colMapResult.unmapped.length,
     groupsMapped: Object.keys(groupMapping).length,
     subitemsMigrated: subitemsMigrated,
+    filesMigrated: filesMigrated,
     managedColumnsAttached: 0, // managed columns preserved automatically via duplicate_board
     columnMapping: columnMapping,
     groupMapping: groupMapping,
@@ -1888,6 +1903,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
   var itemsTotal = allItems.length;
   var itemsMigrated = 0;
   var subitemsMigrated = 0;
+  var itemIdMap = {}; // sourceItemId → targetItemId for file migration
 
   for (var i = 0; i < allItems.length; i++) {
     var item = allItems[i];
@@ -1906,7 +1922,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
         if (cv.value && mapped) {
           try {
             var parsed = JSON.parse(cv.value);
-            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation'];
+            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'file'];
             if (skipTypes.indexOf(cv.type) < 0) {
               // For cross-account: people columns won't match (different user IDs)
               if (targetApiKey && cv.type === 'people') {
@@ -1937,6 +1953,9 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
       );
 
       itemsMigrated++;
+      if (newItem && newItem.id) {
+        itemIdMap[String(item.id)] = String(newItem.id);
+      }
 
       // Migrate subitems if present
       if (item.subitems && item.subitems.length > 0 && newItem && newItem.id) {
@@ -1951,6 +1970,16 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     }
   }
 
+  // Migrate file column contents
+  var filesMigrated = 0;
+  var fileColumns = getFileColumns(structure.columns);
+  if (fileColumns.length > 0 && Object.keys(itemIdMap).length > 0) {
+    var fileResult = migrateFileColumns(
+      itemIdMap, fileColumns, columnMapping, null, targetApiKey, migrationId, progressPrefix
+    );
+    filesMigrated = fileResult.filesMigrated;
+  }
+
   return {
     sourceBoardId: String(sourceBoard.id),
     sourceBoardName: structure.name,
@@ -1961,6 +1990,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     itemsMigrated: itemsMigrated,
     itemsTotal: itemsTotal,
     subitemsMigrated: subitemsMigrated,
+    filesMigrated: filesMigrated,
     columnsMapped: Object.keys(columnMapping).length,
     columnsSkipped: skippedColumns.length,
     groupsMapped: Object.keys(groupMapping).length,
@@ -1969,6 +1999,130 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     groupMapping: groupMapping,
     managedColumnMapping: managedColumnMapping
   };
+}
+
+// ── File Column Migration ────────────────────────────────────────────────────
+
+/**
+ * Migrate file column contents from source items to target items.
+ * Downloads each file via public_url, then re-uploads to the target item's file column.
+ *
+ * @param {Object} itemIdMap - Map of sourceItemId → targetItemId
+ * @param {Array} fileColumns - Source board file columns [{ id, title }]
+ * @param {Object} columnMapping - Source→target column mapping
+ * @param {string} [sourceApiKey] - API key for reading source assets (null = same account)
+ * @param {string} [targetApiKey] - API key for uploading to target (null = same account)
+ * @param {string} [migrationId] - Migration progress tracker ID
+ * @param {string} [progressPrefix] - Progress message prefix
+ * @returns {Object} { filesMigrated, filesErrored, errors }
+ */
+function migrateFileColumns(itemIdMap, fileColumns, columnMapping, sourceApiKey, targetApiKey, migrationId, progressPrefix) {
+  var sourceItemIds = Object.keys(itemIdMap);
+  var filesMigrated = 0;
+  var filesErrored = 0;
+  var errors = [];
+
+  if (fileColumns.length === 0 || sourceItemIds.length === 0) {
+    return { filesMigrated: 0, filesErrored: 0, errors: [] };
+  }
+
+  // Build file column ID mapping (source → target)
+  var fileColMap = {};
+  fileColumns.forEach(function(fc) {
+    var mapped = columnMapping[fc.id];
+    if (mapped) {
+      fileColMap[fc.id] = mapped.targetId;
+    }
+  });
+
+  if (Object.keys(fileColMap).length === 0) {
+    console.log('Migration: No file columns mapped to target — skipping file migration');
+    return { filesMigrated: 0, filesErrored: 0, errors: [] };
+  }
+
+  console.log('Migration: Starting file migration for ' + sourceItemIds.length + ' items, ' +
+    Object.keys(fileColMap).length + ' file column(s)');
+
+  if (migrationId) {
+    updateMigrationProgress(migrationId, {
+      message: (progressPrefix || '') + ' — fetching file assets...'
+    });
+  }
+
+  // Fetch all assets from source items
+  var assetMap = getItemAssets(sourceItemIds, sourceApiKey || null);
+  var itemsWithAssets = Object.keys(assetMap).length;
+  console.log('Migration: Found assets on ' + itemsWithAssets + ' of ' + sourceItemIds.length + ' items');
+
+  if (itemsWithAssets === 0) {
+    return { filesMigrated: 0, filesErrored: 0, errors: [] };
+  }
+
+  // Process each source item that has assets
+  var processed = 0;
+  var totalWithAssets = itemsWithAssets;
+
+  for (var srcItemId in assetMap) {
+    if (!assetMap.hasOwnProperty(srcItemId)) continue;
+
+    var targetItemId = itemIdMap[srcItemId];
+    if (!targetItemId) continue;
+
+    var assets = assetMap[srcItemId];
+    processed++;
+
+    if (migrationId && (processed === 1 || processed % 5 === 0 || processed === totalWithAssets)) {
+      updateMigrationProgress(migrationId, {
+        message: (progressPrefix || '') + ' — migrating files ' + processed + '/' + totalWithAssets +
+          ' items (' + filesMigrated + ' files uploaded)'
+      });
+    }
+
+    // Upload each asset to the first mapped file column on the target item
+    // (Monday.com items() assets query returns all assets across all file columns)
+    var targetFileColIds = Object.keys(fileColMap).map(function(k) { return fileColMap[k]; });
+    var primaryTargetColId = targetFileColIds[0]; // upload to first file column
+
+    for (var a = 0; a < assets.length; a++) {
+      var asset = assets[a];
+      if (!asset.public_url) {
+        console.warn('Migration: Skipping asset "' + asset.name + '" — no public_url');
+        continue;
+      }
+
+      try {
+        // Download the file
+        var fileName = asset.name || ('file_' + asset.id + (asset.file_extension ? '.' + asset.file_extension : ''));
+        var blob = downloadMondayAsset(asset.public_url, fileName);
+
+        // Check file size (GAS UrlFetchApp payload limit ~50MB, Monday limit 500MB)
+        var sizeBytes = blob.getBytes().length;
+        if (sizeBytes > 50 * 1024 * 1024) {
+          console.warn('Migration: Skipping file "' + fileName + '" — too large (' +
+            Math.round(sizeBytes / 1024 / 1024) + 'MB) for GAS transfer');
+          errors.push({ item: srcItemId, file: fileName, error: 'File too large for GAS transfer' });
+          filesErrored++;
+          continue;
+        }
+
+        // Upload to target
+        uploadFileToMondayItem(targetItemId, primaryTargetColId, blob, targetApiKey || null);
+        filesMigrated++;
+        console.log('Migration: Uploaded file "' + fileName + '" to target item ' + targetItemId);
+
+        // Rate-limit between uploads
+        Utilities.sleep(500);
+      } catch (fileErr) {
+        filesErrored++;
+        var errMsg = 'Failed to migrate file "' + (asset.name || asset.id) + '" for item ' + srcItemId + ': ' + fileErr;
+        console.warn('Migration: ' + errMsg);
+        errors.push({ item: srcItemId, file: asset.name || asset.id, error: fileErr.toString() });
+      }
+    }
+  }
+
+  console.log('Migration: File migration complete — ' + filesMigrated + ' uploaded, ' + filesErrored + ' errors');
+  return { filesMigrated: filesMigrated, filesErrored: filesErrored, errors: errors };
 }
 
 /**
