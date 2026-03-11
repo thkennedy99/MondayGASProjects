@@ -2499,14 +2499,284 @@ const UserMigrationTab = () => {
   );
 };
 
+// ── Welcome Page ─────────────────────────────────────────────────────────────
+
+const WelcomePage = ({ onGetStarted }) => {
+  const steps = [
+    {
+      num: 1,
+      id: 'inventory',
+      title: 'Inventory',
+      icon: 'clipboard-data',
+      color: '#00739d',
+      description: 'Scan & catalog your source workspace',
+      details: [
+        'Discover all boards, groups, columns, and items',
+        'Identify subscribers, owners, and guests per board',
+        'Map column types and configurations',
+        'Generate a complete workspace manifest'
+      ]
+    },
+    {
+      num: 2,
+      id: 'testrun',
+      title: 'Test Run',
+      icon: 'search',
+      color: '#1eb7df',
+      description: 'Dry-run analysis before any changes',
+      details: [
+        'Simulate the migration without modifying data',
+        'Identify potential conflicts or incompatibilities',
+        'Estimate migration scope and duration',
+        'Review board-by-board readiness report'
+      ]
+    },
+    {
+      num: 3,
+      id: 'migration',
+      title: 'Migration',
+      icon: 'arrow-left-right',
+      color: '#034e6a',
+      description: 'Clone workspace structure (without users)',
+      details: [
+        'Duplicate boards with all groups and columns',
+        'Migrate items, subitems, and updates',
+        'Transfer files and attachments',
+        'Users and guests are NOT migrated in this step'
+      ],
+      highlight: 'Structure only — no users or guests are moved yet'
+    },
+    {
+      num: 4,
+      id: 'validation',
+      title: 'Board Validation',
+      icon: 'check2-square',
+      color: '#00739d',
+      description: 'Verify boards migrated correctly',
+      details: [
+        'Compare item counts between source and target',
+        'Verify all groups exist with correct names',
+        'Validate column types and configurations',
+        'Identify any missing or extra elements'
+      ],
+      highlight: 'Validates board structure only — users checked separately'
+    },
+    {
+      num: 5,
+      id: 'users',
+      title: 'Users & Guests',
+      icon: 'people-fill',
+      color: '#ff6900',
+      description: 'Migrate subscribers to target boards',
+      details: [
+        'Scan source board subscribers and roles',
+        'Match users by email in target account',
+        'Assign existing users to target boards',
+        'Optionally invite missing members and guests'
+      ]
+    },
+    {
+      num: 6,
+      id: 'validation',
+      title: 'Full Validation',
+      icon: 'shield-check',
+      color: '#034e6a',
+      description: 'Verify boards AND users together',
+      details: [
+        'Re-run board structure validation',
+        'Verify subscribers are assigned to correct boards',
+        'Check owner and role assignments',
+        'Generate final migration audit report (PDF)'
+      ],
+      highlight: 'Complete end-to-end verification'
+    }
+  ];
+
+  return (
+    <div style={{ maxWidth: '960px', margin: '0 auto' }}>
+      {/* Hero Section */}
+      <div className="text-center mb-5">
+        <div style={{
+          background: 'linear-gradient(135deg, #034e6a 0%, #00739d 50%, #1eb7df 100%)',
+          borderRadius: '16px',
+          padding: '48px 32px',
+          color: '#fff',
+          marginBottom: '32px',
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <i className="bi bi-arrow-repeat" style={{ fontSize: '3rem', marginBottom: '16px', display: 'block', opacity: 0.9 }} />
+            <h1 style={{ fontWeight: 700, fontSize: '2rem', marginBottom: '12px' }}>Monday.com Workspace Migration</h1>
+            <p style={{ fontSize: '1.1rem', opacity: 0.9, maxWidth: '600px', margin: '0 auto' }}>
+              A guided, step-by-step process to safely migrate your workspace — structure first, then users — with validation at every stage.
+            </p>
+          </div>
+          {/* Decorative circles */}
+          <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '160px', height: '160px', borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
+          <div style={{ position: 'absolute', bottom: '-60px', left: '-20px', width: '200px', height: '200px', borderRadius: '50%', background: 'rgba(255,255,255,0.03)' }} />
+        </div>
+      </div>
+
+      {/* Process Flow */}
+      <h4 className="text-center mb-4" style={{ color: 'var(--gw-nautical-navy)', fontWeight: 600 }}>
+        <i className="bi bi-diagram-3 me-2" />Migration Process
+      </h4>
+
+      <div style={{ position: 'relative' }}>
+        {steps.map((step, idx) => (
+          <div key={idx} className="d-flex mb-4" style={{ position: 'relative' }}>
+            {/* Connector line */}
+            {idx < steps.length - 1 && (
+              <div style={{
+                position: 'absolute',
+                left: '27px',
+                top: '56px',
+                bottom: '-16px',
+                width: '2px',
+                background: 'linear-gradient(to bottom, ' + step.color + ', ' + steps[idx + 1].color + ')',
+                opacity: 0.3,
+                zIndex: 0
+              }} />
+            )}
+
+            {/* Step number circle */}
+            <div style={{
+              flexShrink: 0,
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              background: step.color,
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '1.3rem',
+              fontWeight: 700,
+              marginRight: '20px',
+              zIndex: 1,
+              boxShadow: '0 4px 12px ' + step.color + '40'
+            }}>
+              {step.num}
+            </div>
+
+            {/* Step card */}
+            <div className="card flex-grow-1" style={{
+              border: 'none',
+              boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+              borderLeft: '4px solid ' + step.color,
+              transition: 'transform 0.2s, box-shadow 0.2s'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateX(4px)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.12)'; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'translateX(0)'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)'; }}
+            >
+              <div className="card-body py-3">
+                <div className="d-flex align-items-center mb-2">
+                  <i className={`bi bi-${step.icon} me-2`} style={{ fontSize: '1.2rem', color: step.color }} />
+                  <h5 className="mb-0" style={{ fontWeight: 600, color: step.color }}>{step.title}</h5>
+                  {step.num === 3 && (
+                    <span className="badge ms-2" style={{ background: '#fff3e0', color: '#e65100', fontSize: '0.7rem' }}>
+                      <i className="bi bi-info-circle me-1" />No users moved
+                    </span>
+                  )}
+                  {step.num === 6 && (
+                    <span className="badge ms-2" style={{ background: '#e8f5e9', color: '#2e7d32', fontSize: '0.7rem' }}>
+                      <i className="bi bi-check-circle me-1" />Final step
+                    </span>
+                  )}
+                </div>
+                <p className="mb-2" style={{ fontWeight: 500 }}>{step.description}</p>
+                <ul className="mb-0" style={{ paddingLeft: '20px', fontSize: '0.88rem', color: 'var(--bs-secondary-color)' }}>
+                  {step.details.map((d, di) => (
+                    <li key={di} className="mb-1">{d}</li>
+                  ))}
+                </ul>
+                {step.highlight && (
+                  <div className="mt-2 px-3 py-2 rounded" style={{
+                    background: step.color + '10',
+                    borderLeft: '3px solid ' + step.color,
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
+                    color: step.color
+                  }}>
+                    <i className="bi bi-lightbulb me-1" />{step.highlight}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Key Principles */}
+      <div className="card mt-4 mb-4" style={{ border: 'none', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+        <div className="card-body">
+          <h5 className="mb-3" style={{ color: 'var(--gw-nautical-navy)', fontWeight: 600 }}>
+            <i className="bi bi-shield-check me-2" />Key Principles
+          </h5>
+          <div className="row g-3">
+            <div className="col-md-4">
+              <div className="d-flex align-items-start">
+                <i className="bi bi-layers me-2 mt-1" style={{ color: '#00739d', fontSize: '1.1rem' }} />
+                <div>
+                  <strong>Structure First</strong>
+                  <p className="mb-0 small text-muted">Boards, groups, columns, and items are migrated before any users are touched.</p>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-4">
+              <div className="d-flex align-items-start">
+                <i className="bi bi-people me-2 mt-1" style={{ color: '#ff6900', fontSize: '1.1rem' }} />
+                <div>
+                  <strong>Users Separate</strong>
+                  <p className="mb-0 small text-muted">User and guest migration is a distinct step with full control over who gets invited.</p>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-4">
+              <div className="d-flex align-items-start">
+                <i className="bi bi-check2-all me-2 mt-1" style={{ color: '#034e6a', fontSize: '1.1rem' }} />
+                <div>
+                  <strong>Validate Everything</strong>
+                  <p className="mb-0 small text-muted">Board and user validation runs after each major step to ensure nothing is missed.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Get Started Button */}
+      <div className="text-center py-4">
+        <button className="btn btn-lg px-5 py-3" style={{
+          background: 'linear-gradient(135deg, #034e6a, #00739d)',
+          color: '#fff',
+          fontWeight: 600,
+          borderRadius: '12px',
+          boxShadow: '0 4px 16px rgba(3,78,106,0.3)',
+          border: 'none',
+          fontSize: '1.1rem',
+          transition: 'transform 0.2s, box-shadow 0.2s'
+        }}
+        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 24px rgba(3,78,106,0.4)'; }}
+        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(3,78,106,0.3)'; }}
+        onClick={onGetStarted}>
+          <i className="bi bi-rocket-takeoff me-2" />Get Started — Begin Inventory
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // ── Main App ─────────────────────────────────────────────────────────────────
 
 const App = () => {
   const { theme, toggle: toggleTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState('inventory');
+  const [activeTab, setActiveTab] = useState('home');
   const config = window.appConfig || {};
 
   const tabs = [
+    { id: 'home', label: 'Home', icon: 'house' },
     { id: 'inventory', label: 'Inventory', icon: 'clipboard-data' },
     { id: 'testrun', label: 'Test Run', icon: 'search' },
     { id: 'migration', label: 'Migration', icon: 'arrow-left-right' },
@@ -2551,6 +2821,7 @@ const App = () => {
         </ul>
 
         {/* Tab Content */}
+        {activeTab === 'home' && <WelcomePage onGetStarted={() => setActiveTab('inventory')} />}
         {activeTab === 'inventory' && <InventoryTab />}
         {activeTab === 'testrun' && <TestRunTab />}
         {activeTab === 'migration' && <MigrationTab />}
