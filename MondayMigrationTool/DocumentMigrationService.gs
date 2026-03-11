@@ -29,7 +29,7 @@ var DRIVE_BACKUP_FOLDER_ID = '1FI25ARWCXE7UWwr8qIhmMsgKeTIxtPNm';
  * @param {string} targetApiKey - Optional API key for target account (cross-account migration)
  * @returns {Object} { success, docsTotal, docsMigrated, docsSkipped, driveFolder, docMapping, errors }
  */
-function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, progressCallback, targetApiKey) {
+function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, progressCallback, targetApiKey, folderMapping) {
   var errors = [];
   var docMapping = [];
   var docsMigrated = 0;
@@ -93,7 +93,8 @@ function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, pro
 
           // Create empty doc in target
           try {
-            var emptyDoc = createDocOnTarget(targetApiKey, targetWorkspaceId, docName, doc.doc_kind || 'public');
+            var targetFolderId = (folderMapping && doc.doc_folder_id) ? (folderMapping[String(doc.doc_folder_id)] || null) : null;
+            var emptyDoc = createDocOnTarget(targetApiKey, targetWorkspaceId, docName, doc.doc_kind || 'public', targetFolderId);
             docMapping[docMapping.length - 1].targetDocId = String(emptyDoc.id);
             docMapping[docMapping.length - 1].status = 'migrated_empty';
             docsMigrated++;
@@ -110,8 +111,9 @@ function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, pro
         // 3b. Save to Google Drive
         var driveFile = saveMarkdownToDrive(driveFolder, doc.id, docName, markdown);
 
-        // 3c. Create new doc in target workspace
-        var newDoc = createDocOnTarget(targetApiKey, targetWorkspaceId, docName, doc.doc_kind || 'public');
+        // 3c. Create new doc in target workspace (in the same folder as the source if folder mapping exists)
+        var targetFolderId = (folderMapping && doc.doc_folder_id) ? (folderMapping[String(doc.doc_folder_id)] || null) : null;
+        var newDoc = createDocOnTarget(targetApiKey, targetWorkspaceId, docName, doc.doc_kind || 'public', targetFolderId);
         Utilities.sleep(300);
 
         // 3d. Import markdown content into new doc

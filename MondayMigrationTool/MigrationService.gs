@@ -1360,7 +1360,8 @@ function _executeMigration(migrationId, params) {
           function(msg) {
             updateMigrationProgress(migrationId, { message: msg });
           },
-          targetApiKey
+          targetApiKey,
+          folderMapping
         );
         docMapping = docMigrationResult.docMapping || [];
 

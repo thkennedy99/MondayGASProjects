@@ -913,7 +913,8 @@ function _phaseDocuments(migrationId, state) {
       function(msg) {
         updateMigrationProgress(migrationId, { message: msg });
       },
-      state.targetApiKey
+      state.targetApiKey,
+      state.folderMapping || {}
     );
 
     state.docMapping = docResult.docMapping || [];
