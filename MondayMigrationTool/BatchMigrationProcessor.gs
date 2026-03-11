@@ -647,46 +647,51 @@ function _phaseInit(migrationId, state) {
     message: 'Found ' + sourceBoards.length + ' boards. Creating folders...'
   });
 
-  // Step 3b: Recreate folder structure
+  // Step 3b: Recreate folder structure (skip if folders component is off)
   var folderMapping = {};
   var folderList = [];
-  try {
-    var sourceFolders = getWorkspaceFolders(sourceWsId);
-    if (sourceFolders.length > 0) {
-      var flattenFolders = function(folders, parentSourceId) {
-        folders.forEach(function(folder) {
-          folderList.push({
-            id: String(folder.id),
-            name: folder.name,
-            color: folder.color || null,
-            parentSourceId: parentSourceId
+  var skipFolders = state.components && state.components.folders === false;
+  if (skipFolders) {
+    console.log('Migration: Directory structure disabled — all boards will go to workspace root');
+  } else {
+    try {
+      var sourceFolders = getWorkspaceFolders(sourceWsId);
+      if (sourceFolders.length > 0) {
+        var flattenFolders = function(folders, parentSourceId) {
+          folders.forEach(function(folder) {
+            folderList.push({
+              id: String(folder.id),
+              name: folder.name,
+              color: folder.color || null,
+              parentSourceId: parentSourceId
+            });
+            if (folder.sub_folders && folder.sub_folders.length > 0) {
+              flattenFolders(folder.sub_folders, String(folder.id));
+            }
           });
-          if (folder.sub_folders && folder.sub_folders.length > 0) {
-            flattenFolders(folder.sub_folders, String(folder.id));
-          }
+        };
+        flattenFolders(sourceFolders, null);
+
+        updateMigrationProgress(migrationId, {
+          message: 'Recreating ' + folderList.length + ' folder(s)...'
         });
-      };
-      flattenFolders(sourceFolders, null);
 
-      updateMigrationProgress(migrationId, {
-        message: 'Recreating ' + folderList.length + ' folder(s)...'
-      });
-
-      for (var fi = 0; fi < folderList.length; fi++) {
-        var sf = folderList[fi];
-        try {
-          var targetParentFolderId = sf.parentSourceId ? (folderMapping[sf.parentSourceId] || null) : null;
-          var newFolder = createFolderOnTarget(targetApiKey, targetWs.id, sf.name, targetParentFolderId, sf.color);
-          folderMapping[sf.id] = String(newFolder.id);
-          console.log('Migration:   Folder: "' + sf.name + '" → ' + newFolder.id);
-          Utilities.sleep(200);
-        } catch (folderErr) {
-          console.warn('Migration:   Failed folder "' + sf.name + '": ' + folderErr);
+        for (var fi = 0; fi < folderList.length; fi++) {
+          var sf = folderList[fi];
+          try {
+            var targetParentFolderId = sf.parentSourceId ? (folderMapping[sf.parentSourceId] || null) : null;
+            var newFolder = createFolderOnTarget(targetApiKey, targetWs.id, sf.name, targetParentFolderId, sf.color);
+            folderMapping[sf.id] = String(newFolder.id);
+            console.log('Migration:   Folder: "' + sf.name + '" → ' + newFolder.id);
+            Utilities.sleep(200);
+          } catch (folderErr) {
+            console.warn('Migration:   Failed folder "' + sf.name + '": ' + folderErr);
+          }
         }
       }
+    } catch (folderError) {
+      console.warn('Migration: Folder migration failed: ' + folderError);
     }
-  } catch (folderError) {
-    console.warn('Migration: Folder migration failed: ' + folderError);
   }
 
   state.folderMapping = folderMapping;

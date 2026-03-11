@@ -16,6 +16,7 @@ var MIGRATION_COMPONENTS = {
   columns:        { label: 'Columns',           mandatory: true,  description: 'Column definitions (always included)' },
   items:          { label: 'Items (Rows)',      mandatory: true,  description: 'All item data (always included)' },
   groups:         { label: 'Groups',            mandatory: false, description: 'Board groups / sections', defaultOn: true },
+  folders:        { label: 'Directory Structure', mandatory: false, description: 'Recreate folder hierarchy in the target workspace (if off, all boards go to workspace root)', defaultOn: true },
   useTemplates:   { label: 'Template Clone',    mandatory: false, description: 'Use duplicate_board to preserve views, automations, formulas, and managed column links (recommended)', defaultOn: true },
   managedColumns: { label: 'Managed Columns',   mandatory: false, description: 'Preserve account-level managed column links for status/dropdown consistency (used when Template Clone is off)', defaultOn: true },
   documents:      { label: 'Documents',          mandatory: false, description: 'Export docs as markdown, backup to Google Drive, and recreate in target workspace', defaultOn: true }
