@@ -925,6 +925,10 @@ const MigrationTab = () => {
               {progress?.lastUpdate && (
                 <p className="text-muted text-center mt-2 mb-1" style={{ fontSize: '0.8rem' }}>
                   Last update: {new Date(progress.lastUpdate).toLocaleTimeString()}
+                  {(() => {
+                    const secsSinceUpdate = Math.floor((Date.now() - new Date(progress.lastUpdate).getTime()) / 1000);
+                    return secsSinceUpdate > 8 ? ' — scheduling next phase...' : '';
+                  })()}
                 </p>
               )}
 

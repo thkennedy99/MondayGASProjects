@@ -1045,8 +1045,8 @@ function runMigration(migrationId) {
     CacheService.getScriptCache().remove('migParams_' + migrationId);
     PropertiesService.getScriptProperties().deleteProperty('migParams_' + migrationId);
 
-    // Delegate to the actual migration logic
-    return _executeMigration(migrationId, params);
+    // Delegate to the batched migration logic (chains via triggers to avoid 6-min limit)
+    return _executeMigrationBatched(migrationId, params);
   } catch (error) {
     if (migrationId) {
       updateMigrationProgress(migrationId, {
@@ -1077,7 +1077,7 @@ function startMigration(params) {
     }
 
     migrationId = generateMigrationId();
-    return _executeMigration(migrationId, params);
+    return _executeMigrationBatched(migrationId, params);
   } catch (error) {
     if (migrationId) {
       updateMigrationProgress(migrationId, {
@@ -2232,6 +2232,14 @@ function getSavedMigrations() {
  */
 function cancelMigration(migrationId) {
   try {
+    // Cancel any pending batch triggers for this migration
+    var batchState = _getBatchState(migrationId);
+    if (batchState) {
+      batchState.phase = 'cancelled';
+      _saveBatchState(migrationId, batchState);
+      _cleanupMigrationTriggers();
+    }
+
     updateMigrationProgress(migrationId, {
       state: 'cancelled',
       message: 'Migration cancelled by user.'
