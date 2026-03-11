@@ -125,7 +125,7 @@ function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, pro
           driveFileId: driveFile.getId(),
           driveFileUrl: driveFile.getUrl(),
           status: 'migrated',
-          blocksCreated: (importResult && importResult.ids) ? importResult.ids.length : 0
+          blocksCreated: (importResult && importResult.block_ids) ? importResult.block_ids.length : 0
         });
 
         docsMigrated++;
