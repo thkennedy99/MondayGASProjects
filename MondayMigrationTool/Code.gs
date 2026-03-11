@@ -47,6 +47,32 @@ function doGet(e) {
 
   template.configData = JSON.stringify(configData);
 
+  // Pre-fetch and cache workspaces so the UI loads with data immediately
+  var workspacesData = '[]';
+  try {
+    if (CONFIG.MONDAY_API_KEY) {
+      var cache = CacheService.getScriptCache();
+      var cached = cache.get('initial_workspaces');
+      if (cached) {
+        workspacesData = cached;
+      } else {
+        var ws = getWorkspaces();
+        var summaries = ws.map(function(w) {
+          return { id: String(w.id), name: w.name, kind: w.kind, description: w.description || '' };
+        });
+        summaries.sort(function(a, b) { return a.name.localeCompare(b.name); });
+        workspacesData = JSON.stringify(summaries);
+        // Cache for 5 minutes
+        if (workspacesData.length < 90000) {
+          cache.put('initial_workspaces', workspacesData, 300);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to pre-fetch workspaces:', err);
+  }
+  template.workspacesData = workspacesData;
+
   return template.evaluate()
     .setTitle(CONFIG.APP_NAME)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)

@@ -150,6 +150,13 @@ const InventoryTab = () => {
     setLoading(false);
   };
 
+  // Auto-load full inventory on mount if we have pre-fetched workspaces
+  useEffect(() => {
+    if (window.initialWorkspaces && window.initialWorkspaces.length > 0) {
+      loadInventory();
+    }
+  }, []);
+
   const loadWorkspace = async (wsId) => {
     setSelectedWs(wsId);
     setWsDetail(null);
@@ -571,7 +578,7 @@ const DryRunResults = ({ result }) => {
 
 const TestRunTab = () => {
   const toast = useToast();
-  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaces, setWorkspaces] = useState(window.initialWorkspaces || []);
   const [selectedWs, setSelectedWs] = useState('');
   const [selectedTargetAccount, setSelectedTargetAccount] = useState('');
   const [components, setComponents] = useState({
@@ -585,7 +592,7 @@ const TestRunTab = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    loadWorkspaces();
+    if (workspaces.length === 0) loadWorkspaces();
     loadComponentDefs();
   }, []);
 
@@ -678,7 +685,7 @@ const TestRunTab = () => {
 
 const MigrationTab = () => {
   const toast = useToast();
-  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaces, setWorkspaces] = useState(window.initialWorkspaces || []);
   const [selectedWs, setSelectedWs] = useState('');
   const [targetName, setTargetName] = useState('');
   const [components, setComponents] = useState({
@@ -699,7 +706,7 @@ const MigrationTab = () => {
   const [selectedTargetAccount, setSelectedTargetAccount] = useState('');
 
   useEffect(() => {
-    loadWorkspaces();
+    if (workspaces.length === 0) loadWorkspaces();
     loadComponentDefs();
     return () => { if (pollRef.current) clearTimeout(pollRef.current); };
   }, []);
@@ -1165,7 +1172,7 @@ const DiscrepancyModal = ({ show, onClose, title, data }) => {
 
 const ValidationTab = () => {
   const toast = useToast();
-  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaces, setWorkspaces] = useState(window.initialWorkspaces || []);
   const [sourceWs, setSourceWs] = useState('');
   const [targetWs, setTargetWs] = useState('');
   const [loading, setLoading] = useState(false);
@@ -1180,11 +1187,13 @@ const ValidationTab = () => {
 
   const loadData = async () => {
     try {
-      const [invResult, migResult] = await Promise.all([
-        api.call('getAccountInventory'),
-        api.call('getSavedMigrations')
-      ]);
-      if (invResult.success) {
+      const calls = [api.call('getSavedMigrations')];
+      // Only fetch workspaces if not already pre-loaded
+      if (workspaces.length === 0) calls.unshift(api.call('getAccountInventory'));
+      else calls.unshift(Promise.resolve(null));
+
+      const [invResult, migResult] = await Promise.all(calls);
+      if (invResult && invResult.success) {
         const ws = (invResult.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name));
         setWorkspaces(ws);
       }
@@ -1712,7 +1721,7 @@ const ValidationTab = () => {
 
 const UserMigrationTab = () => {
   const toast = useToast();
-  const [workspaces, setWorkspaces] = useState([]);
+  const [workspaces, setWorkspaces] = useState(window.initialWorkspaces || []);
   const [sourceWs, setSourceWs] = useState('');
   const [targetWs, setTargetWs] = useState('');
   const [selectedTargetAccount, setSelectedTargetAccount] = useState('');
@@ -1730,11 +1739,12 @@ const UserMigrationTab = () => {
 
   const loadData = async () => {
     try {
-      const [invResult, migResult] = await Promise.all([
-        api.call('getAccountInventory'),
-        api.call('getSavedMigrations')
-      ]);
-      if (invResult.success) {
+      const calls = [api.call('getSavedMigrations')];
+      if (workspaces.length === 0) calls.unshift(api.call('getAccountInventory'));
+      else calls.unshift(Promise.resolve(null));
+
+      const [invResult, migResult] = await Promise.all(calls);
+      if (invResult && invResult.success) {
         setWorkspaces((invResult.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name)));
       }
       if (migResult.success) setSavedMigrations(migResult.data || []);
