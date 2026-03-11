@@ -389,6 +389,99 @@ function diagnoseDestinationAccount() {
   }
 }
 
+/**
+ * Look up a user by email in the destination Monday.com account and return
+ * their profile, role, and all boards they belong to with permissions.
+ * @param {string} email - The email address to look up
+ * @returns {Object} { success, user, boards, boardCount }
+ */
+function diagnoseDestinationUser(email) {
+  try {
+    var apiKey = CONFIG.MONDAY_MIGRATION_API_KEY;
+    if (!apiKey) throw new Error('MONDAY_MIGRATION_API_KEY not configured');
+    if (!email || typeof email !== 'string') throw new Error('Email address is required');
+    email = email.trim().toLowerCase();
+
+    // 1. Find user by email
+    var usersData = callMondayAPIWithKey(apiKey,
+      'query ($email: String!) { users (emails: [$email]) { id name email is_admin is_guest created_at title phone teams { id name } account { id name plan { max_users period tier } } } }',
+      { email: email }
+    );
+
+    var users = usersData.users || [];
+    if (users.length === 0) {
+      console.log('No user found with email: ' + email);
+      return safeReturn({ success: true, user: null, boards: [], boardCount: 0, message: 'No user found with email: ' + email });
+    }
+
+    var user = users[0];
+
+    // 2. Get boards where this user is a subscriber
+    var allBoards = [];
+    var page = 1;
+    var hasMore = true;
+    while (hasMore) {
+      var boardData = callMondayAPIWithKey(apiKey,
+        'query ($page: Int!) { boards (limit: 100, page: $page) { id name board_kind state board_folder_id permissions subscribers { id } } }',
+        { page: page }
+      );
+      var boards = boardData.boards || [];
+      boards.forEach(function(b) {
+        var isSubscriber = (b.subscribers || []).some(function(s) {
+          return String(s.id) === String(user.id);
+        });
+        if (isSubscriber) {
+          allBoards.push(b);
+        }
+      });
+      hasMore = boards.length === 100 && page < 5;
+      page++;
+    }
+
+    var result = {
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        title: user.title || '',
+        phone: user.phone || '',
+        isAdmin: user.is_admin,
+        isGuest: user.is_guest,
+        createdAt: user.created_at,
+        teams: (user.teams || []).map(function(t) { return { id: t.id, name: t.name }; }),
+        account: user.account
+      },
+      boards: allBoards.map(function(b) {
+        return {
+          id: b.id,
+          name: b.name,
+          kind: b.board_kind,
+          state: b.state,
+          folderId: b.board_folder_id,
+          permissions: b.permissions
+        };
+      }),
+      boardCount: allBoards.length
+    };
+
+    console.log('=== DESTINATION USER DIAGNOSTICS ===');
+    console.log('User: ' + user.name + ' (' + user.email + ')');
+    console.log('Admin: ' + user.is_admin + ' | Guest: ' + user.is_guest);
+    console.log('Teams: ' + (user.teams || []).map(function(t) { return t.name; }).join(', '));
+    console.log('Account: ' + (user.account ? user.account.name + ' (ID: ' + user.account.id + ')' : 'N/A'));
+    console.log('Boards subscribed to: ' + allBoards.length);
+    allBoards.forEach(function(b) {
+      console.log('  Board ' + b.id + ': ' + b.name + ' [' + b.board_kind + '] permissions=' + b.permissions);
+    });
+    console.log('====================================');
+
+    return safeReturn(result);
+  } catch (error) {
+    return handleError('diagnoseDestinationUser', error);
+  }
+}
+
 // ── Utility ──────────────────────────────────────────────────────────────────
 
 function generateMigrationId() {
