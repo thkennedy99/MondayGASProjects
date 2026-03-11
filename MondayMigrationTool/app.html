@@ -1510,15 +1510,16 @@ const UserMigrationTab = () => {
           <div className="card mb-4">
             <div className="card-header"><i className="bi bi-kanban me-1" /> Board Mapping & Subscribers</div>
             <div className="card-body">
-              <div className="scrollable-table" style={{ maxHeight: '300px' }}>
+              <div className="scrollable-table" style={{ maxHeight: '400px' }}>
                 <table className="table table-gw table-sm mb-0">
                   <thead>
                     <tr>
                       <th>Source Board</th>
+                      <th>Kind</th>
                       <th>Target Board</th>
                       <th>Matched</th>
-                      <th>Source Subs</th>
-                      <th>Target Subs</th>
+                      <th>Teams</th>
+                      <th>Individuals</th>
                       <th>Missing</th>
                       <th>Groups</th>
                     </tr>
@@ -1527,10 +1528,35 @@ const UserMigrationTab = () => {
                     {scanData.boardMapping.map((bm, i) => (
                       <tr key={i}>
                         <td><strong>{bm.sourceBoardName}</strong></td>
+                        <td>
+                          <span className={`badge ${bm.sourceKind === 'public' ? 'bg-info' : bm.sourceKind === 'share' ? 'bg-warning text-dark' : 'bg-secondary'}`}>
+                            {bm.sourceKind === 'public' ? 'Public' : bm.sourceKind === 'share' ? 'Shareable' : 'Private'}
+                          </span>
+                        </td>
                         <td>{bm.targetBoardName || <span className="text-danger">Not found</span>}</td>
                         <td>{bm.matched ? <span className="match-great"><i className="bi bi-check-circle" /></span> : <span className="match-poor"><i className="bi bi-x-circle" /></span>}</td>
-                        <td>{bm.sourceSubscriberCount}</td>
-                        <td>{bm.targetSubscriberCount}</td>
+                        <td>
+                          {(bm.sourceTeams || []).length > 0 ? (
+                            <span title={(bm.sourceTeams || []).map(t => t.name + (t.isOwner ? ' (owner)' : '') + ' [' + t.memberCount + ']').join(', ')}>
+                              {(bm.sourceTeams || []).map((t, ti) => (
+                                <span key={ti} className={`badge ${t.isOwner ? 'bg-primary' : 'bg-outline-secondary border'} me-1 mb-1`} style={{fontSize: '0.7rem'}}>
+                                  <i className="bi bi-people-fill me-1" />{t.name}
+                                  <span className="ms-1 opacity-75">({t.memberCount})</span>
+                                </span>
+                              ))}
+                              {(bm.missingTeams || []).length > 0 && (
+                                <span className="badge bg-warning text-dark ms-1" style={{fontSize: '0.65rem'}}>
+                                  {bm.missingTeams.length} missing
+                                </span>
+                              )}
+                            </span>
+                          ) : <span className="text-muted">—</span>}
+                        </td>
+                        <td>
+                          {bm.sourceSubscriberCount}
+                          {bm.sourceKind === 'public' && <small className="text-muted ms-1" title="Public boards show only owners as individuals">(owners)</small>}
+                          {bm.matched && <span className="text-muted"> / {bm.targetSubscriberCount}</span>}
+                        </td>
                         <td>{bm.missingSubscribers.length > 0 ? <span className="badge bg-warning text-dark">{bm.missingSubscribers.length}</span> : <span className="text-success">0</span>}</td>
                         <td>{bm.sourceGroupCount} / {bm.targetGroupCount}</td>
                       </tr>
@@ -1564,8 +1590,9 @@ const UserMigrationTab = () => {
                       <th>Email</th>
                       <th>Type</th>
                       <th>WS Role</th>
+                      <th>Access Via</th>
                       <th>Target Match</th>
-                      <th>In Target WS</th>
+                      <th>In Target Acct</th>
                       <th>Boards</th>
                     </tr>
                   </thead>
@@ -1576,7 +1603,24 @@ const UserMigrationTab = () => {
                         <td>{u.name}</td>
                         <td><small>{u.email}</small></td>
                         <td><span className={`badge ${u.isGuest ? 'bg-warning text-dark' : 'bg-info text-white'}`}>{u.isGuest ? 'Guest' : 'Member'}</span></td>
-                        <td>{u.wsRole || <span className="text-muted">—</span>}</td>
+                        <td>
+                          {u.wsRole === 'owner' ? <span className="badge bg-primary">Owner</span> :
+                           u.wsRole === 'subscriber' ? <span className="badge bg-secondary">Subscriber</span> :
+                           <span className="text-muted">—</span>}
+                        </td>
+                        <td>
+                          {u.viaTeams && u.viaTeams.length > 0 ? (
+                            <span>
+                              {u.viaTeams.map((t, ti) => (
+                                <span key={ti} className="badge bg-outline-secondary border me-1" style={{fontSize: '0.7rem'}}>
+                                  <i className="bi bi-people-fill me-1" />{t}
+                                </span>
+                              ))}
+                            </span>
+                          ) : (
+                            <span className="text-muted" style={{fontSize: '0.75rem'}}>Individual</span>
+                          )}
+                        </td>
                         <td>
                           {u.targetUserId ? (
                             <span className="text-success"><i className="bi bi-check-circle me-1" />{scanData.isCrossAccount ? 'Email match' : 'Same ID'}</span>
@@ -1584,7 +1628,7 @@ const UserMigrationTab = () => {
                             <span className="text-danger"><i className="bi bi-x-circle me-1" />Not found</span>
                           )}
                         </td>
-                        <td>{u.inTargetWorkspace ? <i className="bi bi-check text-success" /> : <i className="bi bi-x text-danger" />}</td>
+                        <td>{u.inTargetAccount ? <i className="bi bi-check text-success" /> : <i className="bi bi-x text-danger" />}</td>
                         <td>
                           <span className={u.assignedBoardCount === u.boardCount && u.boardCount > 0 ? 'text-success' : u.assignedBoardCount > 0 ? 'text-warning' : ''}>
                             {u.assignedBoardCount}/{u.boardCount}

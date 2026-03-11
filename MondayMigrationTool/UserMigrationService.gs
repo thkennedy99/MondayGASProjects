@@ -42,29 +42,33 @@ function scanUserMigration(sourceWorkspaceId, targetWorkspaceId, targetAccountId
     // 3. Build board name mapping (source → target)
     var boardMapping = _buildBoardNameMapping(sourceBoards, targetBoards);
 
-    // 4. Get board subscribers and groups for each source board
+    // 4. Get board subscribers, teams, and groups for each source board
     var boardDetails = [];
     sourceBoards.forEach(function(sb) {
-      var subscribers = [];
-      try { subscribers = _getBoardSubscribersWithRole(sb.id, null); } catch (e) {}
+      var sourceAccess = { kind: 'private', subscribers: [], teams: [], teamMemberIds: {} };
+      try { sourceAccess = _getBoardAccessDetails(sb.id, null); } catch (e) {}
       var groups = (sb.groups || []).map(function(g) { return { id: g.id, title: g.title }; });
 
       var mapped = boardMapping[String(sb.id)];
-      var targetSubs = [];
+      var targetAccess = { kind: 'private', subscribers: [], teams: [], teamMemberIds: {} };
       var targetGroups = [];
       if (mapped) {
-        try { targetSubs = _getBoardSubscribersWithRole(mapped.targetBoardId, targetApiKey); } catch (e) {}
+        try { targetAccess = _getBoardAccessDetails(mapped.targetBoardId, targetApiKey); } catch (e) {}
         targetGroups = (mapped.targetGroups || []).map(function(g) { return { id: g.id, title: g.title }; });
       }
 
       boardDetails.push({
         sourceBoardId: String(sb.id),
         sourceBoardName: sb.name,
-        sourceKind: sb.board_kind,
+        sourceKind: sourceAccess.kind,
         targetBoardId: mapped ? mapped.targetBoardId : null,
         targetBoardName: mapped ? mapped.targetBoardName : null,
-        sourceSubscribers: subscribers,
-        targetSubscribers: targetSubs,
+        sourceSubscribers: sourceAccess.subscribers,
+        targetSubscribers: targetAccess.subscribers,
+        sourceTeams: sourceAccess.teams,
+        targetTeams: targetAccess.teams,
+        sourceTeamMemberIds: sourceAccess.teamMemberIds,
+        targetTeamMemberIds: targetAccess.teamMemberIds,
         sourceGroups: groups,
         targetGroups: targetGroups,
         matched: !!mapped
@@ -91,11 +95,19 @@ function scanUserMigration(sourceWorkspaceId, targetWorkspaceId, targetAccountId
           return {
             sourceBoardId: bd.sourceBoardId,
             sourceBoardName: bd.sourceBoardName,
+            sourceKind: bd.sourceKind,
             targetBoardId: bd.targetBoardId,
             targetBoardName: bd.targetBoardName,
             matched: bd.matched,
             sourceSubscriberCount: bd.sourceSubscribers.length,
             targetSubscriberCount: bd.targetSubscribers.length,
+            sourceTeams: (bd.sourceTeams || []).map(function(t) {
+              return { id: t.id, name: t.name, isOwner: t.isOwner, memberCount: t.memberCount };
+            }),
+            targetTeams: (bd.targetTeams || []).map(function(t) {
+              return { id: t.id, name: t.name, isOwner: t.isOwner, memberCount: t.memberCount };
+            }),
+            missingTeams: _getMissingTeams(bd.sourceTeams || [], bd.targetTeams || [], isCrossAccount),
             sourceGroupCount: bd.sourceGroups.length,
             targetGroupCount: bd.targetGroups.length,
             missingSubscribers: _getMissingSubscribers(bd.sourceSubscribers, bd.targetSubscribers, isCrossAccount, targetAccountUsers)
@@ -231,12 +243,13 @@ function _executeSameAccountUserMigration(sourceWorkspaceId, targetWorkspaceId, 
   var wsUserIds = [];
   wsUsers.forEach(function(u) {
     if (selectedUserIds && selectedUserIds.indexOf(u.sourceUserId) === -1) return;
+    // Skip users who are only accessed via teams (they'll be added via team assignment)
+    if (u.viaTeams && u.viaTeams.length > 0 && !u.wsRole) return;
     wsUserIds.push(u.sourceUserId);
   });
 
   if (wsUserIds.length > 0) {
     try {
-      // Add as workspace members (same account, IDs are valid)
       _targetAPI(targetApiKey,
         'mutation ($wsId: ID!, $userIds: [ID!]!, $kind: WorkspaceSubscriberKind) { add_users_to_workspace (workspace_id: $wsId, user_ids: $userIds, kind: $kind) { id } }',
         { wsId: Number(targetWorkspaceId), userIds: wsUserIds.map(Number), kind: 'subscriber' }
@@ -247,12 +260,36 @@ function _executeSameAccountUserMigration(sourceWorkspaceId, targetWorkspaceId, 
     }
   }
 
-  // Step 2: For each matched board, ensure groups exist then add subscribers
+  // Step 2: For each matched board, add missing teams first, then missing individual subscribers
   boardMapping.forEach(function(bm) {
     if (!bm.matched || !bm.targetBoardId) return;
     results.boardsProcessed++;
 
-    // Get missing subscribers for this board
+    // 2a: Add missing teams to the target board
+    var missingTeams = bm.missingTeams || [];
+    if (missingTeams.length > 0) {
+      var teamIdsToAdd = missingTeams.map(function(t) { return t.sourceTeamId; });
+      try {
+        _targetAPI(targetApiKey,
+          'mutation ($boardId: ID!, $teamIds: [ID!]!) { add_teams_to_board (board_id: $boardId, team_ids: $teamIds) { id } }',
+          { boardId: Number(bm.targetBoardId), teamIds: teamIdsToAdd.map(Number) }
+        );
+        results.details.push({
+          board: bm.targetBoardName,
+          action: 'teams_assigned',
+          count: teamIdsToAdd.length
+        });
+      } catch (e) {
+        results.errors.push({
+          board: bm.targetBoardName,
+          action: 'add_teams_to_board',
+          error: e.toString()
+        });
+      }
+      Utilities.sleep(200);
+    }
+
+    // 2b: Add missing individual subscribers (not team-covered)
     var missing = bm.missingSubscribers || [];
     if (selectedUserIds) {
       missing = missing.filter(function(m) { return selectedUserIds.indexOf(m.sourceUserId) !== -1; });
@@ -315,13 +352,37 @@ function _executeCrossAccountAssignExisting(targetWorkspaceId, targetApiKey, sca
     }
   }
 
-  // Step 2: For each matched board, add matched users as board subscribers
+  // Step 2: For each matched board, add missing teams then missing individual subscribers
   boardMapping.forEach(function(bm) {
     if (!bm.matched || !bm.targetBoardId) return;
     results.boardsProcessed++;
 
+    // 2a: Add missing teams (matched by name cross-account)
+    var missingTeams = (bm.missingTeams || []).filter(function(t) { return t.targetTeamId; });
+    if (missingTeams.length > 0) {
+      var teamIdsToAdd = missingTeams.map(function(t) { return t.targetTeamId; });
+      try {
+        _targetAPI(targetApiKey,
+          'mutation ($boardId: ID!, $teamIds: [ID!]!) { add_teams_to_board (board_id: $boardId, team_ids: $teamIds) { id } }',
+          { boardId: Number(bm.targetBoardId), teamIds: teamIdsToAdd.map(Number) }
+        );
+        results.details.push({
+          board: bm.targetBoardName,
+          action: 'teams_assigned',
+          count: teamIdsToAdd.length
+        });
+      } catch (e) {
+        results.errors.push({
+          board: bm.targetBoardName,
+          action: 'add_teams_to_board',
+          error: e.toString()
+        });
+      }
+      Utilities.sleep(200);
+    }
+
+    // 2b: Add missing individual subscribers with target user IDs
     var missing = bm.missingSubscribers || [];
-    // Filter to only those with target user IDs
     var toAssign = missing.filter(function(m) {
       if (!m.targetUserId) return false;
       if (selectedUserIds && selectedUserIds.indexOf(m.sourceUserId) === -1) return false;
@@ -457,26 +518,103 @@ function _getBoardsInWorkspaceOnTarget(workspaceId, targetApiKey) {
   return allBoards.filter(function(b) { return b.board_kind !== 'sub_items_board'; });
 }
 
-function _getBoardSubscribersWithRole(boardId, targetApiKey) {
+/**
+ * Get detailed board access info including teams and handling public boards.
+ * For public boards, `subscribers` returns every user in the account, so we
+ * only return owners as individual subscribers and rely on team_subscribers
+ * for team-based access.
+ *
+ * @param {string} boardId
+ * @param {string|null} targetApiKey
+ * @returns {{ kind: string, subscribers: Array, teams: Array, teamMemberIds: Object }}
+ */
+function _getBoardAccessDetails(boardId, targetApiKey) {
   var data = _targetAPI(targetApiKey,
-    'query ($boardId: [ID!]) { boards (ids: $boardId) { subscribers { id name email is_guest } owners { id name email } } }',
+    'query ($boardId: [ID!]) { boards (ids: $boardId) { board_kind subscribers { id name email is_guest } owners { id name email } team_subscribers (limit: 100) { id name users { id name email } } team_owners (limit: 100) { id name users { id name email } } } }',
     { boardId: [Number(boardId)] }
   );
   var board = data.boards && data.boards[0];
-  if (!board) return [];
+  if (!board) return { kind: 'private', subscribers: [], teams: [], teamMemberIds: {} };
 
+  var kind = board.board_kind || 'private';
+
+  // Build owner lookup
   var ownerIds = {};
   (board.owners || []).forEach(function(o) { ownerIds[String(o.id)] = true; });
 
-  return (board.subscribers || []).map(function(s) {
-    return {
-      id: String(s.id),
-      name: s.name,
-      email: s.email || '',
-      isGuest: !!s.is_guest,
-      role: ownerIds[String(s.id)] ? 'owner' : 'subscriber'
-    };
+  // Build team info (merge team_subscribers + team_owners, dedupe)
+  var teamOwnerIds = {};
+  (board.team_owners || []).forEach(function(t) { teamOwnerIds[String(t.id)] = true; });
+
+  var teams = [];
+  var teamMemberIds = {}; // userId → teamName
+  var seenTeams = {};
+  var allTeamEntries = (board.team_subscribers || []).concat(board.team_owners || []);
+  allTeamEntries.forEach(function(t) {
+    var tid = String(t.id);
+    if (seenTeams[tid]) return;
+    seenTeams[tid] = true;
+    var members = (t.users || []).map(function(u) {
+      return { id: String(u.id), name: u.name, email: u.email || '' };
+    });
+    teams.push({
+      id: tid,
+      name: t.name,
+      isOwner: !!teamOwnerIds[tid],
+      members: members,
+      memberIds: members.map(function(m) { return m.id; }),
+      memberCount: members.length
+    });
+    members.forEach(function(m) {
+      teamMemberIds[m.id] = t.name;
+    });
   });
+
+  // Build subscriber list
+  var subscribers;
+  if (kind === 'public') {
+    // For public boards, only list owners as individual subscribers
+    // (subscribers field returns everyone in the account)
+    subscribers = (board.owners || []).map(function(o) {
+      return {
+        id: String(o.id),
+        name: o.name,
+        email: o.email || '',
+        isGuest: false,
+        role: 'owner'
+      };
+    });
+  } else {
+    // For private/shareable boards, list all subscribers with roles
+    // but exclude users who are covered by a team (unless they are an owner)
+    subscribers = [];
+    (board.subscribers || []).forEach(function(s) {
+      var sid = String(s.id);
+      var isOwner = !!ownerIds[sid];
+      var coveredByTeam = !!teamMemberIds[sid];
+      if (coveredByTeam && !isOwner) return; // show via team instead
+      subscribers.push({
+        id: sid,
+        name: s.name,
+        email: s.email || '',
+        isGuest: !!s.is_guest,
+        role: isOwner ? 'owner' : 'subscriber'
+      });
+    });
+  }
+
+  return {
+    kind: kind,
+    subscribers: subscribers,
+    teams: teams,
+    teamMemberIds: teamMemberIds
+  };
+}
+
+/** Backward-compat wrapper: returns flat subscriber array */
+function _getBoardSubscribersWithRole(boardId, targetApiKey) {
+  var details = _getBoardAccessDetails(boardId, targetApiKey);
+  return details.subscribers;
 }
 
 function _getAllUsersOnTarget(targetApiKey) {
@@ -544,8 +682,8 @@ function _collectAllSourceUsers(wsData, boardDetails) {
   var seen = {};
   var users = [];
 
-  // Workspace subscribers
-  wsData.subscribers.forEach(function(s) {
+  // Helper to ensure a user entry exists
+  function ensureUser(s, wsRole) {
     if (!seen[s.id]) {
       seen[s.id] = true;
       users.push({
@@ -553,37 +691,54 @@ function _collectAllSourceUsers(wsData, boardDetails) {
         name: s.name,
         email: s.email,
         isGuest: s.isGuest,
-        enabled: s.enabled,
-        wsRole: s.role,
+        enabled: s.enabled !== undefined ? s.enabled : true,
+        wsRole: wsRole || null,
         boards: []
       });
     }
+  }
+
+  // Workspace subscribers
+  wsData.subscribers.forEach(function(s) {
+    ensureUser(s, s.role);
   });
 
-  // Board subscribers
+  // Board-level individual subscribers (already filtered by _getBoardAccessDetails:
+  // public boards only have owners, non-public exclude team-covered users)
   boardDetails.forEach(function(bd) {
     bd.sourceSubscribers.forEach(function(s) {
-      if (!seen[s.id]) {
-        seen[s.id] = true;
-        users.push({
-          id: s.id,
-          name: s.name,
-          email: s.email,
-          isGuest: s.isGuest,
-          enabled: true,
-          wsRole: null,
-          boards: []
-        });
-      }
-      // Track which boards this user is on
+      ensureUser(s, null);
       var user = users.find(function(u) { return u.id === s.id; });
       if (user) {
         user.boards.push({
           boardId: bd.sourceBoardId,
           boardName: bd.sourceBoardName,
-          role: s.role
+          boardKind: bd.sourceKind,
+          role: s.role,
+          viaTeam: null
         });
       }
+    });
+
+    // Team-based subscribers: add the team name to each member's board entry
+    (bd.sourceTeams || []).forEach(function(team) {
+      (team.members || []).forEach(function(m) {
+        ensureUser({ id: m.id, name: m.name, email: m.email, isGuest: false }, null);
+        var user = users.find(function(u) { return u.id === m.id; });
+        if (user) {
+          // Only add if not already listed as an individual subscriber for this board
+          var already = user.boards.some(function(b) { return b.boardId === bd.sourceBoardId; });
+          if (!already) {
+            user.boards.push({
+              boardId: bd.sourceBoardId,
+              boardName: bd.sourceBoardName,
+              boardKind: bd.sourceKind,
+              role: team.isOwner ? 'team_owner' : 'team_subscriber',
+              viaTeam: team.name
+            });
+          }
+        }
+      });
     });
   });
 
@@ -608,7 +763,7 @@ function _buildUserComparison(sourceUsers, targetAccountUsers, targetWsData, boa
     targetWsSubs[String(s.id)] = s;
   });
 
-  // Build target board subscriber lookups
+  // Build target board subscriber + team member lookups
   var targetBoardSubs = {};
   boardDetails.forEach(function(bd) {
     if (!bd.targetBoardId) return;
@@ -616,7 +771,23 @@ function _buildUserComparison(sourceUsers, targetAccountUsers, targetWsData, boa
     bd.targetSubscribers.forEach(function(s) {
       targetBoardSubs[bd.targetBoardId][String(s.id)] = s;
     });
+    // Also count team members as assigned in target
+    (bd.targetTeams || []).forEach(function(t) {
+      (t.memberIds || []).forEach(function(mid) {
+        if (!targetBoardSubs[bd.targetBoardId][mid]) {
+          targetBoardSubs[bd.targetBoardId][mid] = { id: mid, viaTeam: t.name };
+        }
+      });
+    });
   });
+
+  // Build target account user lookup (by ID) for "in target account" check
+  var targetAccountById = {};
+  if (isCrossAccount) {
+    targetAccountUsers.forEach(function(u) {
+      targetAccountById[String(u.id)] = u;
+    });
+  }
 
   return sourceUsers.map(function(su) {
     var targetUser = null;
@@ -630,10 +801,12 @@ function _buildUserComparison(sourceUsers, targetAccountUsers, targetWsData, boa
     }
 
     var inTargetWorkspace = false;
+    var inTargetAccount = false;
     var boardAssignments = [];
 
     if (targetUser) {
       inTargetWorkspace = !!targetWsSubs[targetUser.id];
+      inTargetAccount = isCrossAccount ? !!targetAccountById[targetUser.id] : true;
 
       su.boards.forEach(function(sb) {
         var matched = boardDetails.find(function(bd) { return bd.sourceBoardId === sb.boardId; });
@@ -644,10 +817,13 @@ function _buildUserComparison(sourceUsers, targetAccountUsers, targetWsData, boa
             targetBoardId: matched.targetBoardId,
             targetBoardName: matched.targetBoardName,
             sourceRole: sb.role,
+            viaTeam: sb.viaTeam || null,
             assignedInTarget: !!subs[targetUser.id]
           });
         }
       });
+    } else {
+      inTargetAccount = !isCrossAccount; // same account means they exist
     }
 
     return {
@@ -659,12 +835,59 @@ function _buildUserComparison(sourceUsers, targetAccountUsers, targetWsData, boa
       targetUserId: targetUser ? targetUser.id : null,
       targetUserName: targetUser ? targetUser.name : null,
       matchedByEmail: isCrossAccount && !!targetUser,
+      inTargetAccount: inTargetAccount,
       inTargetWorkspace: inTargetWorkspace,
       boardAssignments: boardAssignments,
       boardCount: su.boards.length,
-      assignedBoardCount: boardAssignments.filter(function(ba) { return ba.assignedInTarget; }).length
+      assignedBoardCount: boardAssignments.filter(function(ba) { return ba.assignedInTarget; }).length,
+      // Collect unique team names this user is accessed through
+      viaTeams: su.boards.reduce(function(acc, b) {
+        if (b.viaTeam && acc.indexOf(b.viaTeam) === -1) acc.push(b.viaTeam);
+        return acc;
+      }, [])
     };
   });
+}
+
+
+// ── Helper: Get Missing Teams ────────────────────────────────────────────────
+
+function _getMissingTeams(sourceTeams, targetTeams, isCrossAccount) {
+  if (!sourceTeams || sourceTeams.length === 0) return [];
+
+  // Build lookup of target teams by ID (same-account) or name (cross-account)
+  var targetTeamById = {};
+  var targetTeamByName = {};
+  (targetTeams || []).forEach(function(t) {
+    targetTeamById[t.id] = true;
+    targetTeamByName[t.name.toLowerCase()] = t;
+  });
+
+  var missing = [];
+  sourceTeams.forEach(function(st) {
+    var found = false;
+    var targetTeamId = null;
+    if (!isCrossAccount) {
+      found = !!targetTeamById[st.id];
+      targetTeamId = st.id;
+    } else {
+      var match = targetTeamByName[st.name.toLowerCase()];
+      if (match) {
+        found = true;
+        targetTeamId = match.id;
+      }
+    }
+    if (!found) {
+      missing.push({
+        sourceTeamId: st.id,
+        name: st.name,
+        isOwner: st.isOwner,
+        memberCount: st.memberCount,
+        targetTeamId: targetTeamId
+      });
+    }
+  });
+  return missing;
 }
 
 
