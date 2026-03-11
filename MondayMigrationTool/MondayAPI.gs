@@ -703,6 +703,32 @@ function getBoardsInWorkspace(workspaceId) {
   }
 
   console.log('Migration: getBoardsInWorkspace(' + workspaceId + ') returned ' + allBoards.length + ' total boards (' + boards.length + ' regular, ' + subitemBoards.length + ' subitem boards' + (extraSubitemBoards.length > 0 ? ', ' + extraSubitemBoards.length + ' detected via subtasks columns' : '') + ')');
+
+  // Step 3: Filter out dashboards/reports. Monday.com returns dashboards in the
+  // boards query with board_kind="public" but they have zero user-creatable columns
+  // (only system columns like 'name'). Migrating them creates empty boards with
+  // the same name as the dashboard, causing duplicates.
+  var systemColumnTypes = ['name', 'subtasks', 'board_relation', 'mirror', 'formula',
+    'auto_number', 'creation_log', 'last_updated', 'button', 'dependency', 'item_id',
+    'doc', 'color_picker'];
+  var dashboardBoards = [];
+  boards = boards.filter(function(board) {
+    var userColumns = (board.columns || []).filter(function(col) {
+      return systemColumnTypes.indexOf(col.type) < 0;
+    });
+    if (userColumns.length === 0 && (board.groups || []).length === 0) {
+      dashboardBoards.push(board);
+      return false;
+    }
+    return true;
+  });
+  if (dashboardBoards.length > 0) {
+    console.log('Migration: Filtered out ' + dashboardBoards.length + ' dashboard/report board(s):');
+    dashboardBoards.forEach(function(b) {
+      console.log('Migration:   Dashboard excluded: "' + b.name + '" (id=' + b.id + ', kind=' + b.board_kind + ', cols=' + (b.columns || []).length + ', groups=' + (b.groups || []).length + ')');
+    });
+  }
+
   if (boards.length > 0) {
     boards.forEach(function(b) {
       console.log('Migration:   Board: "' + b.name + '" (id=' + b.id + ', kind=' + b.board_kind + ', state=' + b.state + ', cols=' + (b.columns || []).length + ', groups=' + (b.groups || []).length + ')');

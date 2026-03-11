@@ -785,6 +785,8 @@ const MigrationTab = () => {
           if (result.progress.state === 'completed' || result.progress.state === 'completed_with_errors' || result.progress.state === 'error' || result.progress.state === 'cancelled') {
             setPolling(false);
             setStep('done');
+            // Refresh workspace list so new workspace appears in dropdowns
+            refreshWorkspaces();
             return;
           }
         }
@@ -806,12 +808,25 @@ const MigrationTab = () => {
     setPolling(false);
   };
 
+  const refreshWorkspaces = async () => {
+    try {
+      const result = await api.call('getAccountInventory');
+      if (result.success) {
+        const ws = (result.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name));
+        setWorkspaces(ws);
+        // Update global cache so other tabs pick up new workspaces
+        window.initialWorkspaces = ws;
+      }
+    } catch (e) { console.warn('Failed to refresh workspaces:', e); }
+  };
+
   const resetMigration = () => {
     setStep('configure');
     setMigrationId(null);
     setProgress(null);
     setSelectedWs('');
     setTargetName('');
+    refreshWorkspaces();
   };
 
   const selectedWsName = workspaces.find(w => w.id === selectedWs)?.name || '';
@@ -1186,14 +1201,28 @@ const ValidationTab = () => {
   const [verifyUsers, setVerifyUsers] = useState(false);
   const [modalData, setModalData] = useState(null);
 
+  // Cross-account support
+  const [selectedTargetAccount, setSelectedTargetAccount] = useState('');
+  const [targetWorkspaces, setTargetWorkspaces] = useState([]);
+  const [targetWsLoading, setTargetWsLoading] = useState(false);
+
   useEffect(() => {
     loadData();
   }, []);
 
+  // When target account changes, load its workspaces
+  useEffect(() => {
+    if (selectedTargetAccount) {
+      loadTargetWorkspaces(selectedTargetAccount);
+    } else {
+      setTargetWorkspaces([]);
+      setTargetWs('');
+    }
+  }, [selectedTargetAccount]);
+
   const loadData = async () => {
     try {
       const calls = [api.call('getSavedMigrations')];
-      // Only fetch workspaces if not already pre-loaded
       if (workspaces.length === 0) calls.unshift(api.call('getAccountInventory'));
       else calls.unshift(Promise.resolve(null));
 
@@ -1201,11 +1230,25 @@ const ValidationTab = () => {
       if (invResult && invResult.success) {
         const ws = (invResult.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name));
         setWorkspaces(ws);
+        window.initialWorkspaces = ws;
       }
       if (migResult.success) setSavedMigrations(migResult.data || []);
     } catch (e) {
       toast.show(e.message, 'danger');
     }
+  };
+
+  const loadTargetWorkspaces = async (accountId) => {
+    setTargetWsLoading(true);
+    setTargetWs('');
+    try {
+      const result = await api.call('getTargetWorkspaces', accountId);
+      if (result.success) {
+        const ws = (result.workspaces || []).sort((a, b) => a.name.localeCompare(b.name));
+        setTargetWorkspaces(ws);
+      }
+    } catch (e) { toast.show('Failed to load target workspaces: ' + e.message, 'danger'); }
+    setTargetWsLoading(false);
   };
 
   const runValidation = async () => {
@@ -1216,7 +1259,10 @@ const ValidationTab = () => {
     setLoading(true);
     setReport(null);
     try {
-      const result = await api.call('validateMigration', sourceWs, targetWs, { verifyUsers: verifyUsers });
+      const result = await api.call('validateMigration', sourceWs, targetWs, {
+        verifyUsers: verifyUsers,
+        targetAccountId: selectedTargetAccount || null
+      });
       if (result.success) {
         setReport(result.data);
       } else {
@@ -1288,6 +1334,15 @@ const ValidationTab = () => {
         </div>
       )}
 
+      {/* Target Account Selection */}
+      <div className="mb-4">
+        <TargetAccountSelector
+          selectedAccountId={selectedTargetAccount}
+          onAccountChange={setSelectedTargetAccount}
+          label="Target Monday.com Account (for cross-account validation)"
+        />
+      </div>
+
       {/* Workspace Selection */}
       <div className="row g-3 mb-4">
         <div className="col-md-5">
@@ -1302,10 +1357,24 @@ const ValidationTab = () => {
         </div>
         <div className="col-md-5">
           <label className="form-label"><strong>Target Workspace (Migrated)</strong></label>
-          <select className="form-select" value={targetWs} onChange={e => setTargetWs(e.target.value)}>
-            <option value="">Select target...</option>
-            {workspaces.map(ws => <option key={ws.id} value={ws.id}>{ws.name}</option>)}
-          </select>
+          {selectedTargetAccount ? (
+            <div>
+              <select className="form-select" value={targetWs} onChange={e => setTargetWs(e.target.value)} disabled={targetWsLoading}>
+                <option value="">{targetWsLoading ? 'Loading target workspaces...' : 'Select target...'}</option>
+                {targetWorkspaces.map(ws => <option key={ws.id} value={ws.id}>{ws.name}</option>)}
+              </select>
+              {targetWorkspaces.length > 50 && (
+                <small className="text-muted mt-1 d-block">
+                  <i className="bi bi-info-circle me-1" />{targetWorkspaces.length} workspaces — use the dropdown to search by name
+                </small>
+              )}
+            </div>
+          ) : (
+            <select className="form-select" value={targetWs} onChange={e => setTargetWs(e.target.value)}>
+              <option value="">Select target...</option>
+              {workspaces.map(ws => <option key={ws.id} value={ws.id}>{ws.name}</option>)}
+            </select>
+          )}
         </div>
       </div>
 
@@ -2513,6 +2582,21 @@ const WelcomePage = ({ onGetStarted }) => {
     },
     {
       num: 6,
+      id: 'users',
+      title: 'Populate People Columns',
+      icon: 'person-lines-fill',
+      color: '#e65100',
+      description: 'Assign people to item columns after user activation',
+      details: [
+        'Validate all users are activated in target account',
+        'Map source user IDs to target user IDs by email',
+        'Preview which items and columns will be updated',
+        'Write mapped people values to target board items'
+      ],
+      highlight: 'Run after users have accepted their invitations'
+    },
+    {
+      num: 7,
       id: 'validation',
       title: 'Full Validation',
       icon: 'shield-check',
@@ -2615,7 +2699,7 @@ const WelcomePage = ({ onGetStarted }) => {
                       <i className="bi bi-info-circle me-1" />No users moved
                     </span>
                   )}
-                  {step.num === 6 && (
+                  {step.num === 7 && (
                     <span className="badge ms-2" style={{ background: '#e8f5e9', color: '#2e7d32', fontSize: '0.7rem' }}>
                       <i className="bi bi-check-circle me-1" />Final step
                     </span>

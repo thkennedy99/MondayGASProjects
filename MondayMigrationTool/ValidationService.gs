@@ -17,13 +17,31 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
     }
     options = options || {};
 
+    // Cross-account support: resolve target API key if targetAccountId provided
+    var targetApiKey = null;
+    if (options.targetAccountId) {
+      targetApiKey = getTargetApiKeyForAccount(options.targetAccountId);
+      if (!targetApiKey) throw new Error('No API key found for target account: ' + options.targetAccountId);
+    }
+
     var sourceWs = getWorkspaceDetails(sourceWorkspaceId);
-    var targetWs = getWorkspaceDetails(targetWorkspaceId);
+    var targetWs;
+    if (targetApiKey) {
+      var twData = callMondayAPIWithKey(targetApiKey,
+        'query ($ids: [ID!]) { workspaces (ids: $ids) { id name kind description } }',
+        { ids: [Number(targetWorkspaceId)] }
+      );
+      targetWs = twData.workspaces && twData.workspaces[0] ? twData.workspaces[0] : null;
+    } else {
+      targetWs = getWorkspaceDetails(targetWorkspaceId);
+    }
     if (!sourceWs) throw new Error('Source workspace not found');
     if (!targetWs) throw new Error('Target workspace not found');
 
     var sourceBoards = getBoardsInWorkspace(sourceWorkspaceId);
-    var targetBoards = getBoardsInWorkspace(targetWorkspaceId);
+    var targetBoards = targetApiKey
+      ? _getBoardsInWorkspaceOnTarget(targetWorkspaceId, targetApiKey)
+      : getBoardsInWorkspace(targetWorkspaceId);
 
     // Build target board lookup by name
     var targetBoardByName = {};
@@ -53,6 +71,17 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
       return nonCreatableTypes.indexOf(col.type) >= 0 || (col.id && col.id.indexOf('_form') >= 0);
     };
 
+    // Helper to get item count on the right account
+    var getTargetItemCount = function(boardId) {
+      if (!targetApiKey) return getBoardItemCount(boardId);
+      var d = callMondayAPIWithKey(targetApiKey,
+        'query ($boardId: [ID!]) { boards (ids: $boardId) { id items_count } }',
+        { boardId: [Number(boardId)] }
+      );
+      var b = d.boards && d.boards[0];
+      return b ? (b.items_count || 0) : 0;
+    };
+
     sourceBoards.forEach(function(sourceBoard) {
       var targetBoard = targetBoardByName[sourceBoard.name];
 
@@ -73,7 +102,7 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
         matchedBoards++;
 
         var targetItemCount = 0;
-        try { targetItemCount = getBoardItemCount(targetBoard.id); } catch (e) {}
+        try { targetItemCount = getTargetItemCount(targetBoard.id); } catch (e) {}
 
         var targetGroupCount = targetBoard.groups ? targetBoard.groups.length : 0;
         var targetCreatableCols = (targetBoard.columns || []).filter(function(c) {
@@ -164,10 +193,14 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
     });
 
     // ── Document Comparison ────────────────────────────────────────────────────
+    // Note: Document and form comparison only works for same-account validation.
+    // Cross-account doc/form queries require different API endpoints not yet supported.
     var sourceDocs = [];
     var targetDocs = [];
-    try { sourceDocs = getDocsWithDetails(sourceWorkspaceId) || []; } catch (e) { console.warn('Could not fetch source docs:', e); }
-    try { targetDocs = getDocsWithDetails(targetWorkspaceId) || []; } catch (e) { console.warn('Could not fetch target docs:', e); }
+    if (!targetApiKey) {
+      try { sourceDocs = getDocsWithDetails(sourceWorkspaceId) || []; } catch (e) { console.warn('Could not fetch source docs:', e); }
+      try { targetDocs = getDocsWithDetails(targetWorkspaceId) || []; } catch (e) { console.warn('Could not fetch target docs:', e); }
+    }
 
     var targetDocByName = {};
     targetDocs.forEach(function(d) { targetDocByName[d.name || d.title || ''] = d; });
