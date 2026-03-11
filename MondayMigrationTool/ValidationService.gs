@@ -391,8 +391,12 @@ function quickValidation(sourceWorkspaceId, targetWorkspaceId) {
 function _verifyUsersAndGuests(sourceWsId, targetWsId, sourceBoards, targetBoardByName) {
   // Per-board subscriber, owner, and team comparison
   var boardDetails = [];
-  var totalSourceSubs = 0;
-  var totalMatchedSubs = 0;
+
+  // Track unique subscribers across all boards
+  var uniqueSourceSubs = {};  // id → { name, email, role, isGuest, boards[] }
+  var uniqueMatchedIds = {};  // id → true
+  var allMissingSubs = {};    // id → { name, email, role, isGuest, boards[] }
+  var allRoleMismatches = {}; // id → { name, sourceRole, targetRole, boards[] }
 
   sourceBoards.forEach(function(sb) {
     var targetBoard = targetBoardByName[sb.name];
@@ -418,16 +422,29 @@ function _verifyUsersAndGuests(sourceWsId, targetWsId, sourceBoards, targetBoard
     var matchedSubs = 0;
 
     sourceAccess.subscribers.forEach(function(ss) {
-      totalSourceSubs++;
+      // Track unique source subscriber
+      if (!uniqueSourceSubs[ss.id]) {
+        uniqueSourceSubs[ss.id] = { id: ss.id, name: ss.name, email: ss.email, role: ss.role, isGuest: ss.isGuest, boards: [] };
+      }
+      uniqueSourceSubs[ss.id].boards.push(sb.name);
+
       var ts = targetSubMap[ss.id];
       if (!ts) {
         missingSubs.push({ id: ss.id, name: ss.name, email: ss.email, role: ss.role, isGuest: ss.isGuest });
+        if (!allMissingSubs[ss.id]) {
+          allMissingSubs[ss.id] = { id: ss.id, name: ss.name, email: ss.email, role: ss.role, isGuest: ss.isGuest, boards: [] };
+        }
+        allMissingSubs[ss.id].boards.push(sb.name);
       } else {
         matchedSubs++;
-        totalMatchedSubs++;
+        uniqueMatchedIds[ss.id] = true;
         // Check role: source owner should be target owner
         if (ss.role === 'owner' && ts.role !== 'owner') {
           roleMismatches.push({ id: ss.id, name: ss.name, sourceRole: 'owner', targetRole: ts.role || 'subscriber' });
+          if (!allRoleMismatches[ss.id]) {
+            allRoleMismatches[ss.id] = { id: ss.id, name: ss.name, sourceRole: 'owner', targetRole: ts.role || 'subscriber', boards: [] };
+          }
+          allRoleMismatches[ss.id].boards.push(sb.name);
         }
       }
     });
@@ -435,12 +452,14 @@ function _verifyUsersAndGuests(sourceWsId, targetWsId, sourceBoards, targetBoard
     // Also check team members from source
     (sourceAccess.teams || []).forEach(function(srcTeam) {
       (srcTeam.memberIds || []).forEach(function(mid) {
-        // Only count if not already in individual subscribers
         var alreadyCounted = sourceAccess.subscribers.some(function(ss) { return ss.id === mid; });
         if (!alreadyCounted) {
-          totalSourceSubs++;
+          if (!uniqueSourceSubs[mid]) {
+            uniqueSourceSubs[mid] = { id: mid, name: '', email: '', role: 'team_member', isGuest: false, boards: [] };
+          }
+          uniqueSourceSubs[mid].boards.push(sb.name);
           if (targetSubMap[mid]) {
-            totalMatchedSubs++;
+            uniqueMatchedIds[mid] = true;
           }
         }
       });
@@ -479,17 +498,24 @@ function _verifyUsersAndGuests(sourceWsId, targetWsId, sourceBoards, targetBoard
     });
   });
 
-  var userMatchPct = totalSourceSubs > 0
-    ? Math.round((totalMatchedSubs / totalSourceSubs) * 100) : 100;
+  var totalUniqueSubs = Object.keys(uniqueSourceSubs).length;
+  var totalUniqueMatched = Object.keys(uniqueMatchedIds).length;
+  var missingSubsList = Object.keys(allMissingSubs).map(function(id) { return allMissingSubs[id]; });
+  var roleMismatchList = Object.keys(allRoleMismatches).map(function(id) { return allRoleMismatches[id]; });
+
+  var userMatchPct = totalUniqueSubs > 0
+    ? Math.round((totalUniqueMatched / totalUniqueSubs) * 100) : 100;
 
   return {
     matchPercentage: userMatchPct,
     boardDetails: boardDetails,
     summary: {
-      totalSourceSubscribers: totalSourceSubs,
-      totalMatchedSubscribers: totalMatchedSubs,
-      totalMissingSubscribers: totalSourceSubs - totalMatchedSubs,
-      totalRoleMismatches: boardDetails.reduce(function(acc, bd) { return acc + bd.roleMismatches.length; }, 0),
+      totalSourceSubscribers: totalUniqueSubs,
+      totalMatchedSubscribers: totalUniqueMatched,
+      totalMissingSubscribers: totalUniqueSubs - totalUniqueMatched,
+      missingSubscribers: missingSubsList,
+      roleMismatches: roleMismatchList,
+      totalRoleMismatches: roleMismatchList.length,
       totalMissingTeams: boardDetails.reduce(function(acc, bd) { return acc + bd.missingTeams.length; }, 0)
     }
   };

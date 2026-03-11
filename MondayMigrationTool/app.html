@@ -1055,6 +1055,112 @@ const MigrationTab = () => {
   );
 };
 
+// ── Discrepancy Detail Modal ─────────────────────────────────────────────────
+
+const DiscrepancyModal = ({ show, onClose, title, data }) => {
+  if (!show || !data) return null;
+
+  return ReactDOM.createPortal(
+    <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+      <div className="modal-dialog modal-dialog-centered modal-lg" onClick={e => e.stopPropagation()}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title"><i className="bi bi-info-circle me-2" />{title}</h5>
+            <button type="button" className="btn-close" onClick={onClose} />
+          </div>
+          <div className="modal-body">
+            {data.type === 'items' && (
+              <div>
+                <div className="row g-3 mb-3">
+                  <div className="col-4"><StatCard value={data.source} label="Source Items" icon="list-task" /></div>
+                  <div className="col-4"><StatCard value={data.target} label="Target Items" icon="list-check" /></div>
+                  <div className="col-4"><StatCard value={data.diff > 0 ? '+' + data.diff : data.diff} label="Difference" icon="plus-slash-minus" color={data.diff === 0 ? 'var(--match-great)' : 'var(--match-poor)'} /></div>
+                </div>
+                <div className="alert alert-info mb-0">
+                  <i className="bi bi-info-circle me-1" />
+                  {data.diff < 0 ? `${Math.abs(data.diff)} item(s) are missing from the target board.` :
+                   data.diff > 0 ? `${data.diff} extra item(s) exist in the target board.` :
+                   'Item counts match perfectly.'}
+                </div>
+              </div>
+            )}
+
+            {data.type === 'groups' && (
+              <div>
+                <div className="row g-3 mb-3">
+                  <div className="col-4"><StatCard value={data.source} label="Source Groups" icon="collection" /></div>
+                  <div className="col-4"><StatCard value={data.matched} label="Matched" icon="check-circle" color="var(--match-great)" /></div>
+                  <div className="col-4"><StatCard value={data.missing.length} label="Missing" icon="x-circle" color={data.missing.length > 0 ? 'var(--match-poor)' : 'var(--match-great)'} /></div>
+                </div>
+                {data.missing.length > 0 && (
+                  <div>
+                    <h6>Missing Groups</h6>
+                    <table className="table table-sm table-gw mb-0">
+                      <thead><tr><th>#</th><th>Group Name</th></tr></thead>
+                      <tbody>
+                        {data.missing.map((g, i) => (
+                          <tr key={i}><td>{i + 1}</td><td><strong>{g}</strong></td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {data.missing.length === 0 && (
+                  <div className="alert alert-success mb-0"><i className="bi bi-check-circle me-1" />All groups matched.</div>
+                )}
+              </div>
+            )}
+
+            {data.type === 'columns' && (
+              <div>
+                <div className="row g-3 mb-3">
+                  <div className="col-3"><StatCard value={data.source} label="Source Columns" icon="layout-three-columns" /></div>
+                  <div className="col-3"><StatCard value={data.target} label="Target Columns" icon="layout-three-columns" /></div>
+                  <div className="col-3"><StatCard value={data.matched} label="Matched" icon="check-circle" color="var(--match-great)" /></div>
+                  <div className="col-3"><StatCard value={data.missing.length} label="Missing" icon="x-circle" color={data.missing.length > 0 ? 'var(--match-poor)' : 'var(--match-great)'} /></div>
+                </div>
+                {data.missing.length > 0 && (
+                  <div className="mb-3">
+                    <h6>Missing Columns (in source, not in target)</h6>
+                    <table className="table table-sm table-gw mb-0">
+                      <thead><tr><th>Column Name</th><th>Type</th></tr></thead>
+                      <tbody>
+                        {data.missing.map((c, i) => (
+                          <tr key={i}><td><strong>{c.title}</strong></td><td><span className="badge bg-secondary">{c.type}</span></td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {data.extra && data.extra.length > 0 && (
+                  <div>
+                    <h6>Extra Columns (in target, not in source)</h6>
+                    <table className="table table-sm table-gw mb-0">
+                      <thead><tr><th>Column Name</th><th>Type</th></tr></thead>
+                      <tbody>
+                        {data.extra.map((c, i) => (
+                          <tr key={i}><td><strong>{c.title}</strong></td><td><span className="badge bg-info">{c.type}</span></td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {data.missing.length === 0 && (!data.extra || data.extra.length === 0) && (
+                  <div className="alert alert-success mb-0"><i className="bi bi-check-circle me-1" />All columns matched.</div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={onClose}>Close</button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.getElementById('modal-root')
+  );
+};
+
 // ── Validation Tab ───────────────────────────────────────────────────────────
 
 const ValidationTab = () => {
@@ -1066,6 +1172,7 @@ const ValidationTab = () => {
   const [report, setReport] = useState(null);
   const [savedMigrations, setSavedMigrations] = useState([]);
   const [verifyUsers, setVerifyUsers] = useState(false);
+  const [modalData, setModalData] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -1105,6 +1212,145 @@ const ValidationTab = () => {
       toast.show(e.message, 'danger');
     }
     setLoading(false);
+  };
+
+  const downloadReport = () => {
+    if (!report) return;
+    const r = report;
+    const lines = [];
+    const hr = '═'.repeat(80);
+    const sr = '─'.repeat(80);
+
+    lines.push(hr);
+    lines.push('  MIGRATION VALIDATION REPORT');
+    lines.push('  Generated: ' + new Date().toLocaleString());
+    lines.push(hr);
+    lines.push('');
+
+    // Overall match
+    lines.push('OVERALL MATCH: ' + r.matchPercentages.overall + '%');
+    lines.push('  Boards:  ' + r.matchPercentages.boards + '%');
+    lines.push('  Items:   ' + r.matchPercentages.items + '%');
+    lines.push('  Groups:  ' + r.matchPercentages.groups + '%');
+    lines.push('  Columns: ' + r.matchPercentages.columns + '%');
+    if (r.matchPercentages.users != null) lines.push('  Users:   ' + r.matchPercentages.users + '%');
+    lines.push('');
+
+    // Count comparison
+    lines.push(sr);
+    lines.push('COUNT COMPARISON');
+    lines.push(sr);
+    lines.push('  Source Workspace: ' + r.source.workspaceName + ' (ID: ' + r.source.workspaceId + ')');
+    lines.push('  Target Workspace: ' + r.target.workspaceName + ' (ID: ' + r.target.workspaceId + ')');
+    lines.push('');
+    lines.push('  ' + 'Metric'.padEnd(15) + 'Source'.padEnd(10) + 'Target'.padEnd(10) + 'Status');
+    lines.push('  ' + '─'.repeat(45));
+    [
+      ['Boards', r.source.boardCount, r.target.boardCount],
+      ['Items', r.source.totalItems, r.target.totalItems],
+      ['Groups', r.source.totalGroups, r.target.totalGroups],
+      ['Columns', r.source.totalColumns, r.target.totalColumns]
+    ].forEach(function(row) {
+      var status = row[1] === row[2] ? 'OK' : (row[2] - row[1] > 0 ? '+' : '') + (row[2] - row[1]);
+      lines.push('  ' + row[0].padEnd(15) + String(row[1]).padEnd(10) + String(row[2]).padEnd(10) + status);
+    });
+    lines.push('');
+
+    // Board-by-board
+    lines.push(sr);
+    lines.push('BOARD-BY-BOARD COMPARISON');
+    lines.push(sr);
+    r.boardComparisons.forEach(function(bc) {
+      lines.push('');
+      lines.push('  Board: ' + bc.boardName + (bc.matched ? '' : ' [NOT FOUND IN TARGET]'));
+      if (!bc.matched) return;
+      lines.push('    Items:   Source=' + bc.items.source + '  Target=' + bc.items.target + (bc.items.match ? '  OK' : '  DIFF=' + bc.items.diff));
+      lines.push('    Groups:  ' + bc.groups.matched + '/' + bc.groups.source + ' matched');
+      if (bc.groups.missing && bc.groups.missing.length > 0) {
+        lines.push('    Missing groups: ' + bc.groups.missing.join(', '));
+      }
+      lines.push('    Columns: ' + bc.columns.matched + '/' + bc.columns.source + ' matched');
+      if (bc.columns.missing && bc.columns.missing.length > 0) {
+        lines.push('    Missing columns:');
+        bc.columns.missing.forEach(function(c) { lines.push('      - ' + c.title + ' (' + c.type + ')'); });
+      }
+      if (bc.columns.extra && bc.columns.extra.length > 0) {
+        lines.push('    Extra columns in target:');
+        bc.columns.extra.forEach(function(c) { lines.push('      + ' + c.title + ' (' + c.type + ')'); });
+      }
+    });
+    lines.push('');
+
+    // Unmatched boards
+    if (r.unmatchedBoards && r.unmatchedBoards.length > 0) {
+      lines.push('  BOARDS NOT FOUND IN TARGET: ' + r.unmatchedBoards.join(', '));
+    }
+    if (r.extraTargetBoards && r.extraTargetBoards.length > 0) {
+      lines.push('  EXTRA BOARDS IN TARGET: ' + r.extraTargetBoards.join(', '));
+    }
+    lines.push('');
+
+    // User verification
+    if (r.userVerification) {
+      var uv = r.userVerification;
+      lines.push(sr);
+      lines.push('USER & GUEST VERIFICATION');
+      lines.push(sr);
+      lines.push('  Total Subscribers: ' + uv.summary.totalSourceSubscribers);
+      lines.push('  Matched:           ' + uv.summary.totalMatchedSubscribers);
+      lines.push('  Missing:           ' + uv.summary.totalMissingSubscribers);
+      lines.push('  Role Mismatches:   ' + uv.summary.totalRoleMismatches);
+      lines.push('  Missing Teams:     ' + uv.summary.totalMissingTeams);
+      lines.push('');
+
+      if (uv.summary.missingSubscribers && uv.summary.missingSubscribers.length > 0) {
+        lines.push('  MISSING SUBSCRIBERS:');
+        uv.summary.missingSubscribers.forEach(function(u) {
+          lines.push('    - ' + u.name + ' (' + u.email + ')' + (u.role === 'owner' ? ' [OWNER]' : '') + (u.isGuest ? ' [GUEST]' : '') + '  Boards: ' + (u.boards || []).join(', '));
+        });
+        lines.push('');
+      }
+      if (uv.summary.roleMismatches && uv.summary.roleMismatches.length > 0) {
+        lines.push('  ROLE MISMATCHES:');
+        uv.summary.roleMismatches.forEach(function(u) {
+          lines.push('    - ' + u.name + ': ' + u.sourceRole + ' → ' + u.targetRole + '  Boards: ' + (u.boards || []).join(', '));
+        });
+        lines.push('');
+      }
+
+      lines.push('  PER-BOARD SUBSCRIBER DETAILS:');
+      uv.boardDetails.forEach(function(bd) {
+        lines.push('    Board: ' + bd.boardName + ' (' + bd.boardKind + ')');
+        lines.push('      Source=' + bd.sourceSubscriberCount + '  Target=' + bd.targetSubscriberCount + '  Matched=' + bd.matchedSubscribers);
+        if (bd.missingSubscribers.length > 0) {
+          lines.push('      Missing: ' + bd.missingSubscribers.map(function(u) { return u.name + (u.role === 'owner' ? ' (owner)' : ''); }).join(', '));
+        }
+        if (bd.roleMismatches.length > 0) {
+          lines.push('      Role issues: ' + bd.roleMismatches.map(function(u) { return u.name + ': ' + u.sourceRole + '→' + u.targetRole; }).join(', '));
+        }
+        if (bd.missingTeams.length > 0) {
+          lines.push('      Missing teams: ' + bd.missingTeams.map(function(t) { return t.name + ' (' + t.memberCount + ' members)'; }).join(', '));
+        }
+      });
+    }
+
+    lines.push('');
+    lines.push(hr);
+    lines.push('  END OF REPORT');
+    lines.push(hr);
+
+    // Download as text file
+    var content = lines.join('\n');
+    var blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'validation-report-' + new Date().toISOString().slice(0, 10) + '.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.show('Report downloaded!', 'success');
   };
 
   return (
@@ -1191,6 +1437,16 @@ const ValidationTab = () => {
       {/* Validation Report */}
       {report && !loading && (
         <div>
+          {/* Download button */}
+          <div className="text-end mb-3">
+            <button className="btn btn-outline-secondary" onClick={downloadReport}>
+              <i className="bi bi-download me-1" />Download Report
+            </button>
+          </div>
+
+          {/* Discrepancy Modal */}
+          <DiscrepancyModal show={!!modalData} onClose={() => setModalData(null)} title={modalData?.title || ''} data={modalData} />
+
           {/* Match Percentages */}
           <div className="row g-3 mb-4">
             <div className="col text-center">
@@ -1276,19 +1532,36 @@ const ValidationTab = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {report.boardComparisons.map((bc, i) => (
-                      <tr key={i}>
-                        <td><strong>{bc.boardName}</strong></td>
-                        <td>{bc.matched ? <span className="match-great"><i className="bi bi-check-circle" /></span> : <span className="match-poor"><i className="bi bi-x-circle" /></span>}</td>
-                        <td>{bc.items.source}</td>
-                        <td>{bc.items.target}</td>
-                        <td className={bc.items.match ? 'match-great' : 'match-poor'}>
-                          {bc.items.match ? 'OK' : (bc.items.diff > 0 ? '+' : '') + bc.items.diff}
-                        </td>
-                        <td>{bc.groups.matched}/{bc.groups.source}{bc.groups.missing?.length > 0 && <small className="text-danger"> (-{bc.groups.missing.length})</small>}</td>
-                        <td>{bc.columns.matched}/{bc.columns.source}{bc.columns.missing?.length > 0 && <small className="text-danger"> (-{bc.columns.missing.length})</small>}</td>
-                      </tr>
-                    ))}
+                    {report.boardComparisons.map((bc, i) => {
+                      const hasItemDiff = !bc.items.match;
+                      const hasGroupDiff = bc.groups.missing?.length > 0;
+                      const hasColDiff = (bc.columns.missing?.length > 0) || (bc.columns.extra?.length > 0);
+                      const clickable = 'text-decoration-underline';
+                      return (
+                        <tr key={i}>
+                          <td><strong>{bc.boardName}</strong></td>
+                          <td>{bc.matched ? <span className="match-great"><i className="bi bi-check-circle" /></span> : <span className="match-poor"><i className="bi bi-x-circle" /></span>}</td>
+                          <td>{bc.items.source}</td>
+                          <td>{bc.items.target}</td>
+                          <td className={bc.items.match ? 'match-great' : 'match-poor'}
+                            style={hasItemDiff ? { cursor: 'pointer' } : {}}
+                            onClick={() => hasItemDiff && setModalData({ type: 'items', title: bc.boardName + ' — Item Discrepancy', source: bc.items.source, target: bc.items.target, diff: bc.items.diff })}>
+                            {bc.items.match ? 'OK' : <span className={clickable}>{(bc.items.diff > 0 ? '+' : '') + bc.items.diff}</span>}
+                          </td>
+                          <td style={hasGroupDiff ? { cursor: 'pointer' } : {}}
+                            onClick={() => hasGroupDiff && setModalData({ type: 'groups', title: bc.boardName + ' — Group Discrepancy', source: bc.groups.source, matched: bc.groups.matched, missing: bc.groups.missing || [] })}>
+                            {bc.groups.matched}/{bc.groups.source}
+                            {hasGroupDiff && <small className={`text-danger ${clickable}`}> (-{bc.groups.missing.length})</small>}
+                          </td>
+                          <td style={hasColDiff ? { cursor: 'pointer' } : {}}
+                            onClick={() => hasColDiff && setModalData({ type: 'columns', title: bc.boardName + ' — Column Discrepancy', source: bc.columns.source, target: bc.columns.target, matched: bc.columns.matched, missing: bc.columns.missing || [], extra: bc.columns.extra || [] })}>
+                            {bc.columns.matched}/{bc.columns.source}
+                            {bc.columns.missing?.length > 0 && <small className={`text-danger ${clickable}`}> (-{bc.columns.missing.length})</small>}
+                            {bc.columns.extra?.length > 0 && <small className={`text-info ${clickable}`}> (+{bc.columns.extra.length})</small>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1324,6 +1597,38 @@ const ValidationTab = () => {
                       <div className="col-md-2"><StatCard value={uv.summary.totalRoleMismatches} label="Role Mismatches" icon="exclamation-triangle" color={uv.summary.totalRoleMismatches > 0 ? 'var(--gw-orange)' : undefined} /></div>
                       <div className="col-md-2"><StatCard value={uv.summary.totalMissingTeams} label="Missing Teams" icon="people-fill" color={uv.summary.totalMissingTeams > 0 ? 'var(--gw-orange)' : undefined} /></div>
                     </div>
+
+                    {/* Missing subscribers detail */}
+                    {uv.summary.missingSubscribers && uv.summary.missingSubscribers.length > 0 && (
+                      <div className="alert alert-danger py-2 mb-2 mt-3">
+                        <strong><i className="bi bi-person-x me-1" />Missing from target ({uv.summary.missingSubscribers.length}):</strong>
+                        <ul className="mb-0 mt-1">
+                          {uv.summary.missingSubscribers.map((u, i) => (
+                            <li key={i}>
+                              <strong>{u.name}</strong>{u.email ? ` (${u.email})` : ''}
+                              {u.role === 'owner' && <span className="badge bg-primary ms-1">owner</span>}
+                              {u.isGuest && <span className="badge bg-warning text-dark ms-1">guest</span>}
+                              {u.boards && u.boards.length > 0 && <small className="text-muted ms-1">— Boards: {u.boards.join(', ')}</small>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Role mismatch detail */}
+                    {uv.summary.roleMismatches && uv.summary.roleMismatches.length > 0 && (
+                      <div className="alert alert-warning py-2 mb-2">
+                        <strong><i className="bi bi-exclamation-triangle me-1" />Role Mismatches ({uv.summary.roleMismatches.length}):</strong>
+                        <ul className="mb-0 mt-1">
+                          {uv.summary.roleMismatches.map((u, i) => (
+                            <li key={i}>
+                              <strong>{u.name}</strong>: {u.sourceRole} &rarr; {u.targetRole}
+                              {u.boards && u.boards.length > 0 && <small className="text-muted ms-1">— Boards: {u.boards.join(', ')}</small>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
 
                   </div>
                 </div>
