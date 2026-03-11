@@ -622,6 +622,104 @@ function callMondayAPIWithKey(apiKey, query, variables) {
   return result.data;
 }
 
+// ── Batch API Calls (UrlFetchApp.fetchAll) ──────────────────────────────────
+
+/**
+ * Execute multiple Monday.com GraphQL requests in parallel using fetchAll.
+ * Each request is { query, variables }.
+ * Returns array of parsed result.data objects (same order as requests).
+ * On individual request failure, the entry is { error: 'message' }.
+ *
+ * @param {string|null} apiKey - API key (null = use CONFIG.MONDAY_API_KEY)
+ * @param {Array<{query: string, variables: Object}>} requests - GraphQL requests
+ * @param {number} [concurrency=10] - Max parallel requests per fetchAll batch
+ * @returns {Array<Object>} results in same order as requests
+ */
+function batchMondayAPICalls(apiKey, requests, concurrency) {
+  if (!requests || requests.length === 0) return [];
+  var key = apiKey || CONFIG.MONDAY_API_KEY;
+  concurrency = concurrency || 10;
+
+  var allResults = new Array(requests.length);
+
+  for (var batchStart = 0; batchStart < requests.length; batchStart += concurrency) {
+    var batchEnd = Math.min(batchStart + concurrency, requests.length);
+    var batchRequests = [];
+
+    for (var i = batchStart; i < batchEnd; i++) {
+      batchRequests.push({
+        url: CONFIG.MONDAY_API_URL,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': key,
+          'API-Version': '2025-10'
+        },
+        payload: JSON.stringify({
+          query: requests[i].query,
+          variables: requests[i].variables || {}
+        }),
+        muteHttpExceptions: true
+      });
+    }
+
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(batchRequests);
+    } catch (fetchAllErr) {
+      // If fetchAll itself fails, fall back to sequential
+      console.warn('fetchAll failed, falling back to sequential: ' + fetchAllErr);
+      for (var j = batchStart; j < batchEnd; j++) {
+        try {
+          var data = apiKey
+            ? callMondayAPIWithKey(apiKey, requests[j].query, requests[j].variables)
+            : callMondayAPI(requests[j].query, requests[j].variables);
+          allResults[j] = data;
+        } catch (seqErr) {
+          allResults[j] = { error: seqErr.toString() };
+        }
+      }
+      continue;
+    }
+
+    for (var r = 0; r < responses.length; r++) {
+      var idx = batchStart + r;
+      try {
+        var code = responses[r].getResponseCode();
+        if (code === 429) {
+          // Rate limited — wait and retry this one sequentially
+          Utilities.sleep(2000);
+          try {
+            var retryData = apiKey
+              ? callMondayAPIWithKey(apiKey, requests[idx].query, requests[idx].variables)
+              : callMondayAPI(requests[idx].query, requests[idx].variables);
+            allResults[idx] = retryData;
+          } catch (retryErr) {
+            allResults[idx] = { error: 'Rate limited + retry failed: ' + retryErr.toString() };
+          }
+          continue;
+        }
+
+        var parsed = JSON.parse(responses[r].getContentText());
+        if (parsed.errors) {
+          allResults[idx] = { error: parsed.errors[0].message };
+        } else {
+          allResults[idx] = parsed.data;
+        }
+      } catch (parseErr) {
+        allResults[idx] = { error: 'Parse error: ' + parseErr.toString() };
+      }
+    }
+
+    // Small pause between parallel batches to stay within complexity budget
+    if (batchEnd < requests.length) {
+      Utilities.sleep(200);
+    }
+  }
+
+  return allResults;
+}
+
 // ── Workspace Queries ────────────────────────────────────────────────────────
 
 function getWorkspaces() {
@@ -790,7 +888,7 @@ function getAllBoardItems(boardId) {
   allItems = allItems.concat(result.items);
 
   while (result.cursor) {
-    Utilities.sleep(200);
+    Utilities.sleep(100);
     result = getBoardItems(boardId, result.cursor);
     allItems = allItems.concat(result.items);
   }
@@ -973,7 +1071,7 @@ function getAccountUsers() {
     page++;
 
     if (users.length < 100) break;
-    Utilities.sleep(200);
+    Utilities.sleep(100);
   }
 
   return allUsers;
@@ -1596,7 +1694,7 @@ function getItemAssets(itemIds, apiKey) {
       }
     });
 
-    if (i + BATCH < itemIds.length) Utilities.sleep(300);
+    if (i + BATCH < itemIds.length) Utilities.sleep(100);
   }
   return assetMap;
 }

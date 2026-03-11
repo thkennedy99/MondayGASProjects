@@ -683,7 +683,6 @@ function _phaseInit(migrationId, state) {
             var newFolder = createFolderOnTarget(targetApiKey, targetWs.id, sf.name, targetParentFolderId, sf.color);
             folderMapping[sf.id] = String(newFolder.id);
             console.log('Migration:   Folder: "' + sf.name + '" → ' + newFolder.id);
-            Utilities.sleep(200);
           } catch (folderErr) {
             console.warn('Migration:   Failed folder "' + sf.name + '": ' + folderErr);
           }
@@ -852,7 +851,6 @@ function _phaseBoards(migrationId, state) {
     state.boardIndex = i + 1;
     state.retryCount = 0; // Reset retry count per board
     _saveBatchState(migrationId, state);
-    Utilities.sleep(300);
   }
 
   // All boards done — transition to DOCUMENTS or FINALIZE

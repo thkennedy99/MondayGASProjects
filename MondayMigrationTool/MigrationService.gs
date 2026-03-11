@@ -437,6 +437,192 @@ function createSubitemOnTarget(targetApiKey, parentItemId, subitemName, columnVa
   return data.create_subitem;
 }
 
+// ── Batch Item/Subitem Creation (Optimized) ─────────────────────────────────
+
+/**
+ * Create multiple items in parallel using multi-mutation GraphQL + fetchAll.
+ * Each item: { name, groupId, columnValues }
+ * Returns array of { id, name } or { error } in same order.
+ *
+ * @param {string|null} targetApiKey
+ * @param {number|string} boardId
+ * @param {Array<{name: string, groupId: string|null, columnValues: Object|null}>} items
+ * @param {number} [batchSize=5] - Mutations per GraphQL request
+ * @param {number} [concurrency=8] - Parallel requests via fetchAll
+ * @returns {Array<{id: string, name: string}|{error: string}>}
+ */
+function createItemsBatch(targetApiKey, boardId, items, batchSize, concurrency) {
+  if (!items || items.length === 0) return [];
+  batchSize = batchSize || 5;
+  concurrency = concurrency || 8;
+
+  // Build multi-mutation requests: each request has up to batchSize mutations
+  var graphqlRequests = [];
+  var requestItemRanges = []; // track which items each request covers
+
+  for (var i = 0; i < items.length; i += batchSize) {
+    var chunk = items.slice(i, Math.min(i + batchSize, items.length));
+    var mutationParts = [];
+    var variables = {};
+
+    for (var c = 0; c < chunk.length; c++) {
+      var item = chunk[c];
+      var alias = 'item' + c;
+      var boardVar = alias + '_board';
+      var nameVar = alias + '_name';
+      var groupVar = alias + '_group';
+
+      variables[boardVar] = Number(boardId);
+      variables[nameVar] = item.name;
+
+      if (item.columnValues && Object.keys(item.columnValues).length > 0) {
+        var valVar = alias + '_vals';
+        variables[valVar] = JSON.stringify(item.columnValues);
+        if (item.groupId) {
+          variables[groupVar] = item.groupId;
+          mutationParts.push(
+            alias + ': create_item (board_id: $' + boardVar + ', item_name: $' + nameVar +
+            ', group_id: $' + groupVar + ', column_values: $' + valVar + ') { id name }'
+          );
+        } else {
+          mutationParts.push(
+            alias + ': create_item (board_id: $' + boardVar + ', item_name: $' + nameVar +
+            ', column_values: $' + valVar + ') { id name }'
+          );
+        }
+      } else {
+        if (item.groupId) {
+          variables[groupVar] = item.groupId;
+          mutationParts.push(
+            alias + ': create_item (board_id: $' + boardVar + ', item_name: $' + nameVar +
+            ', group_id: $' + groupVar + ') { id name }'
+          );
+        } else {
+          mutationParts.push(
+            alias + ': create_item (board_id: $' + boardVar + ', item_name: $' + nameVar + ') { id name }'
+          );
+        }
+      }
+    }
+
+    // Build variable declarations
+    var varDecls = [];
+    for (var vk in variables) {
+      if (vk.indexOf('_board') >= 0) varDecls.push('$' + vk + ': ID!');
+      else if (vk.indexOf('_name') >= 0) varDecls.push('$' + vk + ': String!');
+      else if (vk.indexOf('_group') >= 0) varDecls.push('$' + vk + ': String');
+      else if (vk.indexOf('_vals') >= 0) varDecls.push('$' + vk + ': JSON!');
+    }
+
+    var query = 'mutation (' + varDecls.join(', ') + ') { ' + mutationParts.join(' ') + ' }';
+    graphqlRequests.push({ query: query, variables: variables });
+    requestItemRanges.push({ start: i, count: chunk.length });
+  }
+
+  // Execute in parallel
+  var apiResults = batchMondayAPICalls(targetApiKey, graphqlRequests, concurrency);
+
+  // Map results back to items
+  var results = new Array(items.length);
+  for (var ri = 0; ri < apiResults.length; ri++) {
+    var range = requestItemRanges[ri];
+    var data = apiResults[ri];
+
+    for (var ci = 0; ci < range.count; ci++) {
+      var itemIdx = range.start + ci;
+      var alias = 'item' + ci;
+
+      if (data && data.error) {
+        results[itemIdx] = { error: data.error };
+      } else if (data && data[alias]) {
+        results[itemIdx] = { id: String(data[alias].id), name: data[alias].name };
+      } else {
+        results[itemIdx] = { error: 'No result for ' + alias };
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Create multiple subitems in parallel using multi-mutation GraphQL + fetchAll.
+ * Each entry: { parentItemId, name, columnValues }
+ * Returns array of { id, name } or { error }.
+ */
+function createSubitemsBatch(targetApiKey, subitems, batchSize, concurrency) {
+  if (!subitems || subitems.length === 0) return [];
+  batchSize = batchSize || 5;
+  concurrency = concurrency || 8;
+
+  var graphqlRequests = [];
+  var requestRanges = [];
+
+  for (var i = 0; i < subitems.length; i += batchSize) {
+    var chunk = subitems.slice(i, Math.min(i + batchSize, subitems.length));
+    var mutationParts = [];
+    var variables = {};
+
+    for (var c = 0; c < chunk.length; c++) {
+      var sub = chunk[c];
+      var alias = 'sub' + c;
+      var parentVar = alias + '_parent';
+      var nameVar = alias + '_name';
+
+      variables[parentVar] = Number(sub.parentItemId);
+      variables[nameVar] = sub.name;
+
+      if (sub.columnValues && Object.keys(sub.columnValues).length > 0) {
+        var valVar = alias + '_vals';
+        variables[valVar] = JSON.stringify(sub.columnValues);
+        mutationParts.push(
+          alias + ': create_subitem (parent_item_id: $' + parentVar +
+          ', item_name: $' + nameVar + ', column_values: $' + valVar + ') { id name }'
+        );
+      } else {
+        mutationParts.push(
+          alias + ': create_subitem (parent_item_id: $' + parentVar +
+          ', item_name: $' + nameVar + ') { id name }'
+        );
+      }
+    }
+
+    var varDecls = [];
+    for (var vk in variables) {
+      if (vk.indexOf('_parent') >= 0) varDecls.push('$' + vk + ': ID!');
+      else if (vk.indexOf('_name') >= 0) varDecls.push('$' + vk + ': String!');
+      else if (vk.indexOf('_vals') >= 0) varDecls.push('$' + vk + ': JSON!');
+    }
+
+    var query = 'mutation (' + varDecls.join(', ') + ') { ' + mutationParts.join(' ') + ' }';
+    graphqlRequests.push({ query: query, variables: variables });
+    requestRanges.push({ start: i, count: chunk.length });
+  }
+
+  var apiResults = batchMondayAPICalls(targetApiKey, graphqlRequests, concurrency);
+
+  var results = new Array(subitems.length);
+  for (var ri = 0; ri < apiResults.length; ri++) {
+    var range = requestRanges[ri];
+    var data = apiResults[ri];
+
+    for (var ci = 0; ci < range.count; ci++) {
+      var idx = range.start + ci;
+      var alias = 'sub' + ci;
+
+      if (data && data.error) {
+        results[idx] = { error: data.error };
+      } else if (data && data[alias]) {
+        results[idx] = { id: String(data[alias].id), name: data[alias].name };
+      } else {
+        results[idx] = { error: 'No result for ' + alias };
+      }
+    }
+  }
+
+  return results;
+}
+
 // ── Form Migration Helpers ────────────────────────────────────────────────────
 
 function createFormViewOnTarget(targetApiKey, boardId, viewName) {
@@ -553,7 +739,7 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
       }
 
       console.log('Migration:   Target form created: token=' + targetFormView.token);
-      Utilities.sleep(500);
+      Utilities.sleep(200);
 
       // 3. Read the auto-created target form to get its default questions
       var targetForm;
@@ -868,8 +1054,6 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
       console.error('Migration:   Form migration failed for "' + formView.viewName + '": ' + formError);
       details.push({ name: formView.viewName, status: 'error', error: formError.toString() });
     }
-
-    Utilities.sleep(300);
   }
 
   return {
@@ -1239,7 +1423,6 @@ function _executeMigration(migrationId, params) {
             var newFolder = createFolderOnTarget(targetApiKey, targetWs.id, sf.name, targetParentFolderId, sf.color);
             folderMapping[sf.id] = String(newFolder.id);
             console.log('Migration:   Folder created: "' + sf.name + '" (source=' + sf.id + ' → target=' + newFolder.id + (sf.parentSourceId ? ', parent=' + sf.parentSourceId : '') + ')');
-            Utilities.sleep(200);
           } catch (folderErr) {
             console.warn('Migration:   Failed to create folder "' + sf.name + '": ' + folderErr);
             updateMigrationProgress(migrationId, {
@@ -1330,8 +1513,6 @@ function _executeMigration(migrationId, params) {
           errors: [{ board: sourceBoard.name, msg: boardError.toString() }]
         });
       }
-
-      Utilities.sleep(300);
     }
 
     // Step 5: Migrate documents with Drive backup (if selected)
@@ -1598,7 +1779,7 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
 
   // If async, wait briefly for the board to be ready
   if (dupResult.isAsync) {
-    Utilities.sleep(3000);
+    Utilities.sleep(1500);
     // Re-fetch to get columns and groups
     var refreshed = getBoardOrigin(targetBoard.id);
     if (refreshed) {
@@ -1607,8 +1788,10 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
     }
   }
 
-  // Step 2: Get source board structure for mapping
-  var sourceStructure = getBoardStructure(sourceBoard.id);
+  // Step 2: Use source board structure for mapping (skip re-fetch if already loaded)
+  var sourceStructure = (sourceBoard.columns && sourceBoard.groups)
+    ? sourceBoard
+    : getBoardStructure(sourceBoard.id);
   if (!sourceStructure) throw new Error('Could not read board structure for: ' + sourceBoard.name);
 
   // Step 3: Build column mapping by title (source ID -> target ID)
@@ -1626,7 +1809,7 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
 
   // Step 5: Subscribers are handled by duplicate_board's keep_subscribers param
 
-  // Step 6: Migrate items (only writable column values) and their subitems
+  // Step 6: Migrate items (BATCHED — parallel multi-mutation) and their subitems
   if (migrationId) {
     updateMigrationProgress(migrationId, {
       message: progressPrefix + ' — migrating items...'
@@ -1638,62 +1821,117 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
   var subitemsMigrated = 0;
   var itemIdMap = {}; // sourceItemId → targetItemId for file migration
 
+  // Pre-process all items into batch-ready format
+  var itemBatchInput = [];
+  var sourceItemOrder = []; // parallel array to track source item references
   for (var i = 0; i < allItems.length; i++) {
     var item = allItems[i];
+    var columnValues = {};
+    (item.column_values || []).forEach(function(cv) {
+      var mapped = columnMapping[cv.id];
+      if (cv.value && mapped) {
+        try {
+          var parsed = JSON.parse(cv.value);
+          var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency', 'file'];
+          if (skipTypes.indexOf(cv.type) < 0) {
+            columnValues[mapped.targetId] = parsed;
+          }
+        } catch (parseError) {
+          if (cv.text) {
+            columnValues[mapped.targetId] = cv.text;
+          }
+        }
+      }
+    });
 
-    // Report progress every 10 items or on the first item
-    if (migrationId && (i === 0 || (i + 1) % 10 === 0 || i === allItems.length - 1)) {
+    var targetGroupId = null;
+    if (item.group && groupMapping[item.group.id]) {
+      targetGroupId = groupMapping[item.group.id].targetId;
+    }
+
+    itemBatchInput.push({
+      name: item.name,
+      groupId: targetGroupId,
+      columnValues: Object.keys(columnValues).length > 0 ? columnValues : null
+    });
+    sourceItemOrder.push(item);
+  }
+
+  // Execute batched item creation (same-account: null apiKey)
+  var ITEM_BATCH_SIZE = 5;   // mutations per GraphQL request
+  var ITEM_CONCURRENCY = 8;  // parallel requests
+  var ITEM_CHUNK = ITEM_BATCH_SIZE * ITEM_CONCURRENCY; // items per progress update
+
+  for (var chunkStart = 0; chunkStart < itemBatchInput.length; chunkStart += ITEM_CHUNK) {
+    var chunkEnd = Math.min(chunkStart + ITEM_CHUNK, itemBatchInput.length);
+    var chunk = itemBatchInput.slice(chunkStart, chunkEnd);
+
+    if (migrationId) {
       updateMigrationProgress(migrationId, {
-        message: progressPrefix + ' — migrating items ' + (i + 1) + '/' + itemsTotal
+        message: progressPrefix + ' — migrating items ' + (chunkStart + 1) + '-' + chunkEnd + '/' + itemsTotal
       });
     }
 
-    try {
-      var columnValues = {};
-      (item.column_values || []).forEach(function(cv) {
-        var mapped = columnMapping[cv.id];
-        if (cv.value && mapped) {
-          try {
-            var parsed = JSON.parse(cv.value);
-            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency', 'file'];
-            if (skipTypes.indexOf(cv.type) < 0) {
-              columnValues[mapped.targetId] = parsed;
-            }
-          } catch (parseError) {
-            if (cv.text) {
-              columnValues[mapped.targetId] = cv.text;
-            }
+    var batchResults = createItemsBatch(null, targetBoard.id, chunk, ITEM_BATCH_SIZE, ITEM_CONCURRENCY);
+
+    for (var bi = 0; bi < batchResults.length; bi++) {
+      var globalIdx = chunkStart + bi;
+      var result = batchResults[bi];
+      var srcItem = sourceItemOrder[globalIdx];
+
+      if (result && result.id) {
+        itemsMigrated++;
+        itemIdMap[String(srcItem.id)] = result.id;
+      } else {
+        console.warn('Failed to migrate item "' + srcItem.name + '": ' + (result ? result.error : 'no result'));
+      }
+    }
+  }
+
+  // Batch-migrate subitems for all items that have them
+  var subitemBatchInput = [];
+  var subitemSourceInfo = [];
+  for (var si = 0; si < sourceItemOrder.length; si++) {
+    var srcItem = sourceItemOrder[si];
+    if (srcItem.subitems && srcItem.subitems.length > 0 && itemIdMap[String(srcItem.id)]) {
+      var parentTargetId = itemIdMap[String(srcItem.id)];
+      for (var sj = 0; sj < srcItem.subitems.length; sj++) {
+        var sub = srcItem.subitems[sj];
+        var subColValues = {};
+        (sub.column_values || []).forEach(function(cv) {
+          if (cv.value) {
+            try {
+              var parsed = JSON.parse(cv.value);
+              var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency', 'file'];
+              if (skipTypes.indexOf(cv.type) < 0) {
+                subColValues[cv.id] = parsed;
+              }
+            } catch (e) {}
           }
-        }
+        });
+        subitemBatchInput.push({
+          parentItemId: parentTargetId,
+          name: sub.name,
+          columnValues: Object.keys(subColValues).length > 0 ? subColValues : null
+        });
+        subitemSourceInfo.push({ parentName: srcItem.name, subName: sub.name });
+      }
+    }
+  }
+
+  if (subitemBatchInput.length > 0) {
+    if (migrationId) {
+      updateMigrationProgress(migrationId, {
+        message: progressPrefix + ' — migrating ' + subitemBatchInput.length + ' subitems...'
       });
-
-      var targetGroupId = null;
-      if (item.group && groupMapping[item.group.id]) {
-        targetGroupId = groupMapping[item.group.id].targetId;
+    }
+    var subResults = createSubitemsBatch(null, subitemBatchInput, 3, 6);
+    for (var sr = 0; sr < subResults.length; sr++) {
+      if (subResults[sr] && subResults[sr].id) {
+        subitemsMigrated++;
+      } else {
+        console.warn('Failed to migrate subitem "' + subitemSourceInfo[sr].subName + '" under "' + subitemSourceInfo[sr].parentName + '": ' + (subResults[sr] ? subResults[sr].error : 'no result'));
       }
-
-      var newItem = createItem(
-        targetBoard.id,
-        item.name,
-        targetGroupId,
-        Object.keys(columnValues).length > 0 ? columnValues : null
-      );
-
-      itemsMigrated++;
-      if (newItem && newItem.id) {
-        itemIdMap[String(item.id)] = String(newItem.id);
-      }
-
-      // Migrate subitems if present
-      if (item.subitems && item.subitems.length > 0 && newItem && newItem.id) {
-        var subCount = migrateSubitems(item, newItem.id, null);
-        subitemsMigrated += subCount;
-        console.log('Migration:   Migrated ' + subCount + '/' + item.subitems.length + ' subitems for item "' + item.name + '"');
-      }
-
-      Utilities.sleep(150);
-    } catch (itemError) {
-      console.warn('Failed to migrate item "' + item.name + '":', itemError);
     }
   }
 
@@ -1736,7 +1974,10 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
   var bc = boardContext || {};
   var progressPrefix = bc.index ? ('Board ' + bc.index + '/' + bc.total + ': "' + bc.name + '"') : ('"' + sourceBoard.name + '"');
 
-  var structure = getBoardStructure(sourceBoard.id);
+  // Use source board structure if already loaded (skip redundant API call)
+  var structure = (sourceBoard.columns && sourceBoard.groups)
+    ? sourceBoard
+    : getBoardStructure(sourceBoard.id);
   if (!structure) throw new Error('Could not read board structure for: ' + sourceBoard.name);
 
   // Create board in new workspace (target account if cross-account)
@@ -1814,7 +2055,6 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
             type: col.type
           });
           columnMapping[col.id] = { targetId: newCol.id, title: col.title, type: col.type, managed: true };
-          Utilities.sleep(100);
           return; // Skip normal createColumn
         } catch (attachErr) {
           console.warn('Managed column attach failed for ' + col.title + ', falling back to regular column: ' + attachErr);
@@ -1837,7 +2077,6 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
 
       newCol = createColumnOnTarget(targetApiKey, targetBoard.id, col.title, col.type, defaults);
       columnMapping[col.id] = { targetId: newCol.id, title: col.title, type: col.type };
-      Utilities.sleep(100);
     } catch (e) {
       console.warn('Skipped column ' + col.title + ' (' + col.type + '): ' + e);
       skippedColumns.push({ id: col.id, title: col.title, type: col.type, error: e.toString() });
@@ -1851,7 +2090,6 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
       try {
         var newGroup = createGroupOnTarget(targetApiKey, targetBoard.id, grp.title);
         groupMapping[grp.id] = { targetId: newGroup.id, title: grp.title };
-        Utilities.sleep(100);
       } catch (e) {
         console.warn('Failed to create group ' + grp.title + ':', e);
       }
@@ -1899,7 +2137,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
 
   // Note: Subscribers/guests are handled separately via the Users & Guests tab
 
-  // Migrate items (mandatory) and their subitems
+  // Migrate items (BATCHED — parallel multi-mutation) and their subitems
   if (migrationId) {
     updateMigrationProgress(migrationId, {
       message: progressPrefix + ' — migrating items...'
@@ -1911,68 +2149,125 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
   var subitemsMigrated = 0;
   var itemIdMap = {}; // sourceItemId → targetItemId for file migration
 
+  // Pre-process all items into batch-ready format
+  var itemBatchInput = [];
+  var sourceItemOrder = [];
   for (var i = 0; i < allItems.length; i++) {
     var item = allItems[i];
+    var columnValues = {};
+    (item.column_values || []).forEach(function(cv) {
+      var mapped = columnMapping[cv.id];
+      if (cv.value && mapped) {
+        try {
+          var parsed = JSON.parse(cv.value);
+          var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'file'];
+          if (skipTypes.indexOf(cv.type) < 0) {
+            if (targetApiKey && cv.type === 'people') {
+              // Skip people columns for cross-account — populated post-migration
+            } else {
+              columnValues[mapped.targetId] = parsed;
+            }
+          }
+        } catch (parseError) {
+          if (cv.text) {
+            columnValues[mapped.targetId] = cv.text;
+          }
+        }
+      }
+    });
 
-    // Report progress every 10 items or on the first item
-    if (migrationId && (i === 0 || (i + 1) % 10 === 0 || i === allItems.length - 1)) {
+    var targetGroupId = null;
+    if (components.groups !== false && item.group && groupMapping[item.group.id]) {
+      targetGroupId = groupMapping[item.group.id].targetId;
+    }
+
+    itemBatchInput.push({
+      name: item.name,
+      groupId: targetGroupId,
+      columnValues: Object.keys(columnValues).length > 0 ? columnValues : null
+    });
+    sourceItemOrder.push(item);
+  }
+
+  // Execute batched item creation
+  var ITEM_BATCH_SIZE = 5;
+  var ITEM_CONCURRENCY = 8;
+  var ITEM_CHUNK = ITEM_BATCH_SIZE * ITEM_CONCURRENCY;
+
+  for (var chunkStart = 0; chunkStart < itemBatchInput.length; chunkStart += ITEM_CHUNK) {
+    var chunkEnd = Math.min(chunkStart + ITEM_CHUNK, itemBatchInput.length);
+    var chunk = itemBatchInput.slice(chunkStart, chunkEnd);
+
+    if (migrationId) {
       updateMigrationProgress(migrationId, {
-        message: progressPrefix + ' — migrating items ' + (i + 1) + '/' + itemsTotal
+        message: progressPrefix + ' — migrating items ' + (chunkStart + 1) + '-' + chunkEnd + '/' + itemsTotal
       });
     }
 
-    try {
-      var columnValues = {};
-      (item.column_values || []).forEach(function(cv) {
-        var mapped = columnMapping[cv.id];
-        if (cv.value && mapped) {
-          try {
-            var parsed = JSON.parse(cv.value);
-            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'file'];
-            if (skipTypes.indexOf(cv.type) < 0) {
-              // For cross-account: people columns won't match (different user IDs)
-              if (targetApiKey && cv.type === 'people') {
-                // Skip people columns for cross-account migration
-              } else {
-                columnValues[mapped.targetId] = parsed;
+    var batchResults = createItemsBatch(targetApiKey, targetBoard.id, chunk, ITEM_BATCH_SIZE, ITEM_CONCURRENCY);
+
+    for (var bi = 0; bi < batchResults.length; bi++) {
+      var globalIdx = chunkStart + bi;
+      var result = batchResults[bi];
+      var srcItem = sourceItemOrder[globalIdx];
+
+      if (result && result.id) {
+        itemsMigrated++;
+        itemIdMap[String(srcItem.id)] = result.id;
+      } else {
+        console.warn('Failed to migrate item "' + srcItem.name + '": ' + (result ? result.error : 'no result'));
+      }
+    }
+  }
+
+  // Batch-migrate subitems
+  var subitemBatchInput = [];
+  var subitemSourceInfo = [];
+  for (var si = 0; si < sourceItemOrder.length; si++) {
+    var srcItem = sourceItemOrder[si];
+    if (srcItem.subitems && srcItem.subitems.length > 0 && itemIdMap[String(srcItem.id)]) {
+      var parentTargetId = itemIdMap[String(srcItem.id)];
+      for (var sj = 0; sj < srcItem.subitems.length; sj++) {
+        var sub = srcItem.subitems[sj];
+        var subColValues = {};
+        (sub.column_values || []).forEach(function(cv) {
+          if (cv.value) {
+            try {
+              var parsed = JSON.parse(cv.value);
+              var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency', 'file'];
+              if (skipTypes.indexOf(cv.type) < 0) {
+                if (targetApiKey && cv.type === 'people') {
+                  // Skip people columns for cross-account
+                } else {
+                  subColValues[cv.id] = parsed;
+                }
               }
-            }
-          } catch (parseError) {
-            if (cv.text) {
-              columnValues[mapped.targetId] = cv.text;
-            }
+            } catch (e) {}
           }
-        }
+        });
+        subitemBatchInput.push({
+          parentItemId: parentTargetId,
+          name: sub.name,
+          columnValues: Object.keys(subColValues).length > 0 ? subColValues : null
+        });
+        subitemSourceInfo.push({ parentName: srcItem.name, subName: sub.name });
+      }
+    }
+  }
+
+  if (subitemBatchInput.length > 0) {
+    if (migrationId) {
+      updateMigrationProgress(migrationId, {
+        message: progressPrefix + ' — migrating ' + subitemBatchInput.length + ' subitems...'
       });
-
-      var targetGroupId = null;
-      if (components.groups !== false && item.group && groupMapping[item.group.id]) {
-        targetGroupId = groupMapping[item.group.id].targetId;
+    }
+    var subResults = createSubitemsBatch(targetApiKey, subitemBatchInput, 3, 6);
+    for (var sr = 0; sr < subResults.length; sr++) {
+      if (subResults[sr] && subResults[sr].id) {
+        subitemsMigrated++;
+      } else {
+        console.warn('Failed to migrate subitem "' + subitemSourceInfo[sr].subName + '" under "' + subitemSourceInfo[sr].parentName + '": ' + (subResults[sr] ? subResults[sr].error : 'no result'));
       }
-
-      var newItem = createItemOnTarget(
-        targetApiKey,
-        targetBoard.id,
-        item.name,
-        targetGroupId,
-        Object.keys(columnValues).length > 0 ? columnValues : null
-      );
-
-      itemsMigrated++;
-      if (newItem && newItem.id) {
-        itemIdMap[String(item.id)] = String(newItem.id);
-      }
-
-      // Migrate subitems if present
-      if (item.subitems && item.subitems.length > 0 && newItem && newItem.id) {
-        var subCount = migrateSubitems(item, newItem.id, targetApiKey);
-        subitemsMigrated += subCount;
-        console.log('Migration:   Migrated ' + subCount + '/' + item.subitems.length + ' subitems for item "' + item.name + '"');
-      }
-
-      Utilities.sleep(150);
-    } catch (itemError) {
-      console.warn('Failed to migrate item "' + item.name + '":', itemError);
     }
   }
 
@@ -2116,8 +2411,8 @@ function migrateFileColumns(itemIdMap, fileColumns, columnMapping, sourceApiKey,
         filesMigrated++;
         console.log('Migration: Uploaded file "' + fileName + '" to target item ' + targetItemId);
 
-        // Rate-limit between uploads
-        Utilities.sleep(500);
+        // Brief pause between file uploads (multipart, can't batch via fetchAll)
+        Utilities.sleep(200);
       } catch (fileErr) {
         filesErrored++;
         var errMsg = 'Failed to migrate file "' + (asset.name || asset.id) + '" for item ' + srcItemId + ': ' + fileErr;
