@@ -1297,6 +1297,455 @@ const ValidationTab = () => {
   );
 };
 
+// ── User Migration Tab ──────────────────────────────────────────────────────
+
+const UserMigrationTab = () => {
+  const toast = useToast();
+  const [workspaces, setWorkspaces] = useState([]);
+  const [sourceWs, setSourceWs] = useState('');
+  const [targetWs, setTargetWs] = useState('');
+  const [selectedTargetAccount, setSelectedTargetAccount] = useState('');
+  const [step, setStep] = useState('configure'); // configure | scanning | review | executing | done
+  const [scanData, setScanData] = useState(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [execLoading, setExecLoading] = useState(false);
+  const [execResult, setExecResult] = useState(null);
+  const [selectedUsers, setSelectedUsers] = useState({}); // userId → boolean
+  const [selectAll, setSelectAll] = useState(true);
+  const [filterType, setFilterType] = useState('all'); // all | members | guests
+  const [savedMigrations, setSavedMigrations] = useState([]);
+
+  useEffect(() => { loadData(); }, []);
+
+  const loadData = async () => {
+    try {
+      const [invResult, migResult] = await Promise.all([
+        api.call('getAccountInventory'),
+        api.call('getSavedMigrations')
+      ]);
+      if (invResult.success) {
+        setWorkspaces((invResult.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name)));
+      }
+      if (migResult.success) setSavedMigrations(migResult.data || []);
+    } catch (e) { toast.show(e.message, 'danger'); }
+  };
+
+  const runScan = async () => {
+    if (!sourceWs || !targetWs) { toast.show('Select both workspaces', 'warning'); return; }
+    setScanLoading(true);
+    setScanData(null);
+    try {
+      const result = await api.call('scanUserMigration', sourceWs, targetWs, selectedTargetAccount || null);
+      if (result.success) {
+        setScanData(result.data);
+        // Initialize all users as selected
+        const sel = {};
+        (result.data.users || []).forEach(u => { sel[u.sourceUserId] = true; });
+        setSelectedUsers(sel);
+        setSelectAll(true);
+        setStep('review');
+        toast.show('Scan complete!', 'success');
+      } else {
+        toast.show(result.error || 'Scan failed', 'danger');
+      }
+    } catch (e) { toast.show(e.message, 'danger'); }
+    setScanLoading(false);
+  };
+
+  const toggleUser = (userId) => {
+    setSelectedUsers(prev => {
+      const next = { ...prev, [userId]: !prev[userId] };
+      setSelectAll(Object.values(next).every(v => v));
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const newVal = !selectAll;
+    setSelectAll(newVal);
+    const sel = {};
+    filteredUsers.forEach(u => { sel[u.sourceUserId] = newVal; });
+    setSelectedUsers(prev => ({ ...prev, ...sel }));
+  };
+
+  const filteredUsers = useMemo(() => {
+    if (!scanData) return [];
+    return scanData.users.filter(u => {
+      if (filterType === 'members') return !u.isGuest;
+      if (filterType === 'guests') return u.isGuest;
+      return true;
+    });
+  }, [scanData, filterType]);
+
+  const selectedUserIds = useMemo(() => {
+    return Object.entries(selectedUsers).filter(([, v]) => v).map(([k]) => k);
+  }, [selectedUsers]);
+
+  const executeMode = async (mode) => {
+    if (selectedUserIds.length === 0 && mode !== 'validate') {
+      toast.show('Select at least one user', 'warning');
+      return;
+    }
+    setExecLoading(true);
+    setStep('executing');
+    try {
+      const result = await api.call('executeUserMigration', {
+        sourceWorkspaceId: sourceWs,
+        targetWorkspaceId: targetWs,
+        targetAccountId: selectedTargetAccount || null,
+        mode: mode,
+        userIds: selectedUserIds,
+        scanData: scanData
+      });
+      if (result.success) {
+        setExecResult(result.data);
+        setStep('done');
+        toast.show('User migration complete!', 'success');
+      } else {
+        toast.show(result.error || 'Execution failed', 'danger');
+        setStep('review');
+      }
+    } catch (e) {
+      toast.show(e.message, 'danger');
+      setStep('review');
+    }
+    setExecLoading(false);
+  };
+
+  const resetAll = () => {
+    setStep('configure');
+    setScanData(null);
+    setExecResult(null);
+    setSelectedUsers({});
+  };
+
+  return (
+    <div>
+      <h4 className="mb-1"><i className="bi bi-people-fill me-2" />User & Guest Migration</h4>
+      <p className="text-muted mb-4">Assign users and guests to a previously migrated workspace. Supports same-account and cross-account.</p>
+
+      {/* Step Indicator */}
+      <div className="d-flex mb-4 gap-2">
+        {['configure', 'review', 'done'].map((s, i) => {
+          const labels = { configure: 'Select Workspaces', review: 'Review & Execute', done: 'Complete' };
+          const active = step === s || (step === 'scanning' && s === 'configure') || (step === 'executing' && s === 'review');
+          return (
+            <div key={s} className={`flex-fill text-center py-2 rounded ${active ? 'bg-primary text-white' : 'bg-light text-muted'}`}>
+              <small><strong>{i + 1}.</strong> {labels[s]}</small>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Step 1: Configure */}
+      {(step === 'configure' || step === 'scanning') && (
+        <div>
+          <div className="row g-3 mb-4">
+            <div className="col-md-5">
+              <div className="card">
+                <div className="card-header"><i className="bi bi-building me-1" /> Source Workspace (Original)</div>
+                <div className="card-body">
+                  <select className="form-select" value={sourceWs} onChange={e => setSourceWs(e.target.value)}>
+                    <option value="">Select source workspace...</option>
+                    {workspaces.map(ws => <option key={ws.id} value={ws.id}>{ws.name}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="col-md-2 d-flex align-items-center justify-content-center">
+              <i className="bi bi-arrow-right fs-3 text-muted" />
+            </div>
+            <div className="col-md-5">
+              <div className="card">
+                <div className="card-header"><i className="bi bi-building-check me-1" /> Target Workspace (Migrated)</div>
+                <div className="card-body">
+                  <select className="form-select" value={targetWs} onChange={e => setTargetWs(e.target.value)}>
+                    <option value="">Select target workspace...</option>
+                    {workspaces.map(ws => <option key={ws.id} value={ws.id}>{ws.name}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <TargetAccountSelector
+              selectedAccountId={selectedTargetAccount}
+              onAccountChange={setSelectedTargetAccount}
+              label="Target Monday.com Account"
+            />
+          </div>
+
+          <div className="text-center">
+            <button className="btn btn-gw-primary btn-lg" onClick={runScan} disabled={!sourceWs || !targetWs || scanLoading}>
+              {scanLoading ? <><span className="spinner-border spinner-border-sm me-1" />Scanning...</> : <><i className="bi bi-search me-1" />Scan & Compare</>}
+            </button>
+          </div>
+
+          {scanLoading && <LoadingSpinner message="Scanning workspaces and comparing users..." />}
+        </div>
+      )}
+
+      {/* Step 2: Review & Execute */}
+      {(step === 'review' || step === 'executing') && scanData && (
+        <div>
+          {/* Summary Cards */}
+          <div className="row g-3 mb-4">
+            <div className="col-md-2"><StatCard value={scanData.summary.totalSourceUsers} label="Source Users" icon="people" /></div>
+            <div className="col-md-2"><StatCard value={scanData.summary.members} label="Members" icon="person-badge" color="var(--match-great)" /></div>
+            <div className="col-md-2"><StatCard value={scanData.summary.guests} label="Guests" icon="person-dash" color="var(--gw-orange)" /></div>
+            <div className="col-md-2"><StatCard value={scanData.summary.matchedInTarget} label="Matched" icon="check-circle" color="var(--match-great)" /></div>
+            <div className="col-md-2"><StatCard value={scanData.summary.unmatchedInTarget} label="Not in Target" icon="x-circle" color="var(--match-poor)" /></div>
+            <div className="col-md-2"><StatCard value={`${scanData.summary.boardsMatched}/${scanData.summary.boardsTotal}`} label="Boards Matched" icon="kanban" /></div>
+          </div>
+
+          {scanData.isCrossAccount && (
+            <div className="alert alert-warning mb-3">
+              <i className="bi bi-exclamation-triangle me-1" />
+              <strong>Cross-account migration detected.</strong> Users are matched by email address. Only users already in the target account can be directly assigned.
+            </div>
+          )}
+
+          {/* Board Mapping Table */}
+          <div className="card mb-4">
+            <div className="card-header"><i className="bi bi-kanban me-1" /> Board Mapping & Subscribers</div>
+            <div className="card-body">
+              <div className="scrollable-table" style={{ maxHeight: '300px' }}>
+                <table className="table table-gw table-sm mb-0">
+                  <thead>
+                    <tr>
+                      <th>Source Board</th>
+                      <th>Target Board</th>
+                      <th>Matched</th>
+                      <th>Source Subs</th>
+                      <th>Target Subs</th>
+                      <th>Missing</th>
+                      <th>Groups</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scanData.boardMapping.map((bm, i) => (
+                      <tr key={i}>
+                        <td><strong>{bm.sourceBoardName}</strong></td>
+                        <td>{bm.targetBoardName || <span className="text-danger">Not found</span>}</td>
+                        <td>{bm.matched ? <span className="match-great"><i className="bi bi-check-circle" /></span> : <span className="match-poor"><i className="bi bi-x-circle" /></span>}</td>
+                        <td>{bm.sourceSubscriberCount}</td>
+                        <td>{bm.targetSubscriberCount}</td>
+                        <td>{bm.missingSubscribers.length > 0 ? <span className="badge bg-warning text-dark">{bm.missingSubscribers.length}</span> : <span className="text-success">0</span>}</td>
+                        <td>{bm.sourceGroupCount} / {bm.targetGroupCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* User List */}
+          <div className="card mb-4">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <span><i className="bi bi-people me-1" /> Users to Migrate</span>
+              <div className="d-flex gap-2 align-items-center">
+                <div className="btn-group btn-group-sm">
+                  <button className={`btn ${filterType === 'all' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setFilterType('all')}>All</button>
+                  <button className={`btn ${filterType === 'members' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setFilterType('members')}>Members</button>
+                  <button className={`btn ${filterType === 'guests' ? 'btn-primary' : 'btn-outline-primary'}`} onClick={() => setFilterType('guests')}>Guests</button>
+                </div>
+                <span className="badge bg-secondary">{filteredUsers.length} users</span>
+              </div>
+            </div>
+            <div className="card-body">
+              <div className="scrollable-table" style={{ maxHeight: '400px' }}>
+                <table className="table table-gw table-sm mb-0">
+                  <thead>
+                    <tr>
+                      <th><input type="checkbox" checked={selectAll} onChange={toggleSelectAll} /></th>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Type</th>
+                      <th>WS Role</th>
+                      <th>Target Match</th>
+                      <th>In Target WS</th>
+                      <th>Boards</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredUsers.map(u => (
+                      <tr key={u.sourceUserId} className={!selectedUsers[u.sourceUserId] ? 'text-muted' : ''}>
+                        <td><input type="checkbox" checked={!!selectedUsers[u.sourceUserId]} onChange={() => toggleUser(u.sourceUserId)} /></td>
+                        <td>{u.name}</td>
+                        <td><small>{u.email}</small></td>
+                        <td><span className={`badge ${u.isGuest ? 'bg-warning text-dark' : 'bg-info text-white'}`}>{u.isGuest ? 'Guest' : 'Member'}</span></td>
+                        <td>{u.wsRole || <span className="text-muted">—</span>}</td>
+                        <td>
+                          {u.targetUserId ? (
+                            <span className="text-success"><i className="bi bi-check-circle me-1" />{scanData.isCrossAccount ? 'Email match' : 'Same ID'}</span>
+                          ) : (
+                            <span className="text-danger"><i className="bi bi-x-circle me-1" />Not found</span>
+                          )}
+                        </td>
+                        <td>{u.inTargetWorkspace ? <i className="bi bi-check text-success" /> : <i className="bi bi-x text-danger" />}</td>
+                        <td>
+                          <span className={u.assignedBoardCount === u.boardCount && u.boardCount > 0 ? 'text-success' : u.assignedBoardCount > 0 ? 'text-warning' : ''}>
+                            {u.assignedBoardCount}/{u.boardCount}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="card mb-4">
+            <div className="card-header"><i className="bi bi-lightning me-1" /> Actions</div>
+            <div className="card-body">
+              {!scanData.isCrossAccount ? (
+                <div>
+                  <p className="mb-3">
+                    <strong>Same-account migration:</strong> Selected users will be directly added to the target workspace and their matching boards.
+                    No invitation emails will be sent.
+                  </p>
+                  <div className="d-flex gap-2">
+                    <button className="btn btn-gw-primary" onClick={() => executeMode('assign_existing')} disabled={execLoading || selectedUserIds.length === 0}>
+                      <i className="bi bi-person-plus me-1" />Assign {selectedUserIds.length} User(s) to Target
+                    </button>
+                    <button className="btn btn-outline-secondary" onClick={resetAll}>
+                      <i className="bi bi-arrow-left me-1" />Back
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p className="mb-3">
+                    <strong>Cross-account migration:</strong> Choose how to handle users in the target account.
+                  </p>
+                  <div className="row g-3">
+                    <div className="col-md-6">
+                      <div className="card h-100">
+                        <div className="card-body">
+                          <h6><i className="bi bi-eye me-1" />Validate Only</h6>
+                          <p className="small text-muted">Show which users exist in the target. No changes made.</p>
+                          <button className="btn btn-outline-info btn-sm" onClick={() => executeMode('validate')} disabled={execLoading}>
+                            <i className="bi bi-search me-1" />Validate
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="col-md-6">
+                      <div className="card h-100">
+                        <div className="card-body">
+                          <h6><i className="bi bi-person-check me-1" />Assign Existing Only</h6>
+                          <p className="small text-muted">Assign users already in the target account to matching boards. No invites sent.</p>
+                          <button className="btn btn-gw-primary btn-sm" onClick={() => executeMode('assign_existing')} disabled={execLoading || selectedUserIds.length === 0}>
+                            <i className="bi bi-person-plus me-1" />Assign Existing ({scanData.summary.matchedInTarget})
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="col-md-6">
+                      <div className="card h-100">
+                        <div className="card-body">
+                          <h6><i className="bi bi-envelope me-1" />Invite Members</h6>
+                          <p className="small text-muted">Invite non-guest users not yet in the target account. <strong>Sends invitation emails.</strong></p>
+                          <button className="btn btn-warning btn-sm" onClick={() => executeMode('invite_users')} disabled={execLoading || scanData.summary.unmatchedInTarget === 0}>
+                            <i className="bi bi-send me-1" />Invite Members
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="col-md-6">
+                      <div className="card h-100">
+                        <div className="card-body">
+                          <h6><i className="bi bi-person-plus-fill me-1" />Invite Guests</h6>
+                          <p className="small text-muted">Invite guest users not yet in the target account. <strong>Sends invitation emails.</strong></p>
+                          <button className="btn btn-danger btn-sm" onClick={() => executeMode('invite_guests')} disabled={execLoading || scanData.summary.unmatchedInTarget === 0}>
+                            <i className="bi bi-send me-1" />Invite Guests
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <button className="btn btn-outline-secondary" onClick={resetAll}>
+                      <i className="bi bi-arrow-left me-1" />Back
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {execLoading && <LoadingSpinner message="Executing user migration..." />}
+        </div>
+      )}
+
+      {/* Step 3: Done */}
+      {step === 'done' && execResult && (
+        <div className="card">
+          <div className={`card-header ${execResult.errors.length > 0 ? 'bg-warning' : 'bg-success'} text-white`}>
+            <i className={`bi ${execResult.errors.length > 0 ? 'bi-exclamation-triangle' : 'bi-check-circle'} me-1`} />
+            {execResult.errors.length > 0 ? 'User Migration Completed with Issues' : 'User Migration Complete'}
+          </div>
+          <div className="card-body">
+            <div className="row g-3 mb-4">
+              <div className="col-md-3"><StatCard value={execResult.usersProcessed} label="Users Processed" icon="people" /></div>
+              <div className="col-md-3"><StatCard value={execResult.usersAssigned} label="Users Assigned" icon="person-check" color="var(--match-great)" /></div>
+              <div className="col-md-3"><StatCard value={execResult.usersInvited} label="Users Invited" icon="envelope" color="var(--gw-orange)" /></div>
+              <div className="col-md-3"><StatCard value={execResult.errors.length} label="Errors" icon="exclamation-triangle" color="var(--match-poor)" /></div>
+            </div>
+
+            <p><strong>Mode:</strong> <span className="badge bg-info">{execResult.mode.replace(/_/g, ' ')}</span></p>
+            <p><strong>Boards Processed:</strong> {execResult.boardsProcessed}</p>
+
+            {execResult.details.length > 0 && (
+              <div className="card mb-3">
+                <div className="card-header"><i className="bi bi-list-check me-1" /> Details</div>
+                <div className="card-body">
+                  <div className="scrollable-table" style={{ maxHeight: '200px' }}>
+                    <table className="table table-sm mb-0">
+                      <thead><tr><th>Board</th><th>Action</th><th>Count</th></tr></thead>
+                      <tbody>
+                        {execResult.details.map((d, i) => (
+                          <tr key={i}>
+                            <td>{d.board}</td>
+                            <td><span className="badge bg-secondary">{d.action}</span></td>
+                            <td>{d.count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {execResult.errors.length > 0 && (
+              <div className="alert alert-danger">
+                <strong>Errors ({execResult.errors.length}):</strong>
+                <ul className="mb-0 mt-1">
+                  {execResult.errors.slice(0, 10).map((e, i) => (
+                    <li key={i}>{e.board || e.email || e.action}: {e.error}</li>
+                  ))}
+                  {execResult.errors.length > 10 && <li>...and {execResult.errors.length - 10} more</li>}
+                </ul>
+              </div>
+            )}
+
+            <div className="mt-4 text-center">
+              <button className="btn btn-gw-primary" onClick={resetAll}>
+                <i className="bi bi-arrow-repeat me-1" />Start New User Migration
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Main App ─────────────────────────────────────────────────────────────────
 
 const App = () => {
@@ -1308,7 +1757,8 @@ const App = () => {
     { id: 'inventory', label: 'Inventory', icon: 'clipboard-data' },
     { id: 'testrun', label: 'Test Run', icon: 'search' },
     { id: 'migration', label: 'Migration', icon: 'arrow-left-right' },
-    { id: 'validation', label: 'Validation', icon: 'check2-square' }
+    { id: 'validation', label: 'Validation', icon: 'check2-square' },
+    { id: 'users', label: 'Users & Guests', icon: 'people-fill' }
   ];
 
   return (
@@ -1352,6 +1802,7 @@ const App = () => {
         {activeTab === 'testrun' && <TestRunTab />}
         {activeTab === 'migration' && <MigrationTab />}
         {activeTab === 'validation' && <ValidationTab />}
+        {activeTab === 'users' && <UserMigrationTab />}
       </div>
     </ToastProvider>
   );
