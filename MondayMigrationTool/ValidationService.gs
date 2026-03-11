@@ -163,6 +163,71 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
       }
     });
 
+    // ── Document Comparison ────────────────────────────────────────────────────
+    var sourceDocs = [];
+    var targetDocs = [];
+    try { sourceDocs = getDocsWithDetails(sourceWorkspaceId) || []; } catch (e) { console.warn('Could not fetch source docs:', e); }
+    try { targetDocs = getDocsWithDetails(targetWorkspaceId) || []; } catch (e) { console.warn('Could not fetch target docs:', e); }
+
+    var targetDocByName = {};
+    targetDocs.forEach(function(d) { targetDocByName[d.name || d.title || ''] = d; });
+
+    var matchedDocs = [];
+    var missingDocs = [];
+    var extraDocs = [];
+    sourceDocs.forEach(function(sd) {
+      var docName = sd.name || sd.title || '';
+      if (targetDocByName[docName]) {
+        matchedDocs.push(docName);
+      } else {
+        missingDocs.push({ name: docName, kind: sd.doc_kind || '' });
+      }
+    });
+    var sourceDocNames = {};
+    sourceDocs.forEach(function(d) { sourceDocNames[d.name || d.title || ''] = true; });
+    targetDocs.forEach(function(td) {
+      var docName = td.name || td.title || '';
+      if (!sourceDocNames[docName]) {
+        extraDocs.push({ name: docName, kind: td.doc_kind || '' });
+      }
+    });
+
+    // ── Form Comparison (per-board) ─────────────────────────────────────────────
+    var totalSourceForms = 0;
+    var totalTargetForms = 0;
+    var matchedForms = [];
+    var missingForms = [];
+    var extraForms = [];
+
+    boardComparisons.forEach(function(bc) {
+      if (!bc.matched) return;
+      var srcForms = [];
+      var tgtForms = [];
+      try { srcForms = getBoardFormViews(bc.sourceBoardId) || []; } catch (e) {}
+      try { tgtForms = getBoardFormViews(bc.targetBoardId) || []; } catch (e) {}
+
+      totalSourceForms += srcForms.length;
+      totalTargetForms += tgtForms.length;
+
+      var tgtFormNames = {};
+      tgtForms.forEach(function(f) { tgtFormNames[f.viewName] = true; });
+      var srcFormNames = {};
+      srcForms.forEach(function(f) { srcFormNames[f.viewName] = true; });
+
+      srcForms.forEach(function(sf) {
+        if (tgtFormNames[sf.viewName]) {
+          matchedForms.push({ name: sf.viewName, board: bc.boardName });
+        } else {
+          missingForms.push({ name: sf.viewName, board: bc.boardName });
+        }
+      });
+      tgtForms.forEach(function(tf) {
+        if (!srcFormNames[tf.viewName]) {
+          extraForms.push({ name: tf.viewName, board: bc.boardName });
+        }
+      });
+    });
+
     // ── User & Guest Verification (optional) ──────────────────────────────────
     var userVerification = null;
     if (options.verifyUsers) {
@@ -187,8 +252,10 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
       ? Math.round((totalTargetGroups / totalSourceGroups) * 100) : 100;
     var columnMatchPct = totalSourceColumns > 0
       ? Math.round((totalTargetColumns / totalSourceColumns) * 100) : 100;
+    var docMatchPct = sourceDocs.length > 0
+      ? Math.round((matchedDocs.length / sourceDocs.length) * 100) : 100;
 
-    var pcts = [boardMatchPct, itemMatchPct, groupMatchPct, columnMatchPct];
+    var pcts = [boardMatchPct, itemMatchPct, groupMatchPct, columnMatchPct, docMatchPct];
     var userMatchPct = null;
     if (userVerification) {
       userMatchPct = userVerification.matchPercentage;
@@ -206,7 +273,9 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
           boardCount: sourceBoards.length,
           totalItems: totalSourceItems,
           totalGroups: totalSourceGroups,
-          totalColumns: totalSourceColumns
+          totalColumns: totalSourceColumns,
+          totalDocuments: sourceDocs.length,
+          totalForms: totalSourceForms
         },
         target: {
           workspaceId: String(targetWorkspaceId),
@@ -214,7 +283,9 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
           boardCount: targetBoards.length,
           totalItems: totalTargetItems,
           totalGroups: totalTargetGroups,
-          totalColumns: totalTargetColumns
+          totalColumns: totalTargetColumns,
+          totalDocuments: targetDocs.length,
+          totalForms: totalTargetForms
         },
         matchPercentages: {
           overall: overallPct,
@@ -222,6 +293,7 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
           items: itemMatchPct,
           groups: groupMatchPct,
           columns: columnMatchPct,
+          documents: docMatchPct,
           users: userMatchPct
         },
         boardComparisons: boardComparisons,
@@ -231,6 +303,20 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
             return !sourceBoards.some(function(sb) { return sb.name === b.name; });
           })
           .map(function(b) { return b.name; }),
+        documentComparison: {
+          sourceCount: sourceDocs.length,
+          targetCount: targetDocs.length,
+          matched: matchedDocs,
+          missing: missingDocs,
+          extra: extraDocs
+        },
+        formComparison: {
+          sourceCount: totalSourceForms,
+          targetCount: totalTargetForms,
+          matched: matchedForms,
+          missing: missingForms,
+          extra: extraForms
+        },
         userVerification: userVerification
       }
     });

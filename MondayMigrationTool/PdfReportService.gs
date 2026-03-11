@@ -134,6 +134,7 @@ function buildReportHtml(r, dateStr) {
     { label: 'Groups', pct: r.matchPercentages.groups },
     { label: 'Columns', pct: r.matchPercentages.columns }
   ];
+  if (r.matchPercentages.documents != null) cats.push({ label: 'Docs', pct: r.matchPercentages.documents });
   if (r.matchPercentages.users != null) cats.push({ label: 'Users', pct: r.matchPercentages.users });
   for (var i = 0; i < cats.length; i++) {
     var c = cats[i];
@@ -150,7 +151,9 @@ function buildReportHtml(r, dateStr) {
     { name: 'Boards', src: r.source.boardCount, tgt: r.target.boardCount },
     { name: 'Items', src: r.source.totalItems, tgt: r.target.totalItems },
     { name: 'Groups', src: r.source.totalGroups, tgt: r.target.totalGroups },
-    { name: 'Columns', src: r.source.totalColumns, tgt: r.target.totalColumns }
+    { name: 'Columns', src: r.source.totalColumns, tgt: r.target.totalColumns },
+    { name: 'Documents', src: r.source.totalDocuments || 0, tgt: r.target.totalDocuments || 0 },
+    { name: 'Forms', src: r.source.totalForms || 0, tgt: r.target.totalForms || 0 }
   ];
   for (var i = 0; i < metrics.length; i++) {
     var m = metrics[i];
@@ -217,6 +220,57 @@ function buildReportHtml(r, dateStr) {
   if (r.extraTargetBoards && r.extraTargetBoards.length > 0) {
     html += '<div class="badge-info" style="display:inline-block;margin:4px 0">Extra boards in target: ' +
             r.extraTargetBoards.map(function(b) { return esc(b); }).join(', ') + '</div><br>';
+  }
+
+  // Document & Form Comparison
+  if (r.documentComparison || r.formComparison) {
+    html += '<div class="section-blue">Documents & Forms</div>';
+
+    // Documents
+    if (r.documentComparison) {
+      var dc = r.documentComparison;
+      html += '<h3>Documents (' + dc.sourceCount + ' source / ' + dc.targetCount + ' target &mdash; ' + (dc.matched ? dc.matched.length : 0) + ' matched)</h3>';
+      if (dc.missing && dc.missing.length > 0) {
+        html += '<table><tr><th style="background:#dc3545">Missing Documents (' + dc.missing.length + ')</th><th style="background:#dc3545">Kind</th></tr>';
+        for (var i = 0; i < dc.missing.length; i++) {
+          html += '<tr><td class="miss">' + esc(dc.missing[i].name) + '</td><td>' + esc(dc.missing[i].kind) + '</td></tr>';
+        }
+        html += '</table>';
+      }
+      if (dc.extra && dc.extra.length > 0) {
+        html += '<table><tr><th style="background:#00739d">Extra Documents in Target (' + dc.extra.length + ')</th><th style="background:#00739d">Kind</th></tr>';
+        for (var i = 0; i < dc.extra.length; i++) {
+          html += '<tr><td class="extra">' + esc(dc.extra[i].name) + '</td><td>' + esc(dc.extra[i].kind) + '</td></tr>';
+        }
+        html += '</table>';
+      }
+      if ((!dc.missing || dc.missing.length === 0) && (!dc.extra || dc.extra.length === 0)) {
+        html += '<div class="badge-ok" style="display:inline-block;margin:4px 0">All documents matched.</div><br>';
+      }
+    }
+
+    // Forms
+    if (r.formComparison && (r.formComparison.sourceCount > 0 || r.formComparison.targetCount > 0)) {
+      var fc = r.formComparison;
+      html += '<h3>Forms (' + fc.sourceCount + ' source / ' + fc.targetCount + ' target &mdash; ' + (fc.matched ? fc.matched.length : 0) + ' matched)</h3>';
+      if (fc.missing && fc.missing.length > 0) {
+        html += '<table><tr><th style="background:#dc3545">Missing Forms (' + fc.missing.length + ')</th><th style="background:#dc3545">Board</th></tr>';
+        for (var i = 0; i < fc.missing.length; i++) {
+          html += '<tr><td class="miss">' + esc(fc.missing[i].name) + '</td><td>' + esc(fc.missing[i].board) + '</td></tr>';
+        }
+        html += '</table>';
+      }
+      if (fc.extra && fc.extra.length > 0) {
+        html += '<table><tr><th style="background:#00739d">Extra Forms in Target (' + fc.extra.length + ')</th><th style="background:#00739d">Board</th></tr>';
+        for (var i = 0; i < fc.extra.length; i++) {
+          html += '<tr><td class="extra">' + esc(fc.extra[i].name) + '</td><td>' + esc(fc.extra[i].board) + '</td></tr>';
+        }
+        html += '</table>';
+      }
+      if ((!fc.missing || fc.missing.length === 0) && (!fc.extra || fc.extra.length === 0)) {
+        html += '<div class="badge-ok" style="display:inline-block;margin:4px 0">All forms matched.</div><br>';
+      }
+    }
   }
 
   // User & Guest Verification

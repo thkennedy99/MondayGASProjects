@@ -1361,6 +1361,12 @@ const ValidationTab = () => {
               <MatchRing percent={report.matchPercentages.columns} size={90} />
               <p className="mt-2">Columns</p>
             </div>
+            {report.matchPercentages.documents != null && (
+              <div className="col text-center">
+                <MatchRing percent={report.matchPercentages.documents} size={90} />
+                <p className="mt-2">Documents</p>
+              </div>
+            )}
             {report.matchPercentages.users != null && (
               <div className="col text-center">
                 <MatchRing percent={report.matchPercentages.users} size={90} />
@@ -1389,7 +1395,9 @@ const ValidationTab = () => {
                 { label: 'Boards', src: report.source.boardCount, tgt: report.target.boardCount },
                 { label: 'Items', src: report.source.totalItems, tgt: report.target.totalItems },
                 { label: 'Groups', src: report.source.totalGroups, tgt: report.target.totalGroups },
-                { label: 'Columns', src: report.source.totalColumns, tgt: report.target.totalColumns }
+                { label: 'Columns', src: report.source.totalColumns, tgt: report.target.totalColumns },
+                { label: 'Documents', src: report.source.totalDocuments ?? 0, tgt: report.target.totalDocuments ?? 0 },
+                { label: 'Forms', src: report.source.totalForms ?? 0, tgt: report.target.totalForms ?? 0 }
               ].map(row => (
                 <div key={row.label} className="comparison-row">
                   <div className="source-val">{row.src}</div>
@@ -1470,6 +1478,73 @@ const ValidationTab = () => {
           {report.extraTargetBoards?.length > 0 && (
             <div className="alert alert-info">
               <strong>Extra boards in target:</strong> {report.extraTargetBoards.join(', ')}
+            </div>
+          )}
+
+          {/* Document & Form Comparison */}
+          {(report.documentComparison || report.formComparison) && (
+            <div className="card mb-4">
+              <div className="card-header"><i className="bi bi-file-earmark-text me-1" /> Documents & Forms</div>
+              <div className="card-body">
+                {/* Document details */}
+                {report.documentComparison && (
+                  <div className="mb-3">
+                    <h6>Documents ({report.documentComparison.sourceCount} source / {report.documentComparison.targetCount} target — {report.documentComparison.matched?.length || 0} matched)</h6>
+                    {report.documentComparison.missing?.length > 0 && (
+                      <div className="alert alert-danger py-2 mb-2">
+                        <strong><i className="bi bi-file-earmark-x me-1" />Missing Documents ({report.documentComparison.missing.length}):</strong>
+                        <ul className="mb-0 mt-1">
+                          {report.documentComparison.missing.map((d, i) => (
+                            <li key={i}>{d.name}{d.kind ? ` (${d.kind})` : ''}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {report.documentComparison.extra?.length > 0 && (
+                      <div className="alert alert-info py-2 mb-2">
+                        <strong><i className="bi bi-file-earmark-plus me-1" />Extra Documents in Target ({report.documentComparison.extra.length}):</strong>
+                        <ul className="mb-0 mt-1">
+                          {report.documentComparison.extra.map((d, i) => (
+                            <li key={i}>{d.name}{d.kind ? ` (${d.kind})` : ''}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {report.documentComparison.missing?.length === 0 && report.documentComparison.extra?.length === 0 && (
+                      <div className="alert alert-success py-2 mb-2"><i className="bi bi-check-circle me-1" />All documents matched.</div>
+                    )}
+                  </div>
+                )}
+                {/* Form details */}
+                {report.formComparison && (report.formComparison.sourceCount > 0 || report.formComparison.targetCount > 0) && (
+                  <div>
+                    <h6>Forms ({report.formComparison.sourceCount} source / {report.formComparison.targetCount} target — {report.formComparison.matched?.length || 0} matched)</h6>
+                    {report.formComparison.missing?.length > 0 && (
+                      <div className="alert alert-danger py-2 mb-2">
+                        <strong><i className="bi bi-ui-checks me-1" />Missing Forms ({report.formComparison.missing.length}):</strong>
+                        <ul className="mb-0 mt-1">
+                          {report.formComparison.missing.map((f, i) => (
+                            <li key={i}>{f.name} <small className="text-muted">({f.board})</small></li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {report.formComparison.extra?.length > 0 && (
+                      <div className="alert alert-info py-2 mb-2">
+                        <strong><i className="bi bi-ui-checks-grid me-1" />Extra Forms in Target ({report.formComparison.extra.length}):</strong>
+                        <ul className="mb-0 mt-1">
+                          {report.formComparison.extra.map((f, i) => (
+                            <li key={i}>{f.name} <small className="text-muted">({f.board})</small></li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {report.formComparison.missing?.length === 0 && report.formComparison.extra?.length === 0 && (
+                      <div className="alert alert-success py-2 mb-2"><i className="bi bi-check-circle me-1" />All forms matched.</div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
