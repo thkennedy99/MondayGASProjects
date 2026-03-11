@@ -238,25 +238,42 @@ function executeUserMigration(params) {
 function _executeSameAccountUserMigration(sourceWorkspaceId, targetWorkspaceId, targetApiKey, scanData, selectedUserIds, results) {
   var boardMapping = scanData.boardMapping || [];
 
-  // Step 1: Add all source workspace subscribers to target workspace
+  // Step 1: Add all source workspace subscribers to target workspace (split owners vs subscribers)
   var wsUsers = scanData.users || [];
-  var wsUserIds = [];
+  var wsOwnerIds = [];
+  var wsSubscriberIds = [];
   wsUsers.forEach(function(u) {
     if (selectedUserIds && selectedUserIds.indexOf(u.sourceUserId) === -1) return;
     // Skip users who are only accessed via teams (they'll be added via team assignment)
     if (u.viaTeams && u.viaTeams.length > 0 && !u.wsRole) return;
-    wsUserIds.push(u.sourceUserId);
+    if (u.wsRole === 'owner') {
+      wsOwnerIds.push(u.sourceUserId);
+    } else {
+      wsSubscriberIds.push(u.sourceUserId);
+    }
   });
 
-  if (wsUserIds.length > 0) {
+  if (wsSubscriberIds.length > 0) {
     try {
       _targetAPI(targetApiKey,
         'mutation ($wsId: ID!, $userIds: [ID!]!, $kind: WorkspaceSubscriberKind) { add_users_to_workspace (workspace_id: $wsId, user_ids: $userIds, kind: $kind) { id } }',
-        { wsId: Number(targetWorkspaceId), userIds: wsUserIds.map(Number), kind: 'subscriber' }
+        { wsId: Number(targetWorkspaceId), userIds: wsSubscriberIds.map(Number), kind: 'subscriber' }
       );
-      results.usersAssigned += wsUserIds.length;
+      results.usersAssigned += wsSubscriberIds.length;
     } catch (e) {
-      results.errors.push({ action: 'add_to_workspace', error: e.toString() });
+      results.errors.push({ action: 'add_subscribers_to_workspace', error: e.toString() });
+    }
+  }
+  if (wsOwnerIds.length > 0) {
+    try {
+      _targetAPI(targetApiKey,
+        'mutation ($wsId: ID!, $userIds: [ID!]!, $kind: WorkspaceSubscriberKind) { add_users_to_workspace (workspace_id: $wsId, user_ids: $userIds, kind: $kind) { id } }',
+        { wsId: Number(targetWorkspaceId), userIds: wsOwnerIds.map(Number), kind: 'owner' }
+      );
+      results.usersAssigned += wsOwnerIds.length;
+      results.details.push({ board: '(workspace)', action: 'owners_assigned', count: wsOwnerIds.length });
+    } catch (e) {
+      results.errors.push({ action: 'add_owners_to_workspace', error: e.toString() });
     }
   }
 
@@ -289,7 +306,7 @@ function _executeSameAccountUserMigration(sourceWorkspaceId, targetWorkspaceId, 
       Utilities.sleep(200);
     }
 
-    // 2b: Add missing individual subscribers (not team-covered)
+    // 2b: Add missing individual subscribers (not team-covered), split by role
     var missing = bm.missingSubscribers || [];
     if (selectedUserIds) {
       missing = missing.filter(function(m) { return selectedUserIds.indexOf(m.sourceUserId) !== -1; });
@@ -297,31 +314,49 @@ function _executeSameAccountUserMigration(sourceWorkspaceId, targetWorkspaceId, 
 
     if (missing.length === 0) return;
 
-    var userIdsToAdd = missing.map(function(m) { return m.sourceUserId; });
+    // Split into owners and regular subscribers
+    var ownerIds = [];
+    var subscriberIds = [];
+    missing.forEach(function(m) {
+      if (m.role === 'owner') {
+        ownerIds.push(m.sourceUserId);
+      } else {
+        subscriberIds.push(m.sourceUserId);
+      }
+    });
 
-    try {
-      _targetAPI(targetApiKey,
-        'mutation ($boardId: ID!, $userIds: [ID!]!) { add_users_to_board (board_id: $boardId, user_ids: $userIds) { id } }',
-        { boardId: Number(bm.targetBoardId), userIds: userIdsToAdd.map(Number) }
-      );
-      results.usersAssigned += userIdsToAdd.length;
-      results.details.push({
-        board: bm.targetBoardName,
-        action: 'assigned',
-        count: userIdsToAdd.length
-      });
-    } catch (e) {
-      results.errors.push({
-        board: bm.targetBoardName,
-        action: 'add_users_to_board',
-        error: e.toString()
-      });
+    // Add regular subscribers
+    if (subscriberIds.length > 0) {
+      try {
+        _targetAPI(targetApiKey,
+          'mutation ($boardId: ID!, $userIds: [ID!]!, $kind: BoardSubscriberKind) { add_users_to_board (board_id: $boardId, user_ids: $userIds, kind: $kind) { id } }',
+          { boardId: Number(bm.targetBoardId), userIds: subscriberIds.map(Number), kind: 'subscriber' }
+        );
+        results.usersAssigned += subscriberIds.length;
+        results.details.push({ board: bm.targetBoardName, action: 'subscribers_assigned', count: subscriberIds.length });
+      } catch (e) {
+        results.errors.push({ board: bm.targetBoardName, action: 'add_subscribers_to_board', error: e.toString() });
+      }
+    }
+
+    // Add owners
+    if (ownerIds.length > 0) {
+      try {
+        _targetAPI(targetApiKey,
+          'mutation ($boardId: ID!, $userIds: [ID!]!, $kind: BoardSubscriberKind) { add_users_to_board (board_id: $boardId, user_ids: $userIds, kind: $kind) { id } }',
+          { boardId: Number(bm.targetBoardId), userIds: ownerIds.map(Number), kind: 'owner' }
+        );
+        results.usersAssigned += ownerIds.length;
+        results.details.push({ board: bm.targetBoardName, action: 'owners_assigned', count: ownerIds.length });
+      } catch (e) {
+        results.errors.push({ board: bm.targetBoardName, action: 'add_owners_to_board', error: e.toString() });
+      }
     }
 
     Utilities.sleep(200);
   });
 
-  results.usersProcessed = wsUserIds.length;
+  results.usersProcessed = wsSubscriberIds.length + wsOwnerIds.length;
 }
 
 
@@ -381,7 +416,7 @@ function _executeCrossAccountAssignExisting(targetWorkspaceId, targetApiKey, sca
       Utilities.sleep(200);
     }
 
-    // 2b: Add missing individual subscribers with target user IDs
+    // 2b: Add missing individual subscribers with target user IDs, split by role
     var missing = bm.missingSubscribers || [];
     var toAssign = missing.filter(function(m) {
       if (!m.targetUserId) return false;
@@ -391,24 +426,43 @@ function _executeCrossAccountAssignExisting(targetWorkspaceId, targetApiKey, sca
 
     if (toAssign.length === 0) return;
 
-    var idsToAdd = toAssign.map(function(m) { return m.targetUserId; });
-    try {
-      _targetAPI(targetApiKey,
-        'mutation ($boardId: ID!, $userIds: [ID!]!) { add_users_to_board (board_id: $boardId, user_ids: $userIds) { id } }',
-        { boardId: Number(bm.targetBoardId), userIds: idsToAdd.map(Number) }
-      );
-      results.usersAssigned += idsToAdd.length;
-      results.details.push({
-        board: bm.targetBoardName,
-        action: 'assigned_existing',
-        count: idsToAdd.length
-      });
-    } catch (e) {
-      results.errors.push({
-        board: bm.targetBoardName,
-        action: 'assign_existing',
-        error: e.toString()
-      });
+    // Split into owners and regular subscribers
+    var ownerIds = [];
+    var subscriberIds = [];
+    toAssign.forEach(function(m) {
+      if (m.role === 'owner') {
+        ownerIds.push(m.targetUserId);
+      } else {
+        subscriberIds.push(m.targetUserId);
+      }
+    });
+
+    // Add regular subscribers
+    if (subscriberIds.length > 0) {
+      try {
+        _targetAPI(targetApiKey,
+          'mutation ($boardId: ID!, $userIds: [ID!]!, $kind: BoardSubscriberKind) { add_users_to_board (board_id: $boardId, user_ids: $userIds, kind: $kind) { id } }',
+          { boardId: Number(bm.targetBoardId), userIds: subscriberIds.map(Number), kind: 'subscriber' }
+        );
+        results.usersAssigned += subscriberIds.length;
+        results.details.push({ board: bm.targetBoardName, action: 'subscribers_assigned', count: subscriberIds.length });
+      } catch (e) {
+        results.errors.push({ board: bm.targetBoardName, action: 'assign_subscribers', error: e.toString() });
+      }
+    }
+
+    // Add owners
+    if (ownerIds.length > 0) {
+      try {
+        _targetAPI(targetApiKey,
+          'mutation ($boardId: ID!, $userIds: [ID!]!, $kind: BoardSubscriberKind) { add_users_to_board (board_id: $boardId, user_ids: $userIds, kind: $kind) { id } }',
+          { boardId: Number(bm.targetBoardId), userIds: ownerIds.map(Number), kind: 'owner' }
+        );
+        results.usersAssigned += ownerIds.length;
+        results.details.push({ board: bm.targetBoardName, action: 'owners_assigned', count: ownerIds.length });
+      } catch (e) {
+        results.errors.push({ board: bm.targetBoardName, action: 'assign_owners', error: e.toString() });
+      }
     }
 
     Utilities.sleep(200);
