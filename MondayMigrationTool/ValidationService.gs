@@ -41,8 +41,10 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
     var matchedBoards = 0;
     var unmatchedBoards = [];
 
-    // Column types that are not migrated (system/computed)
-    var nonCreatableTypes = ['subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
+    // Column types excluded from comparison:
+    // - 'name': The item name column always exists; its title may differ but it's the same column
+    // - System/computed types that are not migrated
+    var nonCreatableTypes = ['name', 'subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
                              'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
 
     sourceBoards.forEach(function(sourceBoard) {
