@@ -26,7 +26,7 @@ class MondayAPI {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': this.apiKey,
-        'API-Version': '2025-07'
+        'API-Version': '2025-10'
       },
       payload: JSON.stringify({
         query: graphqlQuery,
@@ -593,6 +593,35 @@ function callMondayAPI(query, variables) {
   return _monday().query(query, variables);
 }
 
+/**
+ * Call Monday.com API with a specific API key (for cross-account operations).
+ * @param {string} apiKey - The API key to use
+ * @param {string} query - GraphQL query
+ * @param {Object} variables - Query variables
+ * @returns {Object} API response data
+ */
+function callMondayAPIWithKey(apiKey, query, variables) {
+  var options = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': apiKey,
+      'API-Version': '2025-10'
+    },
+    payload: JSON.stringify({ query: query, variables: variables || {} }),
+    muteHttpExceptions: true
+  };
+
+  var response = retryableFetch(CONFIG.MONDAY_API_URL, options);
+  var result = JSON.parse(response.getContentText());
+
+  if (result.errors) {
+    throw new Error(result.errors[0].message);
+  }
+
+  return result.data;
+}
+
 // ── Workspace Queries ────────────────────────────────────────────────────────
 
 function getWorkspaces() {
@@ -603,21 +632,90 @@ function getWorkspaces() {
 }
 
 function getWorkspaceDetails(workspaceId) {
+  console.log('Migration: Fetching workspace details for ID: ' + workspaceId);
   var data = callMondayAPI(
     'query ($ids: [ID!]) { workspaces (ids: $ids) { id name kind description } }',
     { ids: [Number(workspaceId)] }
   );
-  return data.workspaces && data.workspaces[0] ? data.workspaces[0] : null;
+  var ws = data.workspaces && data.workspaces[0] ? data.workspaces[0] : null;
+  if (ws) {
+    console.log('Migration: Source workspace: "' + ws.name + '" (id=' + ws.id + ', kind=' + ws.kind + ')');
+    if (ws.kind === 'closed') {
+      console.warn('Migration: WARNING - Source workspace is CLOSED. API key user must be a member to access boards.');
+    }
+  } else {
+    console.error('Migration: ERROR - Workspace ' + workspaceId + ' not found or not accessible');
+  }
+  return ws;
 }
 
 // ── Board Queries ────────────────────────────────────────────────────────────
 
 function getBoardsInWorkspace(workspaceId) {
+  console.log('Migration: Fetching boards for workspace ID: ' + workspaceId);
   var data = callMondayAPI(
-    'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind state columns { id title type settings_str } groups { id title color } } }',
+    'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind board_folder_id state columns { id title type settings_str } groups { id title color } } }',
     { wsId: [Number(workspaceId)] }
   );
-  return data.boards || [];
+  var allBoards = data.boards || [];
+  // Step 1: Filter by board_kind
+  var boards = [];
+  var subitemBoards = [];
+  allBoards.forEach(function(b) {
+    if (b.board_kind === 'sub_items_board') {
+      subitemBoards.push(b);
+    } else {
+      boards.push(b);
+    }
+  });
+
+  // Step 2: Also filter boards referenced as subitems via subtasks column settings.
+  // Monday.com sometimes reports subitem boards as board_kind="public" instead of
+  // "sub_items_board", so we cross-reference subtasks column settings to catch them.
+  var subitemBoardIds = {};
+  boards.forEach(function(board) {
+    (board.columns || []).forEach(function(col) {
+      if (col.type === 'subtasks' && col.settings_str) {
+        try {
+          var settings = JSON.parse(col.settings_str);
+          if (settings.boardIds) {
+            settings.boardIds.forEach(function(bid) {
+              subitemBoardIds[String(bid)] = board.name;
+            });
+          }
+        } catch (e) {}
+      }
+    });
+  });
+
+  var extraSubitemBoards = [];
+  if (Object.keys(subitemBoardIds).length > 0) {
+    var filtered = [];
+    boards.forEach(function(board) {
+      if (subitemBoardIds[String(board.id)]) {
+        extraSubitemBoards.push(board);
+        subitemBoards.push(board);
+      } else {
+        filtered.push(board);
+      }
+    });
+    boards = filtered;
+  }
+
+  console.log('Migration: getBoardsInWorkspace(' + workspaceId + ') returned ' + allBoards.length + ' total boards (' + boards.length + ' regular, ' + subitemBoards.length + ' subitem boards' + (extraSubitemBoards.length > 0 ? ', ' + extraSubitemBoards.length + ' detected via subtasks columns' : '') + ')');
+  if (boards.length > 0) {
+    boards.forEach(function(b) {
+      console.log('Migration:   Board: "' + b.name + '" (id=' + b.id + ', kind=' + b.board_kind + ', state=' + b.state + ', cols=' + (b.columns || []).length + ', groups=' + (b.groups || []).length + ')');
+    });
+  } else {
+    console.warn('Migration: WARNING - No boards found in workspace ' + workspaceId + '. If this workspace has boards, the API key user may not have access (e.g., closed workspace requires membership).');
+  }
+  if (subitemBoards.length > 0) {
+    subitemBoards.forEach(function(b) {
+      console.log('Migration:   Subitem board (excluded): "' + b.name + '" (id=' + b.id + ', kind=' + b.board_kind + ')');
+    });
+  }
+  return boards;
 }
 
 function getBoardItemCount(boardId) {
@@ -634,10 +732,10 @@ function getBoardItems(boardId, cursor) {
   var variables;
 
   if (cursor) {
-    query = 'query ($cursor: String!) { next_items_page (cursor: $cursor, limit: 500) { cursor items { id name group { id title } column_values { id type text value } } } }';
+    query = 'query ($cursor: String!) { next_items_page (cursor: $cursor, limit: 500) { cursor items { id name group { id title } column_values { id type text value } subitems { id name column_values { id type text value } } } } }';
     variables = { cursor: cursor };
   } else {
-    query = 'query ($boardId: [ID!]) { boards (ids: $boardId) { items_page (limit: 500) { cursor items { id name group { id title } column_values { id type text value } } } } }';
+    query = 'query ($boardId: [ID!]) { boards (ids: $boardId) { items_page (limit: 500) { cursor items { id name group { id title } column_values { id type text value } subitems { id name column_values { id type text value } } } } } }';
     variables = { boardId: [Number(boardId)] };
   }
 
@@ -686,6 +784,148 @@ function getBoardStructure(boardId) {
 
 function getBoardColumnsWithSettings(boardId) {
   return _monday().getBoardColumnsWithSettings(boardId);
+}
+
+// ── Form Queries ─────────────────────────────────────────────────────────────
+
+/**
+ * Get all form views on a board. Returns array of { viewId, viewName, token, disabled }.
+ */
+function getBoardFormViews(boardId) {
+  var data = callMondayAPI(
+    'query ($boardId: [ID!]) { boards (ids: $boardId) { views { id name type view_specific_data_str } } }',
+    { boardId: [Number(boardId)] }
+  );
+  var board = data.boards && data.boards[0];
+  if (!board || !board.views) return [];
+
+  var forms = [];
+  board.views.forEach(function(v) {
+    if (v.type === 'FormBoardView') {
+      try {
+        var viewData = JSON.parse(v.view_specific_data_str || '{}');
+        if (viewData.token) {
+          forms.push({
+            viewId: v.id,
+            viewName: v.name,
+            token: viewData.token,
+            disabled: viewData.disabled || false
+          });
+        }
+      } catch (e) {
+        console.warn('Could not parse form view data for view ' + v.id + ':', e);
+      }
+    }
+  });
+  return forms;
+}
+
+/**
+ * Get full form configuration by token.
+ */
+function getFormByToken(formToken) {
+  var data = callMondayAPI(
+    'query ($token: String!) { form (formToken: $token) { id token active title description questions { id type title description required visible options { label } settings { display optionsOrder prefill { enabled source lookup } checkedByDefault defaultCurrentDate includeTime locationAutofilled skipValidation } } features { monday { includeNameQuestion includeUpdateQuestion itemGroupId syncQuestionAndColumnsTitles } preSubmissionView { enabled title description startButton { text } } afterSubmissionView { title description allowResubmit allowEditSubmission allowViewSubmission showSuccessImage redirectAfterSubmission { enabled redirectUrl } } reCaptchaChallenge responseLimit { enabled limit } closeDate { enabled date } draftSubmission { enabled } requireLogin { enabled redirectToLogin } password { enabled } } appearance { primaryColor showProgressBar layout { format alignment direction } text { font size color } submitButton { text } logo { position size } background { type value } hideBranding } accessibility { language logoAltText } tags { id name value columnId } } }',
+    { token: formToken }
+  );
+  return data.form || null;
+}
+
+/**
+ * Create a form view on an existing board. Returns the view with form token.
+ */
+function createFormViewOnBoard(boardId, viewName) {
+  var data = callMondayAPI(
+    'mutation ($boardId: ID!, $name: String, $type: ViewKind!) { create_view (board_id: $boardId, name: $name, type: $type) { id name type view_specific_data_str } }',
+    { boardId: Number(boardId), name: viewName || 'Form', type: 'FORM' }
+  );
+  var view = data.create_view;
+  if (!view) throw new Error('create_view returned null for board ' + boardId);
+
+  var viewData = {};
+  try {
+    viewData = JSON.parse(view.view_specific_data_str || '{}');
+  } catch (e) {}
+
+  return {
+    viewId: view.id,
+    viewName: view.name,
+    token: viewData.token || null
+  };
+}
+
+/**
+ * Update form title and description.
+ */
+function updateFormHeader(formToken, title, description) {
+  var input = {};
+  if (title) input.title = title;
+  if (description !== undefined) input.description = description;
+
+  return callMondayAPI(
+    'mutation ($token: String!, $input: UpdateFormInput!) { update_form (formToken: $token, input: $input) { id token title } }',
+    { token: formToken, input: input }
+  );
+}
+
+/**
+ * Update form settings (features, appearance, accessibility).
+ */
+function updateFormSettings(formToken, settings) {
+  return callMondayAPI(
+    'mutation ($token: String!, $settings: UpdateFormSettingsInput!) { update_form_settings (formToken: $token, settings: $settings) { id token } }',
+    { token: formToken, settings: settings }
+  );
+}
+
+/**
+ * Update an existing question on a form.
+ */
+function updateFormQuestion(formToken, questionId, questionInput) {
+  return callMondayAPI(
+    'mutation ($token: String!, $qId: String!, $question: UpdateQuestionInput!) { update_form_question (formToken: $token, questionId: $qId, question: $question) { id } }',
+    { token: formToken, qId: questionId, question: questionInput }
+  );
+}
+
+/**
+ * Create a new question on a form.
+ */
+function createFormQuestion(formToken, questionInput) {
+  return callMondayAPI(
+    'mutation ($token: String!, $question: CreateQuestionInput!) { create_form_question (formToken: $token, question: $question) { id type title } }',
+    { token: formToken, question: questionInput }
+  );
+}
+
+/**
+ * Activate a form so it accepts responses.
+ */
+function activateForm(formToken) {
+  return callMondayAPI(
+    'mutation ($token: String!) { activate_form (formToken: $token) }',
+    { token: formToken }
+  );
+}
+
+/**
+ * Create a tag on a form.
+ */
+function createFormTag(formToken, tagName, tagValue) {
+  return callMondayAPI(
+    'mutation ($token: String!, $tag: CreateFormTagInput!) { create_form_tag (formToken: $token, tag: $tag) { id name value } }',
+    { token: formToken, tag: { name: tagName, value: tagValue } }
+  );
+}
+
+/**
+ * Set question order on a form. Takes an array of { id: questionId } objects.
+ */
+function updateFormQuestionOrder(formToken, questionOrder) {
+  return callMondayAPI(
+    'mutation ($token: String!, $input: UpdateFormInput!) { update_form (formToken: $token, input: $input) { id } }',
+    { token: formToken, input: { questions: questionOrder } }
+  );
 }
 
 // ── User Queries ─────────────────────────────────────────────────────────────
@@ -773,6 +1013,24 @@ function createItem(boardId, itemName, groupId, columnValues) {
 
   var data = callMondayAPI(query, variables);
   return data.create_item;
+}
+
+function createSubitem(parentItemId, subitemName, columnValues) {
+  var variables = {
+    parentId: Number(parentItemId),
+    name: subitemName
+  };
+
+  var query;
+  if (columnValues) {
+    query = 'mutation ($parentId: ID!, $name: String!, $values: JSON!) { create_subitem (parent_item_id: $parentId, item_name: $name, column_values: $values) { id name } }';
+    variables.values = JSON.stringify(columnValues);
+  } else {
+    query = 'mutation ($parentId: ID!, $name: String!) { create_subitem (parent_item_id: $parentId, item_name: $name) { id name } }';
+  }
+
+  var data = callMondayAPI(query, variables);
+  return data.create_subitem;
 }
 
 function createWorkspace(name, kind, description) {
@@ -1049,4 +1307,237 @@ function detectManagedColumnsOnBoard(boardId) {
   });
 
   return matches;
+}
+
+// ── Document Migration Functions ──────────────────────────────────────────────
+// Export doc content as markdown, create docs in target workspace, and import
+// markdown content. Used by DocumentMigrationService.gs.
+
+/**
+ * Get docs in a workspace with full metadata including blocks.
+ * @param {string} workspaceId - Workspace ID
+ * @returns {Array} Array of doc objects with id, name, doc_kind, object_id, created_at
+ */
+function getDocsWithDetails(workspaceId) {
+  var data = callMondayAPI(
+    'query ($wsId: [ID!]) { docs (workspace_ids: $wsId, limit: 200) { id name object_id doc_kind created_at url relative_url doc_folder_id } }',
+    { wsId: [Number(workspaceId)] }
+  );
+  return data.docs || [];
+}
+
+/**
+ * Export a document's content as markdown.
+ * @param {string} docId - The document's unique ID (not object_id)
+ * @returns {Object} { success: boolean, markdown: string, error?: string }
+ */
+function exportDocAsMarkdown(docId) {
+  var data = callMondayAPI(
+    'query ($docId: ID!) { export_markdown_from_doc (docId: $docId) { success markdown error } }',
+    { docId: Number(docId) }
+  );
+  return data.export_markdown_from_doc;
+}
+
+/**
+ * Create a new doc in a workspace.
+ * @param {string} workspaceId - Target workspace ID
+ * @param {string} name - Document name
+ * @param {string} kind - 'public' or 'private'
+ * @returns {Object} Created document with id and object_id
+ */
+function createDoc(workspaceId, name, kind, folderId) {
+  var workspace = {
+    workspace_id: Number(workspaceId),
+    name: name || 'Untitled Document'
+  };
+  if (kind) workspace.kind = kind;
+  if (folderId) workspace.folder_id = Number(folderId);
+
+  var data = callMondayAPI(
+    'mutation ($location: CreateDocInput!) { create_doc (location: $location) { id object_id } }',
+    { location: { workspace: workspace } }
+  );
+
+  return data.create_doc;
+}
+
+/**
+ * Add markdown content to an existing document.
+ * @param {string} docId - Target document ID
+ * @param {string} markdown - Markdown content to add
+ * @returns {Object} Result with created block IDs
+ */
+function addMarkdownToDoc(docId, markdown) {
+  var data = callMondayAPI(
+    'mutation ($docId: ID!, $markdown: String!) { add_content_to_doc_from_markdown (docId: $docId, markdown: $markdown) { success block_ids error } }',
+    { docId: Number(docId), markdown: markdown }
+  );
+  return data.add_content_to_doc_from_markdown;
+}
+
+/**
+ * Get document blocks for a doc (used for verification).
+ * @param {string} docId - Document ID
+ * @returns {Array} Array of document blocks
+ */
+function getDocBlocks(docId) {
+  var data = callMondayAPI(
+    'query ($docId: [ID!]!) { docs (ids: $docId) { id name blocks { id type content } } }',
+    { docId: [Number(docId)] }
+  );
+  var docs = data.docs || [];
+  return docs.length > 0 ? docs[0].blocks || [] : [];
+}
+
+/**
+ * Get workspace folders with hierarchy info.
+ * Returns all folders including nested sub_folders, parent references, and color/icon.
+ * @param {string} workspaceId - Workspace ID
+ * @returns {Array} Array of folder objects with parent and sub_folders
+ */
+function getWorkspaceFolders(workspaceId) {
+  var data = callMondayAPI(
+    'query ($wsId: [ID!]) { folders (workspace_ids: $wsId) { id name color custom_icon font_weight parent { id name } sub_folders { id name color custom_icon font_weight parent { id } sub_folders { id name color custom_icon font_weight parent { id } } } } }',
+    { wsId: [Number(workspaceId)] }
+  );
+  return data.folders || [];
+}
+
+// ── Template-Based Migration Functions ────────────────────────────────────────
+// duplicate_board preserves views, automations, column settings, formulas, and
+// managed column links — things that manual column-by-column creation loses.
+
+/**
+ * Get board metadata (columns, groups, kind).
+ * @param {string} boardId - Board ID
+ * @returns {Object} Board metadata
+ */
+function getBoardOrigin(boardId) {
+  var data = callMondayAPI(
+    'query ($id: [ID!]!) { boards (ids: $id) { id name board_kind columns { id title type } groups { id title } } }',
+    { id: [Number(boardId)] }
+  );
+  var boards = data.boards || [];
+  return boards.length > 0 ? boards[0] : null;
+}
+
+/**
+ * Duplicate a board with structure only (no items) into a target workspace.
+ * Preserves: columns with settings, groups, views, automations, managed columns.
+ * @param {string} sourceBoardId - Source board ID
+ * @param {string} targetWorkspaceId - Target workspace ID
+ * @param {string} boardName - Optional name override
+ * @param {boolean} keepSubscribers - Whether to keep subscribers
+ * @returns {Object} { board: { id, name }, isAsync }
+ */
+function duplicateBoardStructure(sourceBoardId, targetWorkspaceId, boardName, keepSubscribers) {
+  var variables = {
+    boardId: Number(sourceBoardId),
+    duplicateType: 'duplicate_board_with_structure',
+    wsId: Number(targetWorkspaceId)
+  };
+  if (keepSubscribers) variables.keepSubs = true;
+
+  var args = '$boardId: ID!, $duplicateType: DuplicateBoardType!, $wsId: ID';
+  var params = 'board_id: $boardId, duplicate_type: $duplicateType, workspace_id: $wsId';
+  if (boardName) {
+    variables.boardName = boardName;
+    args += ', $boardName: String';
+    params += ', board_name: $boardName';
+  }
+  if (keepSubscribers) {
+    args += ', $keepSubs: Boolean';
+    params += ', keep_subscribers: $keepSubs';
+  }
+
+  var data = callMondayAPI(
+    'mutation (' + args + ') { duplicate_board (' + params + ') { board { id name columns { id title type } groups { id title } } is_async } }',
+    variables
+  );
+
+  return {
+    board: data.duplicate_board.board,
+    isAsync: data.duplicate_board.is_async
+  };
+}
+
+/**
+ * Build a column mapping between source and target boards by matching column titles.
+ * Used after duplicate_board to map source column IDs to target column IDs for item migration.
+ * @param {Array} sourceColumns - Source board columns [{ id, title, type }]
+ * @param {Array} targetColumns - Target board columns [{ id, title, type }]
+ * @returns {Object} { mapping: { sourceId: { targetId, title, type } }, unmapped: [] }
+ */
+function buildColumnMappingByTitle(sourceColumns, targetColumns) {
+  var mapping = {};
+  var unmapped = [];
+
+  // Build a lookup by title+type for the target
+  var targetLookup = {};
+  (targetColumns || []).forEach(function(col) {
+    var key = col.title.toLowerCase() + '::' + col.type;
+    if (!targetLookup[key]) {
+      targetLookup[key] = col;
+    }
+  });
+
+  // Also build a title-only fallback lookup
+  var titleOnlyLookup = {};
+  (targetColumns || []).forEach(function(col) {
+    var key = col.title.toLowerCase();
+    if (!titleOnlyLookup[key]) {
+      titleOnlyLookup[key] = col;
+    }
+  });
+
+  (sourceColumns || []).forEach(function(srcCol) {
+    var key = srcCol.title.toLowerCase() + '::' + srcCol.type;
+    var match = targetLookup[key];
+
+    // Fallback to title-only match
+    if (!match) {
+      match = titleOnlyLookup[srcCol.title.toLowerCase()];
+    }
+
+    if (match) {
+      mapping[srcCol.id] = {
+        targetId: match.id,
+        title: srcCol.title,
+        type: srcCol.type,
+        duplicated: true
+      };
+    } else {
+      unmapped.push({ id: srcCol.id, title: srcCol.title, type: srcCol.type });
+    }
+  });
+
+  return { mapping: mapping, unmapped: unmapped };
+}
+
+/**
+ * Build a group mapping between source and target boards by matching group titles.
+ * @param {Array} sourceGroups - Source board groups [{ id, title }]
+ * @param {Array} targetGroups - Target board groups [{ id, title }]
+ * @returns {Object} { mapping: { sourceId: { targetId, title } }, unmapped: [] }
+ */
+function buildGroupMappingByTitle(sourceGroups, targetGroups) {
+  var mapping = {};
+  var unmapped = [];
+
+  var targetLookup = {};
+  (targetGroups || []).forEach(function(grp) {
+    targetLookup[grp.title.toLowerCase()] = grp;
+  });
+
+  (sourceGroups || []).forEach(function(srcGrp) {
+    var match = targetLookup[srcGrp.title.toLowerCase()];
+    if (match) {
+      mapping[srcGrp.id] = { targetId: match.id, title: srcGrp.title };
+    } else {
+      unmapped.push({ id: srcGrp.id, title: srcGrp.title });
+    }
+  });
+
+  return { mapping: mapping, unmapped: unmapped };
 }

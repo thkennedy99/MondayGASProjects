@@ -16,6 +16,18 @@ const api = {
         setTimeout(() => resolve({ success: true, mock: true, data: {} }), 500);
       }
     });
+  },
+  // Fire-and-forget: calls the server function without waiting for a result.
+  // Errors are logged but not thrown. Used for long-running operations.
+  fireAndForget: (functionName, ...args) => {
+    if (google?.script?.run) {
+      google.script.run
+        .withSuccessHandler(() => {})
+        .withFailureHandler(err => console.error(`Fire-and-forget error in ${functionName}:`, err))
+        [functionName](...args);
+    } else {
+      console.log(`Mock fire-and-forget → ${functionName}`, args);
+    }
   }
 };
 
@@ -203,7 +215,7 @@ const InventoryTab = () => {
               <div className="card">
                 <div className="card-header"><i className="bi bi-building me-1" /> Workspaces</div>
                 <div className="list-group list-group-flush scrollable-table" style={{ maxHeight: '500px' }}>
-                  {inventory.workspaces.map(ws => (
+                  {[...inventory.workspaces].sort((a, b) => a.name.localeCompare(b.name)).map(ws => (
                     <button key={ws.id}
                       className={`list-group-item list-group-item-action workspace-card ${selectedWs === ws.id ? 'selected' : ''}`}
                       onClick={() => loadWorkspace(ws.id)}>
@@ -300,40 +312,293 @@ const InventoryTab = () => {
   );
 };
 
-// ── Migration Tab ────────────────────────────────────────────────────────────
+// ── Target Account Selector (shared between Test Run & Migration) ───────────
 
-const MigrationTab = () => {
+const TargetAccountSelector = ({ selectedAccountId, onAccountChange, label }) => {
+  const toast = useToast();
+  const [accounts, setAccounts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { loadAccounts(); }, []);
+
+  const loadAccounts = async () => {
+    setLoading(true);
+    try {
+      const result = await api.call('getTargetAccounts');
+      if (result.success) setAccounts(result.accounts || []);
+    } catch (e) { console.warn('Failed to load target accounts'); }
+    setLoading(false);
+  };
+
+  const sourceAccount = accounts.find(a => a.role === 'source');
+  const selectedAccount = accounts.find(a => a.accountId === selectedAccountId);
+  const isCrossAccount = selectedAccount && sourceAccount && selectedAccount.accountId !== sourceAccount.accountId;
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <i className="bi bi-box-arrow-in-right me-1" /> {label || 'Destination Monday.com Account'}
+        {isCrossAccount && <span className="badge bg-warning text-dark ms-2">Cross-Account</span>}
+        {!selectedAccountId && <span className="badge bg-secondary ms-2">Not Selected</span>}
+        {selectedAccountId && !isCrossAccount && <span className="badge bg-info text-dark ms-2">Same Account</span>}
+      </div>
+      <div className="card-body">
+        {loading ? (
+          <div className="text-center py-2">
+            <span className="spinner-border spinner-border-sm me-2" />Loading accounts...
+          </div>
+        ) : accounts.length === 0 ? (
+          <div className="alert alert-warning mb-0">
+            <i className="bi bi-exclamation-triangle me-1" />
+            No Monday.com accounts configured. Set <code>MONDAY_API_KEY</code> and/or <code>MONDAY_MIGRATION_API_KEY</code> in Script Properties.
+          </div>
+        ) : (
+          <>
+            <select className="form-select" value={selectedAccountId || ''} onChange={e => onAccountChange(e.target.value)}>
+              <option value="">Select destination account...</option>
+              {accounts.map(a => (
+                <option key={a.accountId} value={a.accountId}>
+                  {a.accountName} — {a.userEmail}{a.role === 'source' ? ' (source)' : ' (migration target)'}
+                </option>
+              ))}
+            </select>
+
+            {selectedAccount && (
+              <div className="alert alert-success mt-3 mb-0 d-flex align-items-center">
+                <div>
+                  <strong><i className="bi bi-check-circle me-1" />Destination:</strong>{' '}
+                  {selectedAccount.accountName} ({selectedAccount.userEmail})
+                  <br /><small className="text-muted">Account ID: {selectedAccount.accountId} &middot; {selectedAccount.role === 'source' ? 'Source account' : 'Migration target account'}</small>
+                </div>
+              </div>
+            )}
+
+            {isCrossAccount && (
+              <div className="alert alert-warning mt-3 mb-0">
+                <i className="bi bi-exclamation-triangle me-1" />
+                <strong>Cross-account notes:</strong>
+                <ul className="mb-0 mt-1">
+                  <li>People columns will be <strong>skipped</strong> (user IDs differ between accounts)</li>
+                  <li>Board subscribers will <strong>not</strong> be transferred</li>
+                  <li>Template Clone will use <strong>manual mode</strong> (duplicate_board only works within the same account)</li>
+                  <li>Managed columns may need to be <strong>recreated</strong> in the target account</li>
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Shared Component Selector ────────────────────────────────────────────────
+
+const ComponentSelector = ({ components, componentDefs, toggleComponent }) => (
+  <div className="card">
+    <div className="card-header"><i className="bi bi-gear me-1" /> Migration Components</div>
+    <div className="card-body">
+      {componentDefs && Object.keys(componentDefs).map(key => {
+        const comp = componentDefs[key];
+        const isMandatory = comp.mandatory;
+        const isChecked = isMandatory || components[key];
+
+        return (
+          <div key={key} className="form-check mb-2">
+            <input className="form-check-input" type="checkbox" id={`comp-${key}`}
+              checked={isChecked} disabled={isMandatory}
+              onChange={() => !isMandatory && toggleComponent(key)} />
+            <label className="form-check-label" htmlFor={`comp-${key}`}>
+              <strong>{comp.label}</strong>
+              {isMandatory && <span className="badge bg-secondary ms-2">Required</span>}
+              <br /><small className="text-muted">{comp.description}</small>
+            </label>
+          </div>
+        );
+      })}
+
+      {!componentDefs && (
+        <>
+          <div className="form-check mb-2"><input className="form-check-input" type="checkbox" checked disabled /><label className="form-check-label"><strong>Boards</strong> <span className="badge bg-secondary ms-1">Required</span></label></div>
+          <div className="form-check mb-2"><input className="form-check-input" type="checkbox" checked disabled /><label className="form-check-label"><strong>Columns</strong> <span className="badge bg-secondary ms-1">Required</span></label></div>
+          <div className="form-check mb-2"><input className="form-check-input" type="checkbox" checked disabled /><label className="form-check-label"><strong>Items</strong> <span className="badge bg-secondary ms-1">Required</span></label></div>
+          {Object.entries(components).map(([key, val]) => (
+            <div key={key} className="form-check mb-2">
+              <input className="form-check-input" type="checkbox" checked={val} onChange={() => toggleComponent(key)} />
+              <label className="form-check-label"><strong>{key.charAt(0).toUpperCase() + key.slice(1)}</strong></label>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  </div>
+);
+
+// ── Dry Run Results Display ─────────────────────────────────────────────────
+
+const DryRunResults = ({ result }) => {
+  if (!result) return null;
+
+  return (
+    <div className="card mb-4">
+      <div className="card-header bg-info text-white">
+        <i className="bi bi-clipboard-check me-1" /> Analysis Results — {result.sourceWorkspace.name}
+      </div>
+      <div className="card-body">
+        <div className="row g-3 mb-4">
+          <div className="col"><StatCard value={result.totals.boards} label="Boards" icon="kanban" /></div>
+          <div className="col"><StatCard value={result.totals.groups} label="Groups" icon="collection" /></div>
+          <div className="col"><StatCard value={result.totals.columns} label="Columns" icon="layout-three-columns" /></div>
+          <div className="col"><StatCard value={result.totals.items} label="Items" icon="list-task" /></div>
+          <div className="col"><StatCard value={result.totals.documents || 0} label="Documents" icon="file-earmark-text" /></div>
+          <div className="col"><StatCard value={result.estimatedApiCalls} label="API Calls" icon="cloud" /></div>
+        </div>
+
+        <div className="row g-3 mb-3">
+          <div className="col-md-6">
+            <p className="mb-1"><strong>Estimated Duration:</strong> {result.estimatedDuration}</p>
+          </div>
+        </div>
+
+        {/* Document Analysis */}
+        {result.documentAnalysis && result.documentAnalysis.totalCount > 0 && (
+          <div className="alert alert-primary mb-3">
+            <strong><i className="bi bi-file-earmark-text me-1" />Document Migration:</strong>{' '}
+            {result.documentAnalysis.exportableCount} of {result.documentAnalysis.totalCount} document(s) will be exported as markdown,
+            backed up to Google Drive, and recreated in the target workspace.
+            {result.documentAnalysis.totalMarkdownSize > 0 && (
+              <span> (~{Math.round(result.documentAnalysis.totalMarkdownSize / 1024)} KB total)</span>
+            )}
+            {result.documentAnalysis.emptyCount > 0 && (
+              <span> {result.documentAnalysis.emptyCount} empty doc(s) will be created without content.</span>
+            )}
+            {result.documentAnalysis.docs.length > 0 && (
+              <ul className="mb-0 mt-2">
+                {result.documentAnalysis.docs.map((d, i) => (
+                  <li key={i}>
+                    <strong>{d.name}</strong>
+                    {d.exportable ? (
+                      <span className="text-success ms-1">
+                        <i className="bi bi-check-circle" /> {d.markdownSize > 0 ? `(${Math.round(d.markdownSize / 1024)} KB)` : '(empty)'}
+                      </span>
+                    ) : (
+                      <span className="text-danger ms-1"><i className="bi bi-x-circle" /> {d.error || 'Cannot export'}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* Template Clone Info */}
+        {result.useTemplates && (
+          <div className="alert alert-success mb-3">
+            <strong><i className="bi bi-copy me-1" />Template Clone:</strong>{' '}
+            Boards will be duplicated via <code>duplicate_board</code>, preserving views, automations, formulas,
+            and managed column links automatically. Only item data will be migrated separately.
+            {result.boards.some(b => b.complexColumns && b.complexColumns.length > 0) && (
+              <ul className="mb-0 mt-2">
+                {result.boards.filter(b => b.complexColumns && b.complexColumns.length > 0).map((b, i) => (
+                  <li key={i}>
+                    <strong>{b.name}</strong>: {b.complexColumns.map(c => `${c.title} (${c.type})`).join(', ')} — preserved via template clone
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {result.managedColumns && result.managedColumns.detectedOnBoards > 0 && (
+          <div className="alert alert-primary mb-3">
+            <strong><i className="bi bi-link-45deg me-1" />Managed Columns:</strong>{' '}
+            {result.managedColumns.detectedOnBoards} managed column link(s) detected
+            ({result.managedColumns.accountTotal} total in account).
+            These will be <em>attached</em> to target boards to preserve account-level consistency.
+            {result.managedColumns.matches.length > 0 && (
+              <ul className="mb-0 mt-2">
+                {result.managedColumns.matches.map((m, i) => (
+                  <li key={i}>
+                    <strong>{m.boardName}</strong> &rarr; "{m.columnTitle}" linked to managed column "{m.managedColumnTitle}" ({m.matchRate}% match)
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {result.notes.length > 0 && (
+          <div className="alert alert-info mb-3">
+            <strong><i className="bi bi-info-circle me-1" />Notes:</strong>
+            <ul className="mb-0 mt-1">
+              {result.notes.map((n, i) => <li key={i}>{n}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {result.warnings.length > 0 && (
+          <div className="alert alert-warning mb-3">
+            <strong><i className="bi bi-exclamation-triangle me-1" />Warnings:</strong>
+            <ul className="mb-0 mt-1">
+              {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
+            </ul>
+          </div>
+        )}
+
+        <h6>Board Details</h6>
+        <div className="scrollable-table">
+          <table className="table table-gw table-sm mb-0">
+            <thead><tr><th>Board</th><th>Kind</th><th>Groups</th><th>Columns</th><th>Items</th><th>Subscribers</th></tr></thead>
+            <tbody>
+              {result.boards.map(b => (
+                <tr key={b.id}>
+                  <td><strong>{b.name}</strong></td>
+                  <td><span className="badge bg-secondary">{b.kind}</span></td>
+                  <td>{b.groups}</td>
+                  <td>{b.columns}</td>
+                  <td><strong>{b.items}</strong></td>
+                  <td>{b.subscribers}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── Test Run Tab ────────────────────────────────────────────────────────────
+
+const TestRunTab = () => {
   const toast = useToast();
   const [workspaces, setWorkspaces] = useState([]);
   const [selectedWs, setSelectedWs] = useState('');
-  const [targetName, setTargetName] = useState('');
+  const [selectedTargetAccount, setSelectedTargetAccount] = useState('');
   const [components, setComponents] = useState({
     groups: true,
+    useTemplates: true,
     managedColumns: true,
     subscribers: true,
     guests: false,
-    documents: false
+    documents: true
   });
   const [componentDefs, setComponentDefs] = useState(null);
   const [dryRunResult, setDryRunResult] = useState(null);
-  const [migrationId, setMigrationId] = useState(null);
-  const [progress, setProgress] = useState(null);
-  const [polling, setPolling] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState('select'); // select | dryrun | running | done
-  const pollRef = useRef(null);
-  const pollCountRef = useRef(0);
 
   useEffect(() => {
     loadWorkspaces();
     loadComponentDefs();
-    return () => { if (pollRef.current) clearTimeout(pollRef.current); };
   }, []);
 
   const loadWorkspaces = async () => {
     try {
       const result = await api.call('getAccountInventory');
-      if (result.success) setWorkspaces(result.data.workspaces || []);
+      if (result.success) {
+        const ws = (result.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name));
+        setWorkspaces(ws);
+      }
     } catch (e) { toast.show(e.message, 'danger'); }
   };
 
@@ -356,9 +621,9 @@ const MigrationTab = () => {
       const result = await api.call('testMigration', selectedWs, components);
       if (result.success) {
         setDryRunResult(result.data);
-        setStep('dryrun');
+        toast.show('Analysis complete!', 'success');
       } else {
-        toast.show(result.error || 'Dry run failed', 'danger');
+        toast.show(result.error || 'Test run failed', 'danger');
       }
     } catch (e) {
       toast.show(e.message, 'danger');
@@ -366,26 +631,141 @@ const MigrationTab = () => {
     setLoading(false);
   };
 
+  return (
+    <div>
+      <h4 className="mb-1"><i className="bi bi-search me-2" />Test Run (Dry Run)</h4>
+      <p className="text-muted mb-4">Analyze a workspace to see what would be migrated without making any changes.</p>
+
+      <div className="row g-4 mb-4">
+        <div className="col-md-6">
+          <div className="card">
+            <div className="card-header"><i className="bi bi-building me-1" /> Source Workspace</div>
+            <div className="card-body">
+              <select className="form-select" value={selectedWs} onChange={e => setSelectedWs(e.target.value)}>
+                <option value="">Select a workspace...</option>
+                {workspaces.map(ws => (
+                  <option key={ws.id} value={ws.id}>{ws.name} ({ws.kind})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="col-md-6">
+          <ComponentSelector components={components} componentDefs={componentDefs} toggleComponent={toggleComponent} />
+        </div>
+
+        <div className="col-12">
+          <TargetAccountSelector
+            selectedAccountId={selectedTargetAccount}
+            onAccountChange={setSelectedTargetAccount}
+            label="Target Monday.com Account (Dry Run)"
+          />
+        </div>
+
+        <div className="col-12 text-end">
+          <button className="btn btn-gw-primary btn-lg" onClick={runDryRun} disabled={!selectedWs || loading}>
+            {loading ? <><span className="spinner-border spinner-border-sm me-1" />Analyzing...</> : <><i className="bi bi-search me-1" />Run Analysis</>}
+          </button>
+        </div>
+      </div>
+
+      {loading && <LoadingSpinner message="Analyzing workspace..." />}
+
+      {dryRunResult && !loading && <DryRunResults result={dryRunResult} />}
+    </div>
+  );
+};
+
+// ── Migration Tab ────────────────────────────────────────────────────────────
+
+const MigrationTab = () => {
+  const toast = useToast();
+  const [workspaces, setWorkspaces] = useState([]);
+  const [selectedWs, setSelectedWs] = useState('');
+  const [targetName, setTargetName] = useState('');
+  const [components, setComponents] = useState({
+    groups: true,
+    useTemplates: true,
+    managedColumns: true,
+    subscribers: true,
+    guests: false,
+    documents: true
+  });
+  const [componentDefs, setComponentDefs] = useState(null);
+  const [migrationId, setMigrationId] = useState(null);
+  const [progress, setProgress] = useState(null);
+  const [polling, setPolling] = useState(false);
+  const [step, setStep] = useState('configure'); // configure | running | done
+  const pollRef = useRef(null);
+  const pollCountRef = useRef(0);
+
+  // Target account state
+  const [selectedTargetAccount, setSelectedTargetAccount] = useState('');
+
+  useEffect(() => {
+    loadWorkspaces();
+    loadComponentDefs();
+    return () => { if (pollRef.current) clearTimeout(pollRef.current); };
+  }, []);
+
+  const loadWorkspaces = async () => {
+    try {
+      const result = await api.call('getAccountInventory');
+      if (result.success) {
+        const ws = (result.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name));
+        setWorkspaces(ws);
+      }
+    } catch (e) { toast.show(e.message, 'danger'); }
+  };
+
+  const loadComponentDefs = async () => {
+    try {
+      const result = await api.call('getMigrationComponents');
+      if (result.success) setComponentDefs(result.data);
+    } catch (e) { console.warn('Failed to load component definitions'); }
+  };
+
+  const toggleComponent = (key) => {
+    setComponents(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
   const startMigration = async () => {
+    if (!selectedWs) { toast.show('Select a source workspace', 'warning'); return; }
+
     setStep('running');
     try {
-      const wsName = targetName || (dryRunResult.sourceWorkspace.name + ' (Migrated)');
-      const result = await api.call('startMigration', {
+      const wsName = targetName || (workspaces.find(w => w.id === selectedWs)?.name + ' (Migrated)');
+      const params = {
         sourceWorkspaceId: selectedWs,
         targetWorkspaceName: wsName,
         components: components
-      });
-      if (result.success) {
-        setMigrationId(result.migrationId);
-        startPolling(result.migrationId);
-        toast.show('Migration started!', 'success');
-      } else {
-        toast.show(result.error || 'Failed to start migration', 'danger');
-        setStep('dryrun');
+      };
+      if (selectedTargetAccount) {
+        params.targetAccountId = selectedTargetAccount;
       }
+
+      // Step 1: Initialize migration (returns immediately with migrationId)
+      const initResult = await api.call('initMigration', params);
+      if (!initResult.success) {
+        toast.show(initResult.error || 'Failed to initialize migration', 'danger');
+        setStep('configure');
+        return;
+      }
+
+      const id = initResult.migrationId;
+      setMigrationId(id);
+
+      // Step 2: Start polling BEFORE firing the migration (so UI shows progress immediately)
+      startPolling(id);
+
+      // Step 3: Fire-and-forget the actual migration execution
+      api.fireAndForget('runMigration', id);
+
+      toast.show('Migration started!', 'success');
     } catch (e) {
       toast.show(e.message, 'danger');
-      setStep('dryrun');
+      setStep('configure');
     }
   };
 
@@ -425,8 +805,7 @@ const MigrationTab = () => {
   };
 
   const resetMigration = () => {
-    setStep('select');
-    setDryRunResult(null);
+    setStep('configure');
     setMigrationId(null);
     setProgress(null);
     setSelectedWs('');
@@ -438,20 +817,21 @@ const MigrationTab = () => {
   return (
     <div>
       <h4 className="mb-1"><i className="bi bi-arrow-left-right me-2" />Workspace Migration</h4>
-      <p className="text-muted mb-4">Clone a workspace to a new workspace within the same account. No invitations will be sent.</p>
+      <p className="text-muted mb-4">Clone a workspace to a new workspace. Supports same-account and cross-account migration.</p>
 
       {/* Step Indicator */}
       <div className="d-flex mb-4 gap-2">
-        {['select', 'dryrun', 'running', 'done'].map((s, i) => (
+        {['configure', 'running', 'done'].map((s, i) => (
           <div key={s} className={`flex-fill text-center py-2 rounded ${step === s ? 'bg-primary text-white' : 'bg-light text-muted'}`}>
-            <small><strong>{i + 1}.</strong> {s === 'select' ? 'Configure' : s === 'dryrun' ? 'Review Plan' : s === 'running' ? 'Migrating' : 'Complete'}</small>
+            <small><strong>{i + 1}.</strong> {s === 'configure' ? 'Configure' : s === 'running' ? 'Migrating' : 'Complete'}</small>
           </div>
         ))}
       </div>
 
-      {/* Step 1: Select & Configure */}
-      {step === 'select' && (
+      {/* Step 1: Configure */}
+      {step === 'configure' && (
         <div className="row g-4">
+          {/* Source */}
           <div className="col-md-6">
             <div className="card">
               <div className="card-header"><i className="bi bi-building me-1" /> Source Workspace</div>
@@ -470,174 +850,95 @@ const MigrationTab = () => {
             </div>
           </div>
 
+          {/* Components */}
           <div className="col-md-6">
-            <div className="card">
-              <div className="card-header"><i className="bi bi-gear me-1" /> Migration Components</div>
-              <div className="card-body">
-                {componentDefs && Object.keys(componentDefs).map(key => {
-                  const comp = componentDefs[key];
-                  const isMandatory = comp.mandatory;
-                  const isChecked = isMandatory || components[key];
+            <ComponentSelector components={components} componentDefs={componentDefs} toggleComponent={toggleComponent} />
+          </div>
 
-                  return (
-                    <div key={key} className="form-check mb-2">
-                      <input className="form-check-input" type="checkbox" id={`comp-${key}`}
-                        checked={isChecked} disabled={isMandatory}
-                        onChange={() => !isMandatory && toggleComponent(key)} />
-                      <label className="form-check-label" htmlFor={`comp-${key}`}>
-                        <strong>{comp.label}</strong>
-                        {isMandatory && <span className="badge bg-secondary ms-2">Required</span>}
-                        <br /><small className="text-muted">{comp.description}</small>
-                      </label>
-                    </div>
-                  );
-                })}
-
-                {!componentDefs && (
-                  <>
-                    <div className="form-check mb-2"><input className="form-check-input" type="checkbox" checked disabled /><label className="form-check-label"><strong>Boards</strong> <span className="badge bg-secondary ms-1">Required</span></label></div>
-                    <div className="form-check mb-2"><input className="form-check-input" type="checkbox" checked disabled /><label className="form-check-label"><strong>Columns</strong> <span className="badge bg-secondary ms-1">Required</span></label></div>
-                    <div className="form-check mb-2"><input className="form-check-input" type="checkbox" checked disabled /><label className="form-check-label"><strong>Items</strong> <span className="badge bg-secondary ms-1">Required</span></label></div>
-                    {Object.entries(components).map(([key, val]) => (
-                      <div key={key} className="form-check mb-2">
-                        <input className="form-check-input" type="checkbox" checked={val} onChange={() => toggleComponent(key)} />
-                        <label className="form-check-label"><strong>{key.charAt(0).toUpperCase() + key.slice(1)}</strong></label>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            </div>
+          {/* Target Account */}
+          <div className="col-12">
+            <TargetAccountSelector
+              selectedAccountId={selectedTargetAccount}
+              onAccountChange={setSelectedTargetAccount}
+              label="Target Monday.com Account"
+            />
           </div>
 
           <div className="col-12 text-end">
-            <button className="btn btn-gw-primary btn-lg" onClick={runDryRun} disabled={!selectedWs || loading}>
-              {loading ? <><span className="spinner-border spinner-border-sm me-1" />Analyzing...</> : <><i className="bi bi-search me-1" />Test Run (Dry Run)</>}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Dry Run Results */}
-      {step === 'dryrun' && dryRunResult && (
-        <div>
-          <div className="card mb-4">
-            <div className="card-header bg-info text-white">
-              <i className="bi bi-clipboard-check me-1" /> Migration Plan — {dryRunResult.sourceWorkspace.name}
-            </div>
-            <div className="card-body">
-              <div className="row g-3 mb-4">
-                <div className="col"><StatCard value={dryRunResult.totals.boards} label="Boards" icon="kanban" /></div>
-                <div className="col"><StatCard value={dryRunResult.totals.groups} label="Groups" icon="collection" /></div>
-                <div className="col"><StatCard value={dryRunResult.totals.columns} label="Columns" icon="layout-three-columns" /></div>
-                <div className="col"><StatCard value={dryRunResult.totals.items} label="Items" icon="list-task" /></div>
-                <div className="col"><StatCard value={dryRunResult.estimatedApiCalls} label="API Calls" icon="cloud" /></div>
-              </div>
-
-              <div className="row g-3 mb-3">
-                <div className="col-md-6">
-                  <p className="mb-1"><strong>Estimated Duration:</strong> {dryRunResult.estimatedDuration}</p>
-                  {dryRunResult.totals.documents > 0 && <p className="mb-1"><strong>Documents:</strong> {dryRunResult.totals.documents}</p>}
-                </div>
-              </div>
-
-              {dryRunResult.managedColumns && dryRunResult.managedColumns.detectedOnBoards > 0 && (
-                <div className="alert alert-primary mb-3">
-                  <strong><i className="bi bi-link-45deg me-1" />Managed Columns:</strong>{' '}
-                  {dryRunResult.managedColumns.detectedOnBoards} managed column link(s) detected
-                  ({dryRunResult.managedColumns.accountTotal} total in account).
-                  These will be <em>attached</em> to target boards to preserve account-level consistency.
-                  {dryRunResult.managedColumns.matches.length > 0 && (
-                    <ul className="mb-0 mt-2">
-                      {dryRunResult.managedColumns.matches.map((m, i) => (
-                        <li key={i}>
-                          <strong>{m.boardName}</strong> &rarr; "{m.columnTitle}" linked to managed column "{m.managedColumnTitle}" ({m.matchRate}% match)
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-
-              {dryRunResult.notes.length > 0 && (
-                <div className="alert alert-info mb-3">
-                  <strong><i className="bi bi-info-circle me-1" />Notes:</strong>
-                  <ul className="mb-0 mt-1">
-                    {dryRunResult.notes.map((n, i) => <li key={i}>{n}</li>)}
-                  </ul>
-                </div>
-              )}
-
-              {dryRunResult.warnings.length > 0 && (
-                <div className="alert alert-warning mb-3">
-                  <strong><i className="bi bi-exclamation-triangle me-1" />Warnings:</strong>
-                  <ul className="mb-0 mt-1">
-                    {dryRunResult.warnings.map((w, i) => <li key={i}>{w}</li>)}
-                  </ul>
-                </div>
-              )}
-
-              <h6>Board Details</h6>
-              <div className="scrollable-table">
-                <table className="table table-gw table-sm mb-0">
-                  <thead><tr><th>Board</th><th>Kind</th><th>Groups</th><th>Columns</th><th>Items</th><th>Subscribers</th></tr></thead>
-                  <tbody>
-                    {dryRunResult.boards.map(b => (
-                      <tr key={b.id}>
-                        <td><strong>{b.name}</strong></td>
-                        <td><span className="badge bg-secondary">{b.kind}</span></td>
-                        <td>{b.groups}</td>
-                        <td>{b.columns}</td>
-                        <td><strong>{b.items}</strong></td>
-                        <td>{b.subscribers}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <div className="d-flex justify-content-between">
-            <button className="btn btn-outline-secondary" onClick={() => setStep('select')}>
-              <i className="bi bi-arrow-left me-1" />Back to Configure
-            </button>
-            <button className="btn btn-gw-orange btn-lg" onClick={startMigration}>
+            <button className="btn btn-gw-orange btn-lg" onClick={startMigration} disabled={!selectedWs}>
               <i className="bi bi-play-fill me-1" />Start Migration
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 3: Running */}
-      {step === 'running' && (
-        <div className="card migration-progress">
-          <div className="card-header"><i className="bi bi-hourglass-split me-1" /> Migration in Progress</div>
-          <div className="card-body text-center">
-            <div className="progress mb-3" style={{ height: '30px' }}>
-              <div className={`progress-bar progress-bar-striped progress-bar-animated bg-primary`}
-                style={{ width: `${progress?.percent || 0}%` }}>
-                {progress?.percent || 0}%
+      {/* Step 2: Running */}
+      {step === 'running' && (() => {
+        const elapsed = progress?.startTime
+          ? Math.floor((Date.now() - new Date(progress.startTime).getTime()) / 1000)
+          : 0;
+        const mins = Math.floor(elapsed / 60);
+        const secs = elapsed % 60;
+        const elapsedStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+        return (
+          <div className="card migration-progress">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <span><i className="bi bi-hourglass-split me-1" /> Migration in Progress</span>
+              <span className="badge bg-secondary"><i className="bi bi-clock me-1" />{elapsedStr}</span>
+            </div>
+            <div className="card-body">
+              <div className="progress mb-3" style={{ height: '30px' }}>
+                <div className={`progress-bar progress-bar-striped progress-bar-animated bg-primary`}
+                  style={{ width: `${progress?.percent || 0}%`, transition: 'width 0.5s ease' }}>
+                  {progress?.percent || 0}%
+                </div>
+              </div>
+              <p className="mb-2 fs-5 text-center">{progress?.message || 'Initializing...'}</p>
+
+              {/* Stats row */}
+              {progress?.boardsTotal > 0 && (
+                <div className="row g-2 mt-2 mb-3">
+                  <div className="col-4 text-center">
+                    <div className="fw-bold fs-5">{progress.boardsCompleted || 0} / {progress.boardsTotal}</div>
+                    <small className="text-muted">Boards</small>
+                  </div>
+                  <div className="col-4 text-center">
+                    <div className="fw-bold fs-5">{progress.itemsMigrated || 0}{progress.itemsTotal ? ` / ${progress.itemsTotal}` : ''}</div>
+                    <small className="text-muted">Items</small>
+                  </div>
+                  <div className="col-4 text-center">
+                    <div className="fw-bold fs-5">{progress.foldersCreated || 0}{progress.foldersTotal ? ` / ${progress.foldersTotal}` : ''}</div>
+                    <small className="text-muted">Folders</small>
+                  </div>
+                </div>
+              )}
+
+              {progress?.errors?.length > 0 && (
+                <div className="alert alert-warning mt-3 text-start">
+                  <strong>Errors encountered ({progress.errors.length}):</strong>
+                  <ul className="mb-0">{progress.errors.slice(-5).map((e, i) => <li key={i}>{e.board}: {e.msg}</li>)}</ul>
+                  {progress.errors.length > 5 && <small className="text-muted">...and {progress.errors.length - 5} more</small>}
+                </div>
+              )}
+
+              {progress?.lastUpdate && (
+                <p className="text-muted text-center mt-2 mb-1" style={{ fontSize: '0.8rem' }}>
+                  Last update: {new Date(progress.lastUpdate).toLocaleTimeString()}
+                </p>
+              )}
+
+              <div className="text-center">
+                <button className="btn btn-danger mt-2" onClick={handleCancel}>
+                  <i className="bi bi-x-circle me-1" />Cancel Migration
+                </button>
               </div>
             </div>
-            <p className="mb-2 fs-5">{progress?.message || 'Initializing...'}</p>
-            {progress?.boardsTotal > 0 && (
-              <p className="text-muted">Board {progress.boardsCompleted || 0} of {progress.boardsTotal}</p>
-            )}
-            {progress?.errors?.length > 0 && (
-              <div className="alert alert-warning mt-3 text-start">
-                <strong>Errors encountered:</strong>
-                <ul className="mb-0">{progress.errors.map((e, i) => <li key={i}>{e.board}: {e.msg}</li>)}</ul>
-              </div>
-            )}
-            <button className="btn btn-danger mt-3" onClick={handleCancel}>
-              <i className="bi bi-x-circle me-1" />Cancel Migration
-            </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
-      {/* Step 4: Done */}
+      {/* Step 3: Done */}
       {step === 'done' && progress && (
         <div className="card">
           <div className={`card-header ${progress.state === 'completed' ? 'bg-success' : progress.state === 'error' ? 'bg-danger' : 'bg-warning'} text-white`}>
@@ -651,27 +952,91 @@ const MigrationTab = () => {
               <div className="col-md-3"><StatCard value={progress.itemsTotal || 0} label="Items Expected" icon="list-check" /></div>
               <div className="col-md-3"><StatCard value={progress.errors?.length || 0} label="Errors" icon="exclamation-triangle" color="var(--match-poor)" /></div>
             </div>
-            {progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0) && (
+            {(
+              (progress.foldersCreated > 0) ||
+              (progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0)) ||
+              (progress.documentMigration && progress.documentMigration.docsMigrated > 0)
+            ) && (
               <div className="row g-3 mb-4">
-                <div className="col-md-3"><StatCard value={progress.boardMapping.reduce((sum, bm) => sum + (bm.managedColumnsAttached || 0), 0)} label="Managed Columns Linked" icon="link-45deg" color="var(--gw-bright-blue)" /></div>
+                {progress.foldersCreated > 0 && (
+                  <div className="col-md-3"><StatCard value={progress.foldersCreated} label="Folders Recreated" icon="folder" color="var(--gw-bright-blue)" /></div>
+                )}
+                {progress.boardMapping && progress.boardMapping.some(bm => bm.managedColumnsAttached > 0) && (
+                  <div className="col-md-3"><StatCard value={progress.boardMapping.reduce((sum, bm) => sum + (bm.managedColumnsAttached || 0), 0)} label="Managed Columns Linked" icon="link-45deg" color="var(--gw-bright-blue)" /></div>
+                )}
+                {progress.documentMigration && (
+                  <>
+                    <div className="col-md-3"><StatCard value={progress.documentMigration.docsMigrated || 0} label="Docs Migrated" icon="file-earmark-text" color="var(--match-great)" /></div>
+                    {progress.documentMigration.docsSkipped > 0 && (
+                      <div className="col-md-3"><StatCard value={progress.documentMigration.docsSkipped} label="Docs Skipped" icon="file-earmark-x" color="var(--match-poor)" /></div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
             <p><strong>Target Workspace:</strong> {progress.targetWorkspaceName || 'N/A'}</p>
             <p><strong>Migration ID:</strong> <code>{progress.id}</code></p>
+            {progress.isCrossAccount && <p><span className="badge bg-warning text-dark">Cross-Account Migration</span></p>}
+
+            {/* Google Drive backup link */}
+            {progress.documentMigration && progress.documentMigration.driveFolder && (
+              <div className="alert alert-success mb-3">
+                <i className="bi bi-cloud-arrow-down me-1" />
+                <strong>Document Backup:</strong>{' '}
+                Markdown backups saved to Google Drive:{' '}
+                <a href={progress.documentMigration.driveFolder.url} target="_blank" rel="noopener noreferrer" className="alert-link">
+                  <i className="bi bi-folder me-1" />{progress.documentMigration.driveFolder.name}
+                </a>
+              </div>
+            )}
+
             <p className="text-muted">Before/after mapping has been saved to the migration spreadsheet.</p>
 
             {progress.boardMapping && (
               <div className="scrollable-table mt-3">
                 <table className="table table-gw table-sm mb-0">
-                  <thead><tr><th>Source Board</th><th>Target Board ID</th><th>Status</th><th>Items</th></tr></thead>
+                  <thead><tr><th>Source Board</th><th>Folder</th><th>Target Board ID</th><th>Method</th><th>Status</th><th>Items</th></tr></thead>
                   <tbody>
                     {progress.boardMapping.map((bm, i) => (
                       <tr key={i}>
                         <td>{bm.sourceBoardName}</td>
+                        <td>{bm.folderName ? <span className="badge bg-light text-dark"><i className="bi bi-folder me-1" />{bm.folderName}</span> : <span className="text-muted">—</span>}</td>
                         <td><code>{bm.targetBoardId || 'N/A'}</code></td>
+                        <td>
+                          <span className={`badge ${bm.migrationMethod === 'template' ? 'bg-info' : 'bg-secondary'}`}>
+                            <i className={`bi ${bm.migrationMethod === 'template' ? 'bi-copy' : 'bi-wrench'} me-1`} />
+                            {bm.migrationMethod === 'template' ? 'Template' : 'Manual'}
+                          </span>
+                        </td>
                         <td><span className={`badge status-${bm.status}`}>{bm.status}</span></td>
                         <td>{bm.itemsMigrated} / {bm.itemsTotal}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Document Mapping Table */}
+            {progress.docMapping && progress.docMapping.length > 0 && (
+              <div className="scrollable-table mt-3">
+                <h6><i className="bi bi-file-earmark-text me-1" />Document Migration Details</h6>
+                <table className="table table-gw table-sm mb-0">
+                  <thead><tr><th>Document</th><th>Status</th><th>Target Doc ID</th><th>Drive Backup</th></tr></thead>
+                  <tbody>
+                    {progress.docMapping.map((dm, i) => (
+                      <tr key={i}>
+                        <td>{dm.sourceDocName || dm.sourceDocTitle || dm.sourceDocId}</td>
+                        <td><span className={`badge ${dm.status === 'migrated' ? 'bg-success' : dm.status === 'migrated_empty' ? 'bg-info' : dm.status === 'empty' ? 'bg-secondary' : 'bg-danger'}`}>{dm.status}</span></td>
+                        <td><code>{dm.targetDocId || 'N/A'}</code></td>
+                        <td>
+                          {dm.driveFileUrl ? (
+                            <a href={dm.driveFileUrl} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-secondary">
+                              <i className="bi bi-file-earmark-arrow-down me-1" />.md
+                            </a>
+                          ) : <span className="text-muted">-</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -712,7 +1077,10 @@ const ValidationTab = () => {
         api.call('getAccountInventory'),
         api.call('getSavedMigrations')
       ]);
-      if (invResult.success) setWorkspaces(invResult.data.workspaces || []);
+      if (invResult.success) {
+        const ws = (invResult.data.workspaces || []).sort((a, b) => a.name.localeCompare(b.name));
+        setWorkspaces(ws);
+      }
       if (migResult.success) setSavedMigrations(migResult.data || []);
     } catch (e) {
       toast.show(e.message, 'danger');
@@ -934,6 +1302,7 @@ const App = () => {
 
   const tabs = [
     { id: 'inventory', label: 'Inventory', icon: 'clipboard-data' },
+    { id: 'testrun', label: 'Test Run', icon: 'search' },
     { id: 'migration', label: 'Migration', icon: 'arrow-left-right' },
     { id: 'validation', label: 'Validation', icon: 'check2-square' }
   ];
@@ -976,6 +1345,7 @@ const App = () => {
 
         {/* Tab Content */}
         {activeTab === 'inventory' && <InventoryTab />}
+        {activeTab === 'testrun' && <TestRunTab />}
         {activeTab === 'migration' && <MigrationTab />}
         {activeTab === 'validation' && <ValidationTab />}
       </div>

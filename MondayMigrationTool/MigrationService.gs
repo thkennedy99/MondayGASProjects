@@ -1,8 +1,8 @@
 /**
  * MigrationService.gs - Core workspace migration logic.
- * Clones a workspace to a new workspace within the SAME Monday.com account.
- * Since users/guests already exist, people columns are preserved by user ID.
- * No invitation emails are sent.
+ * Clones a workspace to a new workspace — same or different Monday.com account.
+ * For same-account: people columns are preserved by user ID.
+ * For cross-account: a target API key is used for all write operations.
  *
  * Supports selectable migration components:
  *   MANDATORY: boards, columns, items (rows)
@@ -16,10 +16,11 @@ var MIGRATION_COMPONENTS = {
   columns:        { label: 'Columns',           mandatory: true,  description: 'Column definitions (always included)' },
   items:          { label: 'Items (Rows)',      mandatory: true,  description: 'All item data (always included)' },
   groups:         { label: 'Groups',            mandatory: false, description: 'Board groups / sections', defaultOn: true },
-  managedColumns: { label: 'Managed Columns',   mandatory: false, description: 'Preserve account-level managed column links for status/dropdown consistency', defaultOn: true },
+  useTemplates:   { label: 'Template Clone',    mandatory: false, description: 'Use duplicate_board to preserve views, automations, formulas, and managed column links (recommended)', defaultOn: true },
+  managedColumns: { label: 'Managed Columns',   mandatory: false, description: 'Preserve account-level managed column links for status/dropdown consistency (used when Template Clone is off)', defaultOn: true },
   subscribers:    { label: 'Board Subscribers',  mandatory: false, description: 'Add existing users as board subscribers', defaultOn: true },
   guests:         { label: 'Guest Users',        mandatory: false, description: 'Assign guest users to boards', defaultOn: false },
-  documents:      { label: 'Documents',          mandatory: false, description: 'Workspace documents (name only — content requires manual copy)', defaultOn: false }
+  documents:      { label: 'Documents',          mandatory: false, description: 'Export docs as markdown, backup to Google Drive, and recreate in target workspace', defaultOn: true }
 };
 
 /**
@@ -145,6 +146,7 @@ function testMigration(workspaceId, components) {
       ]
     };
 
+    var hasComplexColumns = false;
     boards.forEach(function(board) {
       var itemCount = 0;
       try { itemCount = getBoardItemCount(board.id); } catch (e) {
@@ -157,7 +159,20 @@ function testMigration(workspaceId, components) {
       }
 
       var groupCount = board.groups ? board.groups.length : 0;
-      var columnCount = board.columns ? board.columns.length : 0;
+      // Exclude non-creatable/system column types from count so totals
+      // reflect only what actually gets migrated to the target.
+      var nonCreatableTypes = ['subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
+                               'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
+      var columnCount = (board.columns || []).filter(function(c) {
+        return nonCreatableTypes.indexOf(c.type) < 0;
+      }).length;
+
+      // Detect complex column types that benefit from template cloning
+      var complexTypes = ['mirror', 'board_relation', 'formula', 'auto_number', 'dependency'];
+      var complexCols = (board.columns || []).filter(function(c) {
+        return complexTypes.indexOf(c.type) >= 0;
+      });
+      if (complexCols.length > 0) hasComplexColumns = true;
 
       plan.boards.push({
         id: String(board.id),
@@ -167,7 +182,8 @@ function testMigration(workspaceId, components) {
         columns: columnCount,
         items: itemCount,
         subscribers: subscribers.length,
-        columnTypes: (board.columns || []).map(function(c) { return c.type; })
+        columnTypes: (board.columns || []).map(function(c) { return c.type; }),
+        complexColumns: complexCols.map(function(c) { return { title: c.title, type: c.type }; })
       });
 
       plan.totals.groups += groupCount;
@@ -176,13 +192,37 @@ function testMigration(workspaceId, components) {
       plan.totals.subscribers += subscribers.length;
     });
 
-    // Documents count
+    // Template clone analysis
+    if (components.useTemplates) {
+      plan.useTemplates = true;
+      plan.notes.push('Template Clone is ON: boards will be duplicated via duplicate_board, preserving views, automations, formulas, and managed column links. Only item data will be migrated separately.');
+      if (hasComplexColumns) {
+        plan.notes.push('Complex columns detected (mirror, formula, dependency, etc.) — Template Clone will preserve these correctly.');
+      }
+    }
+
+    // Documents analysis
     if (components.documents) {
       try {
-        var docs = getDocs(workspaceId);
-        plan.totals.documents = docs.length;
+        var docAnalysis = analyzeDocumentsForMigration(workspaceId);
+        plan.totals.documents = docAnalysis.totalCount;
+        plan.documentAnalysis = {
+          totalCount: docAnalysis.totalCount,
+          exportableCount: docAnalysis.exportableCount,
+          emptyCount: docAnalysis.emptyCount,
+          errorCount: docAnalysis.errorCount,
+          totalMarkdownSize: docAnalysis.totalMarkdownSize,
+          docs: docAnalysis.docs
+        };
+        if (docAnalysis.errorCount > 0) {
+          plan.warnings.push(docAnalysis.errorCount + ' document(s) could not be exported and will be skipped.');
+        }
+        if (docAnalysis.totalCount > 0) {
+          var sizeKb = Math.round(docAnalysis.totalMarkdownSize / 1024);
+          plan.notes.push(docAnalysis.exportableCount + ' document(s) will be exported as markdown, backed up to Google Drive, and recreated in the target workspace. (~' + sizeKb + ' KB total)');
+        }
       } catch (e) {
-        plan.warnings.push('Could not fetch document count.');
+        plan.warnings.push('Could not analyze documents: ' + e.toString());
       }
     }
 
@@ -254,12 +294,776 @@ function testMigration(workspaceId, components) {
   }
 }
 
+// ── Target API Helpers ────────────────────────────────────────────────────────
+// These wrappers call the target Monday.com account when a targetApiKey is
+// provided, otherwise they fall back to the source (same-account) API key.
+
+function _targetAPI(targetApiKey, query, variables) {
+  if (targetApiKey) {
+    return callMondayAPIWithKey(targetApiKey, query, variables);
+  }
+  return callMondayAPI(query, variables);
+}
+
+function createWorkspaceOnTarget(targetApiKey, name, kind, description) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($name: String!, $kind: WorkspaceKind!, $desc: String) { create_workspace (name: $name, kind: $kind, description: $desc) { id name } }',
+    { name: name, kind: kind, desc: description || '' }
+  );
+  return data.create_workspace;
+}
+
+function createBoardOnTarget(targetApiKey, name, kind, workspaceId) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($name: String!, $kind: BoardKind!, $wsId: ID) { create_board (board_name: $name, board_kind: $kind, workspace_id: $wsId) { id name } }',
+    { name: name, kind: kind, wsId: workspaceId ? Number(workspaceId) : null }
+  );
+  return data.create_board;
+}
+
+function createFolderOnTarget(targetApiKey, workspaceId, name, parentFolderId, color) {
+  var variables = {
+    wsId: Number(workspaceId),
+    name: name
+  };
+  var args = '$wsId: ID!, $name: String!';
+  var params = 'workspace_id: $wsId, name: $name';
+
+  if (parentFolderId) {
+    variables.parentFolderId = Number(parentFolderId);
+    args += ', $parentFolderId: ID';
+    params += ', parent_folder_id: $parentFolderId';
+  }
+  if (color) {
+    variables.color = color;
+    args += ', $color: FolderColor';
+    params += ', color: $color';
+  }
+
+  var data = _targetAPI(targetApiKey,
+    'mutation (' + args + ') { create_folder (' + params + ') { id name } }',
+    variables
+  );
+  return data.create_folder;
+}
+
+function moveBoardToFolderOnTarget(targetApiKey, boardId, folderId) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($boardId: ID!, $attrs: UpdateBoardHierarchyAttributesInput!) { update_board_hierarchy (board_id: $boardId, attributes: $attrs) { success message } }',
+    { boardId: Number(boardId), attrs: { folder_id: Number(folderId) } }
+  );
+  return data.update_board_hierarchy;
+}
+
+function createGroupOnTarget(targetApiKey, boardId, groupName) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($boardId: ID!, $name: String!) { create_group (board_id: $boardId, group_name: $name) { id title } }',
+    { boardId: Number(boardId), name: groupName }
+  );
+  return data.create_group;
+}
+
+function deleteGroupOnTarget(targetApiKey, boardId, groupId) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($boardId: ID!, $groupId: String!) { delete_group (board_id: $boardId, group_id: $groupId) { id } }',
+    { boardId: Number(boardId), groupId: groupId }
+  );
+  return data.delete_group;
+}
+
+function deleteItemOnTarget(targetApiKey, itemId) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($itemId: ID!) { delete_item (item_id: $itemId) { id } }',
+    { itemId: Number(itemId) }
+  );
+  return data.delete_item;
+}
+
+function getGroupItemsOnTarget(targetApiKey, boardId, groupId) {
+  var data = _targetAPI(targetApiKey,
+    'query ($boardId: [ID!]!) { boards (ids: $boardId) { groups { id title items_page (limit: 50) { items { id name } } } } }',
+    { boardId: [Number(boardId)] }
+  );
+  var board = data.boards && data.boards[0];
+  if (!board) return [];
+  var group = (board.groups || []).find(function(g) { return g.id === groupId; });
+  if (!group || !group.items_page) return [];
+  return group.items_page.items || [];
+}
+
+function createColumnOnTarget(targetApiKey, boardId, title, columnType, defaults) {
+  var variables = {
+    boardId: Number(boardId),
+    title: title,
+    type: columnType
+  };
+
+  var query;
+  if (defaults) {
+    query = 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }';
+    variables.defaults = typeof defaults === 'string' ? defaults : JSON.stringify(defaults);
+  } else {
+    query = 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }';
+  }
+
+  var data = _targetAPI(targetApiKey, query, variables);
+  return data.create_column;
+}
+
+function createItemOnTarget(targetApiKey, boardId, itemName, groupId, columnValues) {
+  var variables = {
+    boardId: Number(boardId),
+    name: itemName,
+    groupId: groupId
+  };
+
+  var query;
+  if (columnValues) {
+    query = 'mutation ($boardId: ID!, $name: String!, $groupId: String, $values: JSON!) { create_item (board_id: $boardId, item_name: $name, group_id: $groupId, column_values: $values) { id name } }';
+    variables.values = JSON.stringify(columnValues);
+  } else {
+    query = 'mutation ($boardId: ID!, $name: String!, $groupId: String) { create_item (board_id: $boardId, item_name: $name, group_id: $groupId) { id name } }';
+  }
+
+  var data = _targetAPI(targetApiKey, query, variables);
+  return data.create_item;
+}
+
+function createSubitemOnTarget(targetApiKey, parentItemId, subitemName, columnValues) {
+  var variables = {
+    parentId: Number(parentItemId),
+    name: subitemName
+  };
+
+  var query;
+  if (columnValues) {
+    query = 'mutation ($parentId: ID!, $name: String!, $values: JSON!) { create_subitem (parent_item_id: $parentId, item_name: $name, column_values: $values) { id name } }';
+    variables.values = JSON.stringify(columnValues);
+  } else {
+    query = 'mutation ($parentId: ID!, $name: String!) { create_subitem (parent_item_id: $parentId, item_name: $name) { id name } }';
+  }
+
+  var data = _targetAPI(targetApiKey, query, variables);
+  return data.create_subitem;
+}
+
+// ── Form Migration Helpers ────────────────────────────────────────────────────
+
+function createFormViewOnTarget(targetApiKey, boardId, viewName) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($boardId: ID!, $name: String, $type: ViewKind!) { create_view (board_id: $boardId, name: $name, type: $type) { id name type view_specific_data_str } }',
+    { boardId: Number(boardId), name: viewName || 'Form', type: 'FORM' }
+  );
+  var view = data.create_view;
+  if (!view) throw new Error('create_view returned null for board ' + boardId);
+
+  var viewData = {};
+  try { viewData = JSON.parse(view.view_specific_data_str || '{}'); } catch (e) {}
+
+  return {
+    viewId: view.id,
+    viewName: view.name,
+    token: viewData.token || null
+  };
+}
+
+function getFormByTokenOnTarget(targetApiKey, formToken) {
+  var data = _targetAPI(targetApiKey,
+    'query ($token: String!) { form (formToken: $token) { id token active title questions { id type title description required visible options { label } settings { display optionsOrder checkedByDefault defaultCurrentDate includeTime } } } }',
+    { token: formToken }
+  );
+  return data.form || null;
+}
+
+function updateFormHeaderOnTarget(targetApiKey, formToken, title, description) {
+  var input = {};
+  if (title) input.title = title;
+  if (description !== undefined && description !== null) input.description = description;
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!, $input: UpdateFormInput!) { update_form (formToken: $token, input: $input) { id token title } }',
+    { token: formToken, input: input }
+  );
+}
+
+function updateFormSettingsOnTarget(targetApiKey, formToken, settings) {
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!, $settings: UpdateFormSettingsInput!) { update_form_settings (formToken: $token, settings: $settings) { id token } }',
+    { token: formToken, settings: settings }
+  );
+}
+
+function updateFormQuestionOnTarget(targetApiKey, formToken, questionId, questionInput) {
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!, $qId: String!, $question: UpdateQuestionInput!) { update_form_question (formToken: $token, questionId: $qId, question: $question) { id } }',
+    { token: formToken, qId: questionId, question: questionInput }
+  );
+}
+
+function updateFormQuestionOrderOnTarget(targetApiKey, formToken, questionOrder) {
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!, $input: UpdateFormInput!) { update_form (formToken: $token, input: $input) { id } }',
+    { token: formToken, input: { questions: questionOrder } }
+  );
+}
+
+function activateFormOnTarget(targetApiKey, formToken) {
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!) { activate_form (formToken: $token) }',
+    { token: formToken }
+  );
+}
+
+function createFormTagOnTarget(targetApiKey, formToken, tagName, tagValue) {
+  return _targetAPI(targetApiKey,
+    'mutation ($token: String!, $tag: CreateFormTagInput!) { create_form_tag (formToken: $token, tag: $tag) { id name value } }',
+    { token: formToken, tag: { name: tagName, value: tagValue } }
+  );
+}
+
+/**
+ * Migrate all forms from a source board to the target board.
+ * @param {string} sourceBoardId
+ * @param {string} targetBoardId
+ * @param {Object} columnMapping - source col ID → { targetId, title, type }
+ * @param {string|null} targetApiKey - null for same-account
+ * @returns {Object} { formsMigrated, formsTotal, details[] }
+ */
+function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetApiKey, migrationId, boardContext) {
+  var formViews = getBoardFormViews(sourceBoardId);
+  if (formViews.length === 0) return { formsMigrated: 0, formsTotal: 0, details: [] };
+
+  console.log('Migration: Found ' + formViews.length + ' form(s) on source board ' + sourceBoardId);
+  var details = [];
+
+  for (var f = 0; f < formViews.length; f++) {
+    var formView = formViews[f];
+    try {
+      console.log('Migration:   Form ' + (f + 1) + '/' + formViews.length + ': "' + formView.viewName + '" (token=' + formView.token + ')');
+
+      // 1. Read full source form config
+      var sourceForm = getFormByToken(formView.token);
+      if (!sourceForm) {
+        console.warn('Migration:   Could not read form with token ' + formView.token);
+        details.push({ name: formView.viewName, status: 'error', error: 'Could not read source form' });
+        continue;
+      }
+
+      // 2. Create form view on target board
+      var targetFormView;
+      if (targetApiKey) {
+        targetFormView = createFormViewOnTarget(targetApiKey, targetBoardId, formView.viewName);
+      } else {
+        targetFormView = createFormViewOnBoard(targetBoardId, formView.viewName);
+      }
+
+      if (!targetFormView.token) {
+        console.warn('Migration:   Form view created but no token returned');
+        details.push({ name: formView.viewName, status: 'error', error: 'No token on new form view' });
+        continue;
+      }
+
+      console.log('Migration:   Target form created: token=' + targetFormView.token);
+      Utilities.sleep(500);
+
+      // 3. Read the auto-created target form to get its default questions
+      var targetForm;
+      if (targetApiKey) {
+        targetForm = getFormByTokenOnTarget(targetApiKey, targetFormView.token);
+      } else {
+        targetForm = getFormByToken(targetFormView.token);
+      }
+
+      // Build a lookup of target question IDs (these correspond to target column IDs)
+      var targetQuestionMap = {};
+      if (targetForm && targetForm.questions) {
+        targetForm.questions.forEach(function(q) { targetQuestionMap[q.id] = q; });
+      }
+
+      // Build reverse column mapping: target col ID → source col ID
+      var targetToSource = {};
+      Object.keys(columnMapping).forEach(function(srcId) {
+        targetToSource[columnMapping[srcId].targetId] = srcId;
+      });
+
+      // 4. Update form title and description
+      try {
+        if (targetApiKey) {
+          updateFormHeaderOnTarget(targetApiKey, targetFormView.token, sourceForm.title, sourceForm.description);
+        } else {
+          updateFormHeader(targetFormView.token, sourceForm.title, sourceForm.description);
+        }
+      } catch (e) {
+        console.warn('Migration:   Could not update form header: ' + e);
+      }
+
+      // 5. Update form settings (features, appearance, accessibility)
+      try {
+        var settings = {};
+
+        // Features — sanitize each sub-object to match FormFeaturesInput schema.
+        // The source form returns extra/null fields that the mutation rejects.
+        if (sourceForm.features) {
+          var features = {};
+          var srcF = sourceForm.features;
+          if (srcF.reCaptchaChallenge != null) features.reCaptchaChallenge = !!srcF.reCaptchaChallenge;
+          if (srcF.draftSubmission && srcF.draftSubmission.enabled != null) {
+            features.draftSubmission = { enabled: !!srcF.draftSubmission.enabled };
+          }
+          if (srcF.requireLogin) {
+            var rl = {};
+            if (srcF.requireLogin.enabled != null) rl.enabled = !!srcF.requireLogin.enabled;
+            if (srcF.requireLogin.redirectToLogin != null) rl.redirectToLogin = !!srcF.requireLogin.redirectToLogin;
+            if (Object.keys(rl).length > 0) features.requireLogin = rl;
+          }
+          if (srcF.responseLimit) {
+            var rsl = {};
+            if (srcF.responseLimit.enabled != null) rsl.enabled = !!srcF.responseLimit.enabled;
+            if (srcF.responseLimit.limit != null && typeof srcF.responseLimit.limit === 'number') {
+              rsl.limit = srcF.responseLimit.limit;
+            }
+            if (Object.keys(rsl).length > 0) features.responseLimit = rsl;
+          }
+          if (srcF.closeDate) {
+            var cd = {};
+            if (srcF.closeDate.enabled != null) cd.enabled = !!srcF.closeDate.enabled;
+            if (srcF.closeDate.date && typeof srcF.closeDate.date === 'string') cd.date = srcF.closeDate.date;
+            if (Object.keys(cd).length > 0) features.closeDate = cd;
+          }
+          if (srcF.preSubmissionView) {
+            var psv = {};
+            if (srcF.preSubmissionView.enabled != null) psv.enabled = !!srcF.preSubmissionView.enabled;
+            if (srcF.preSubmissionView.title) psv.title = srcF.preSubmissionView.title;
+            if (srcF.preSubmissionView.description) psv.description = srcF.preSubmissionView.description;
+            if (srcF.preSubmissionView.startButton && srcF.preSubmissionView.startButton.text) {
+              psv.startButton = { text: srcF.preSubmissionView.startButton.text };
+            }
+            if (Object.keys(psv).length > 0) features.preSubmissionView = psv;
+          }
+          if (srcF.afterSubmissionView) {
+            var asv = {};
+            if (srcF.afterSubmissionView.title) asv.title = srcF.afterSubmissionView.title;
+            if (srcF.afterSubmissionView.description) asv.description = srcF.afterSubmissionView.description;
+            if (srcF.afterSubmissionView.allowResubmit != null) asv.allowResubmit = !!srcF.afterSubmissionView.allowResubmit;
+            if (srcF.afterSubmissionView.showSuccessImage != null) asv.showSuccessImage = !!srcF.afterSubmissionView.showSuccessImage;
+            if (srcF.afterSubmissionView.allowEditSubmission != null) asv.allowEditSubmission = !!srcF.afterSubmissionView.allowEditSubmission;
+            if (srcF.afterSubmissionView.allowViewSubmission != null) asv.allowViewSubmission = !!srcF.afterSubmissionView.allowViewSubmission;
+            if (srcF.afterSubmissionView.redirectAfterSubmission) {
+              asv.redirectAfterSubmission = srcF.afterSubmissionView.redirectAfterSubmission;
+            }
+            if (Object.keys(asv).length > 0) features.afterSubmissionView = asv;
+          }
+          if (srcF.monday) {
+            var mon = {};
+            if (srcF.monday.itemGroupId) mon.itemGroupId = srcF.monday.itemGroupId;
+            if (srcF.monday.includeNameQuestion != null) mon.includeNameQuestion = !!srcF.monday.includeNameQuestion;
+            if (srcF.monday.includeUpdateQuestion != null) mon.includeUpdateQuestion = !!srcF.monday.includeUpdateQuestion;
+            if (srcF.monday.syncQuestionAndColumnsTitles != null) mon.syncQuestionAndColumnsTitles = !!srcF.monday.syncQuestionAndColumnsTitles;
+            if (Object.keys(mon).length > 0) features.monday = mon;
+          }
+          // password is excluded — must use set_form_password mutation separately
+          if (Object.keys(features).length > 0) {
+            settings.features = features;
+          }
+        }
+        if (sourceForm.appearance) {
+          // Sanitize appearance to only include fields from FormAppearanceInput schema.
+          // The source form returns extra read-only fields that the mutation rejects.
+          var appearance = {};
+          var srcApp = sourceForm.appearance;
+          if (srcApp.hideBranding != null) appearance.hideBranding = !!srcApp.hideBranding;
+          if (srcApp.showProgressBar != null) appearance.showProgressBar = !!srcApp.showProgressBar;
+          if (srcApp.primaryColor && typeof srcApp.primaryColor === 'string') appearance.primaryColor = srcApp.primaryColor;
+
+          // layout: { format, alignment, direction }
+          if (srcApp.layout) {
+            var layout = {};
+            if (srcApp.layout.format) layout.format = srcApp.layout.format;
+            if (srcApp.layout.alignment) layout.alignment = srcApp.layout.alignment;
+            if (srcApp.layout.direction) layout.direction = srcApp.layout.direction;
+            if (Object.keys(layout).length > 0) appearance.layout = layout;
+          }
+
+          // background: { type: FormBackgrounds!, value: String }
+          if (srcApp.background && srcApp.background.type) {
+            var validBgTypes = ['Image', 'Color', 'None'];
+            if (validBgTypes.indexOf(srcApp.background.type) >= 0) {
+              var bg = { type: srcApp.background.type };
+              // Only include value when type is Image or Color (not None)
+              if (srcApp.background.type !== 'None' && srcApp.background.value) {
+                bg.value = srcApp.background.value;
+              }
+              appearance.background = bg;
+            }
+          }
+
+          // text: { font, color, size }
+          if (srcApp.text) {
+            var text = {};
+            if (srcApp.text.font) text.font = srcApp.text.font;
+            if (srcApp.text.color) text.color = srcApp.text.color;
+            if (srcApp.text.size) text.size = srcApp.text.size;
+            if (Object.keys(text).length > 0) appearance.text = text;
+          }
+
+          // logo: { position, size }
+          if (srcApp.logo) {
+            var logo = {};
+            if (srcApp.logo.position) logo.position = srcApp.logo.position;
+            if (srcApp.logo.size) logo.size = srcApp.logo.size;
+            if (Object.keys(logo).length > 0) appearance.logo = logo;
+          }
+
+          // submitButton: { text }
+          if (srcApp.submitButton && srcApp.submitButton.text) {
+            appearance.submitButton = { text: srcApp.submitButton.text };
+          }
+
+          if (Object.keys(appearance).length > 0) {
+            settings.appearance = appearance;
+          }
+        }
+        if (sourceForm.accessibility) {
+          // Sanitize accessibility: strip null values (logoAltText must be a string if present)
+          var accessibility = {};
+          if (sourceForm.accessibility.language && typeof sourceForm.accessibility.language === 'string') {
+            accessibility.language = sourceForm.accessibility.language;
+          }
+          if (sourceForm.accessibility.logoAltText && typeof sourceForm.accessibility.logoAltText === 'string') {
+            accessibility.logoAltText = sourceForm.accessibility.logoAltText;
+          }
+          if (Object.keys(accessibility).length > 0) {
+            settings.accessibility = accessibility;
+          }
+        }
+
+        if (Object.keys(settings).length > 0) {
+          if (targetApiKey) {
+            updateFormSettingsOnTarget(targetApiKey, targetFormView.token, settings);
+          } else {
+            updateFormSettings(targetFormView.token, settings);
+          }
+        }
+      } catch (e) {
+        console.warn('Migration:   Could not update form settings: ' + e);
+      }
+
+      // 6. Configure questions — match source questions to target questions via column mapping
+      var questionsConfigured = 0;
+      var questionOrder = [];
+      var totalQuestions = (sourceForm.questions || []).length;
+
+      if (sourceForm.questions) {
+        for (var q = 0; q < sourceForm.questions.length; q++) {
+          var srcQ = sourceForm.questions[q];
+
+          // Report progress for every question (these can be slow with retries)
+          if (migrationId && boardContext) {
+            updateMigrationProgress(migrationId, {
+              message: 'Board ' + boardContext.index + '/' + boardContext.total + ': "' + boardContext.name + '" — form "' + (sourceForm.title || formView.viewName) + '" question ' + (q + 1) + '/' + totalQuestions
+            });
+          }
+
+          // Map source question ID (= source column ID) to target column ID
+          var targetQId = null;
+
+          if (srcQ.id === 'subitems') {
+            // Subitems is not a form-fillable question — skip silently
+            continue;
+          } else if (srcQ.id === 'name') {
+            // System question — same ID on target
+            targetQId = srcQ.id;
+          } else if (columnMapping[srcQ.id]) {
+            targetQId = columnMapping[srcQ.id].targetId;
+          }
+
+          if (targetQId && targetQuestionMap[targetQId]) {
+            // Update the matching target question
+            try {
+              var updateInput = {
+                type: srcQ.type, // Required field — e.g. "Name", "ShortText", "Email", "MultiSelect"
+                visible: srcQ.visible,
+                required: srcQ.required
+              };
+              if (srcQ.description) updateInput.description = srcQ.description;
+              if (srcQ.settings) {
+                var settingsInput = {};
+                if (srcQ.settings.display) settingsInput.display = srcQ.settings.display;
+                if (srcQ.settings.optionsOrder) settingsInput.optionsOrder = srcQ.settings.optionsOrder;
+                if (srcQ.settings.checkedByDefault !== null) settingsInput.checkedByDefault = srcQ.settings.checkedByDefault;
+                if (srcQ.settings.defaultCurrentDate !== null) settingsInput.defaultCurrentDate = srcQ.settings.defaultCurrentDate;
+                if (srcQ.settings.includeTime !== null) settingsInput.includeTime = srcQ.settings.includeTime;
+                if (Object.keys(settingsInput).length > 0) updateInput.settings = settingsInput;
+              }
+
+              if (targetApiKey) {
+                updateFormQuestionOnTarget(targetApiKey, targetFormView.token, targetQId, updateInput);
+              } else {
+                updateFormQuestion(targetFormView.token, targetQId, updateInput);
+              }
+              questionsConfigured++;
+              Utilities.sleep(100);
+            } catch (qErr) {
+              console.warn('Migration:   Could not update question "' + srcQ.title + '": ' + qErr);
+            }
+
+            questionOrder.push({ id: targetQId });
+          } else {
+            console.warn('Migration:   No target match for question "' + srcQ.title + '" (srcId=' + srcQ.id + ')');
+          }
+        }
+      }
+
+      // 7. Set question order
+      if (questionOrder.length > 0) {
+        try {
+          // Include any remaining target questions not in source (append at end)
+          var orderedIds = {};
+          questionOrder.forEach(function(qo) { orderedIds[qo.id] = true; });
+          Object.keys(targetQuestionMap).forEach(function(tqId) {
+            if (!orderedIds[tqId]) {
+              questionOrder.push({ id: tqId });
+            }
+          });
+
+          if (targetApiKey) {
+            updateFormQuestionOrderOnTarget(targetApiKey, targetFormView.token, questionOrder);
+          } else {
+            updateFormQuestionOrder(targetFormView.token, questionOrder);
+          }
+        } catch (e) {
+          console.warn('Migration:   Could not set question order: ' + e);
+        }
+      }
+
+      // 8. Recreate tags
+      if (sourceForm.tags && sourceForm.tags.length > 0) {
+        sourceForm.tags.forEach(function(tag) {
+          try {
+            var tagValue = (tag.value != null) ? String(tag.value) : '';
+            if (targetApiKey) {
+              createFormTagOnTarget(targetApiKey, targetFormView.token, tag.name, tagValue);
+            } else {
+              createFormTag(targetFormView.token, tag.name, tagValue);
+            }
+          } catch (e) {
+            console.warn('Migration:   Could not create tag "' + tag.name + '": ' + e);
+          }
+        });
+      }
+
+      // 9. Activate form if source was active
+      if (sourceForm.active) {
+        try {
+          if (targetApiKey) {
+            activateFormOnTarget(targetApiKey, targetFormView.token);
+          } else {
+            activateForm(targetFormView.token);
+          }
+        } catch (e) {
+          console.warn('Migration:   Could not activate form: ' + e);
+        }
+      }
+
+      console.log('Migration:   Form "' + sourceForm.title + '" migrated successfully (' + questionsConfigured + ' questions configured)');
+      details.push({
+        name: sourceForm.title || formView.viewName,
+        sourceToken: formView.token,
+        targetToken: targetFormView.token,
+        status: 'success',
+        questionsConfigured: questionsConfigured,
+        questionsTotal: (sourceForm.questions || []).length
+      });
+
+    } catch (formError) {
+      console.error('Migration:   Form migration failed for "' + formView.viewName + '": ' + formError);
+      details.push({ name: formView.viewName, status: 'error', error: formError.toString() });
+    }
+
+    Utilities.sleep(300);
+  }
+
+  return {
+    formsMigrated: details.filter(function(d) { return d.status === 'success'; }).length,
+    formsTotal: formViews.length,
+    details: details
+  };
+}
+
+// ── Board Subscriber Helpers ─────────────────────────────────────────────────
+
+function addUsersToBoardOnTarget(targetApiKey, boardId, userIds) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($boardId: ID!, $userIds: [ID!]!) { add_users_to_board (board_id: $boardId, user_ids: $userIds) { id } }',
+    { boardId: Number(boardId), userIds: userIds.map(Number) }
+  );
+  return data.add_users_to_board;
+}
+
+function duplicateBoardStructureOnTarget(targetApiKey, sourceBoardId, targetWorkspaceId, boardName, keepSubscribers) {
+  var variables = {
+    boardId: Number(sourceBoardId),
+    duplicateType: 'duplicate_board_with_structure',
+    wsId: Number(targetWorkspaceId)
+  };
+  if (keepSubscribers) variables.keepSubs = true;
+
+  var args = '$boardId: ID!, $duplicateType: DuplicateBoardType!, $wsId: ID';
+  var params = 'board_id: $boardId, duplicate_type: $duplicateType, workspace_id: $wsId';
+  if (boardName) {
+    variables.boardName = boardName;
+    args += ', $boardName: String';
+    params += ', board_name: $boardName';
+  }
+  if (keepSubscribers) {
+    args += ', $keepSubs: Boolean';
+    params += ', keep_subscribers: $keepSubs';
+  }
+
+  var data = _targetAPI(targetApiKey,
+    'mutation (' + args + ') { duplicate_board (' + params + ') { board { id name columns { id title type } groups { id title } } is_async } }',
+    variables
+  );
+
+  return {
+    board: data.duplicate_board.board,
+    isAsync: data.duplicate_board.is_async
+  };
+}
+
+function attachStatusManagedColumnOnTarget(targetApiKey, boardId, managedColumnId, title, description) {
+  var variables = {
+    boardId: Number(boardId),
+    managedColumnId: managedColumnId
+  };
+  var args = '$boardId: ID!, $managedColumnId: ID!';
+  var params = 'board_id: $boardId, managed_column_id: $managedColumnId';
+
+  if (title) { variables.title = title; args += ', $title: String'; params += ', title: $title'; }
+  if (description) { variables.description = description; args += ', $description: String'; params += ', description: $description'; }
+
+  var data = _targetAPI(targetApiKey,
+    'mutation (' + args + ') { attach_status_managed_column (' + params + ') { id title type } }',
+    variables
+  );
+  return data.attach_status_managed_column;
+}
+
+function attachDropdownManagedColumnOnTarget(targetApiKey, boardId, managedColumnId, title, description) {
+  var variables = {
+    boardId: Number(boardId),
+    managedColumnId: managedColumnId
+  };
+  var args = '$boardId: ID!, $managedColumnId: ID!';
+  var params = 'board_id: $boardId, managed_column_id: $managedColumnId';
+
+  if (title) { variables.title = title; args += ', $title: String'; params += ', title: $title'; }
+  if (description) { variables.description = description; args += ', $description: String'; params += ', description: $description'; }
+
+  var data = _targetAPI(targetApiKey,
+    'mutation (' + args + ') { attach_dropdown_managed_column (' + params + ') { id title type } }',
+    variables
+  );
+  return data.attach_dropdown_managed_column;
+}
+
+function createDocOnTarget(targetApiKey, workspaceId, name, kind, folderId) {
+  var workspace = {
+    workspace_id: Number(workspaceId),
+    name: name || 'Untitled Document'
+  };
+  if (kind) workspace.kind = kind;
+  if (folderId) workspace.folder_id = Number(folderId);
+
+  var data = _targetAPI(targetApiKey,
+    'mutation ($location: CreateDocInput!) { create_doc (location: $location) { id object_id } }',
+    { location: { workspace: workspace } }
+  );
+
+  return data.create_doc;
+}
+
+function addMarkdownToDocOnTarget(targetApiKey, docId, markdown) {
+  var data = _targetAPI(targetApiKey,
+    'mutation ($docId: ID!, $markdown: String!) { add_content_to_doc_from_markdown (docId: $docId, markdown: $markdown) { ids } }',
+    { docId: Number(docId), markdown: markdown }
+  );
+  return data.add_content_to_doc_from_markdown;
+}
+
 // ── Execute Migration ────────────────────────────────────────────────────────
 
 /**
- * Clone a workspace to a new workspace within the same account.
+ * Initialize a migration session — validates inputs, generates ID, stores params.
+ * Returns immediately so the client can start polling before firing runMigration().
+ * @param {Object} params - { sourceWorkspaceId, targetWorkspaceName, targetAccountId, components }
+ * @returns {Object} { success, migrationId }
+ */
+function initMigration(params) {
+  try {
+    if (!params || !params.sourceWorkspaceId) {
+      throw new Error('sourceWorkspaceId is required');
+    }
+
+    var migrationId = generateMigrationId();
+
+    // Store params so runMigration() can retrieve them
+    var json = JSON.stringify(params);
+    PropertiesService.getScriptProperties().setProperty('migParams_' + migrationId, json);
+    try {
+      CacheService.getScriptCache().put('migParams_' + migrationId, json, 600);
+    } catch (e) {}
+
+    // Initialize progress state
+    updateMigrationProgress(migrationId, {
+      state: 'running',
+      percent: 1,
+      message: 'Initializing migration...',
+      sourceWorkspaceId: params.sourceWorkspaceId,
+      isCrossAccount: !!params.targetAccountId
+    });
+
+    return safeReturn({ success: true, migrationId: migrationId });
+  } catch (error) {
+    return handleError('initMigration', error);
+  }
+}
+
+/**
+ * Execute the migration (fire-and-forget from client).
+ * Reads stored params for the given migrationId, then runs the full migration.
+ * @param {string} migrationId
+ */
+function runMigration(migrationId) {
+  try {
+    // Retrieve stored params
+    var paramStr = CacheService.getScriptCache().get('migParams_' + migrationId)
+      || PropertiesService.getScriptProperties().getProperty('migParams_' + migrationId);
+    if (!paramStr) throw new Error('Migration params not found for: ' + migrationId);
+    var params = JSON.parse(paramStr);
+
+    // Clean up stored params
+    CacheService.getScriptCache().remove('migParams_' + migrationId);
+    PropertiesService.getScriptProperties().deleteProperty('migParams_' + migrationId);
+
+    // Delegate to the actual migration logic
+    return _executeMigration(migrationId, params);
+  } catch (error) {
+    if (migrationId) {
+      updateMigrationProgress(migrationId, {
+        state: 'error',
+        percent: 0,
+        message: 'Migration failed: ' + error.toString()
+      });
+    }
+    return handleError('runMigration', error, migrationId);
+  }
+}
+
+/**
+ * Legacy entry point — validates, generates ID, and runs the full migration in one call.
+ * Kept for backward compatibility. New UI should use initMigration() + runMigration().
  * @param {Object} params - {
- *   sourceWorkspaceId, targetWorkspaceName,
+ *   sourceWorkspaceId, targetWorkspaceName, targetApiKey (optional),
  *   components: { groups: true, subscribers: true, guests: false, documents: false }
  * }
  * @returns {Object} { success, migrationId }
@@ -273,9 +1077,38 @@ function startMigration(params) {
     }
 
     migrationId = generateMigrationId();
+    return _executeMigration(migrationId, params);
+  } catch (error) {
+    if (migrationId) {
+      updateMigrationProgress(migrationId, {
+        state: 'error',
+        percent: 0,
+        message: 'Migration failed: ' + error.toString()
+      });
+      logMigrationAction(migrationId, 'ERROR', params.sourceWorkspaceId, '', 'error', error.toString());
+    }
+    return handleError('startMigration', error, migrationId);
+  }
+}
+
+/**
+ * Internal: executes the full migration workflow.
+ */
+function _executeMigration(migrationId, params) {
+  try {
     var sourceWsId = params.sourceWorkspaceId;
     var targetName = params.targetWorkspaceName || null;
     var components = params.components || {};
+    var targetApiKey = params.targetApiKey || (params.targetAccountId ? getTargetApiKeyForAccount(params.targetAccountId) : null) || null;
+    var isCrossAccount = !!targetApiKey;
+
+    console.log('Migration: ═══════════════════════════════════════════════════════');
+    console.log('Migration: STARTING MIGRATION ' + migrationId);
+    console.log('Migration: Source workspace ID: ' + sourceWsId);
+    console.log('Migration: Target name: ' + (targetName || '(auto)'));
+    console.log('Migration: Cross-account: ' + isCrossAccount);
+    console.log('Migration: Components: ' + JSON.stringify(components));
+    console.log('Migration: ═══════════════════════════════════════════════════════');
 
     // Mandatory components are always on
     components.boards = true;
@@ -285,22 +1118,28 @@ function startMigration(params) {
     updateMigrationProgress(migrationId, {
       state: 'running',
       percent: 2,
-      message: 'Initializing migration...',
+      message: 'Initializing migration...' + (isCrossAccount ? ' (cross-account)' : ''),
       sourceWorkspaceId: sourceWsId,
-      components: components
+      components: components,
+      isCrossAccount: isCrossAccount
     });
 
-    logMigrationAction(migrationId, 'START', sourceWsId, '', 'running', params);
+    logMigrationAction(migrationId, 'START', sourceWsId, '', 'running',
+      Object.assign({}, params, { targetApiKey: targetApiKey ? '[REDACTED]' : null }));
 
     // Step 1: Get source workspace info
+    console.log('Migration: Step 1 - Fetching source workspace details...');
     var sourceWs = getWorkspaceDetails(sourceWsId);
-    if (!sourceWs) throw new Error('Source workspace not found');
+    if (!sourceWs) throw new Error('Source workspace not found (ID: ' + sourceWsId + '). Verify the workspace exists and the API key has access.');
+    console.log('Migration: Step 1 DONE - Source: "' + sourceWs.name + '" (kind=' + sourceWs.kind + ')');
 
     updateMigrationProgress(migrationId, { percent: 5, message: 'Creating new workspace...' });
 
-    // Step 2: Create new workspace in same account
+    // Step 2: Create new workspace (in target account if cross-account)
+    console.log('Migration: Step 2 - Creating target workspace...');
     var wsName = targetName || sourceWs.name + ' (Migrated)';
-    var targetWs = createWorkspace(wsName, sourceWs.kind || 'open', sourceWs.description || '');
+    var targetWs = createWorkspaceOnTarget(targetApiKey, wsName, sourceWs.kind || 'open', sourceWs.description || '');
+    console.log('Migration: Step 2 DONE - Target workspace created: "' + wsName + '" (id=' + targetWs.id + ')');
 
     updateMigrationProgress(migrationId, {
       percent: 10,
@@ -309,16 +1148,140 @@ function startMigration(params) {
     });
 
     // Step 3: Get source boards
+    console.log('Migration: Step 3 - Fetching boards from source workspace ' + sourceWsId + '...');
     var sourceBoards = getBoardsInWorkspace(sourceWsId);
-    updateMigrationProgress(migrationId, {
-      boardsTotal: sourceBoards.length,
-      message: 'Found ' + sourceBoards.length + ' boards to migrate.'
+
+    // Filter out subitem boards — these are referenced in parent boards' subtasks column settings
+    // but often report board_kind="public" instead of "sub_items_board"
+    var subitemBoardIds = {};
+    sourceBoards.forEach(function(board) {
+      (board.columns || []).forEach(function(col) {
+        if (col.type === 'subtasks' && col.settings_str) {
+          try {
+            var settings = JSON.parse(col.settings_str);
+            if (settings.boardIds) {
+              settings.boardIds.forEach(function(bid) {
+                subitemBoardIds[String(bid)] = board.name;
+              });
+            }
+          } catch (e) {}
+        }
+      });
+    });
+
+    var filteredBoards = [];
+    var removedSubitemBoards = [];
+    sourceBoards.forEach(function(board) {
+      if (subitemBoardIds[String(board.id)]) {
+        removedSubitemBoards.push(board);
+      } else {
+        filteredBoards.push(board);
+      }
+    });
+
+    if (removedSubitemBoards.length > 0) {
+      console.log('Migration: Filtered out ' + removedSubitemBoards.length + ' subitem boards:');
+      removedSubitemBoards.forEach(function(b) {
+        console.log('Migration:   Subitem board excluded: "' + b.name + '" (id=' + b.id + ', parent="' + subitemBoardIds[String(b.id)] + '")');
+      });
+    }
+
+    sourceBoards = filteredBoards;
+    console.log('Migration: Step 3 DONE - Found ' + sourceBoards.length + ' boards (after excluding ' + removedSubitemBoards.length + ' subitem boards)');
+
+    if (sourceBoards.length === 0) {
+      console.warn('Migration: ⚠ WARNING - 0 boards found in source workspace "' + sourceWs.name + '" (id=' + sourceWsId + ', kind=' + sourceWs.kind + ')');
+      console.warn('Migration: Possible causes:');
+      console.warn('Migration:   1. Workspace genuinely has no boards');
+      console.warn('Migration:   2. API key user is not a member of this closed workspace');
+      console.warn('Migration:   3. All boards are archived (state != active)');
+      console.warn('Migration:   4. Incorrect workspace ID');
+
+      updateMigrationProgress(migrationId, {
+        boardsTotal: 0,
+        message: 'WARNING: No boards found in source workspace "' + sourceWs.name + '". The workspace may be empty or the API key may lack access.',
+        errors: [{ board: 'Workspace', msg: 'No boards found in source workspace "' + sourceWs.name + '" (kind=' + sourceWs.kind + '). If boards exist, check API key permissions.' }]
+      });
+    } else {
+      updateMigrationProgress(migrationId, {
+        boardsTotal: sourceBoards.length,
+        message: 'Found ' + sourceBoards.length + ' boards to migrate.'
+      });
+    }
+
+    // Step 3b: Recreate folder structure from source workspace in target workspace
+    var folderMapping = {}; // source folder ID -> target folder ID
+    var folderList = []; // flattened list of all folders (for name lookup during board moves)
+    try {
+      console.log('Migration: Step 3b - Fetching source workspace folder structure...');
+      updateMigrationProgress(migrationId, { message: 'Scanning workspace folder structure...' });
+      var sourceFolders = getWorkspaceFolders(sourceWsId);
+      if (sourceFolders.length > 0) {
+        console.log('Migration: Found ' + sourceFolders.length + ' top-level folders');
+
+        // Flatten the folder tree into a list with parent references for ordered creation
+        folderList = [];
+        var flattenFolders = function(folders, parentSourceId) {
+          folders.forEach(function(folder) {
+            folderList.push({
+              id: String(folder.id),
+              name: folder.name,
+              color: folder.color || null,
+              parentSourceId: parentSourceId
+            });
+            if (folder.sub_folders && folder.sub_folders.length > 0) {
+              flattenFolders(folder.sub_folders, String(folder.id));
+            }
+          });
+        };
+        flattenFolders(sourceFolders, null);
+
+        console.log('Migration: Total folders (including nested): ' + folderList.length);
+        updateMigrationProgress(migrationId, {
+          message: 'Recreating ' + folderList.length + ' folder(s) in target workspace...'
+        });
+
+        // Create folders in order (parents before children since we flattened depth-first from the tree)
+        for (var fi = 0; fi < folderList.length; fi++) {
+          var sf = folderList[fi];
+          try {
+            var targetParentFolderId = sf.parentSourceId ? (folderMapping[sf.parentSourceId] || null) : null;
+            var newFolder = createFolderOnTarget(targetApiKey, targetWs.id, sf.name, targetParentFolderId, sf.color);
+            folderMapping[sf.id] = String(newFolder.id);
+            console.log('Migration:   Folder created: "' + sf.name + '" (source=' + sf.id + ' → target=' + newFolder.id + (sf.parentSourceId ? ', parent=' + sf.parentSourceId : '') + ')');
+            Utilities.sleep(200);
+          } catch (folderErr) {
+            console.warn('Migration:   Failed to create folder "' + sf.name + '": ' + folderErr);
+            updateMigrationProgress(migrationId, {
+              errors: [{ board: 'Folder: ' + sf.name, msg: folderErr.toString() }]
+            });
+          }
+        }
+        console.log('Migration: Step 3b DONE - Created ' + Object.keys(folderMapping).length + '/' + folderList.length + ' folders');
+      } else {
+        console.log('Migration: Step 3b - No folders in source workspace (boards are at workspace root)');
+      }
+    } catch (folderError) {
+      console.warn('Migration: Step 3b - Folder structure migration failed: ' + folderError);
+      updateMigrationProgress(migrationId, {
+        errors: [{ board: 'Folders', msg: 'Could not recreate folder structure: ' + folderError.toString() }]
+      });
+    }
+
+    // Build a board-to-folder lookup from the source boards
+    var boardFolderLookup = {};
+    sourceBoards.forEach(function(b) {
+      if (b.board_folder_id) {
+        boardFolderLookup[String(b.id)] = String(b.board_folder_id);
+      }
     });
 
     // Step 4: Migrate each board
+    console.log('Migration: Step 4 - Starting board migration loop (' + sourceBoards.length + ' boards)...');
     var boardMapping = [];
     var totalItemsMigrated = 0;
     var totalItemsExpected = 0;
+    var totalSubitemsMigrated = 0;
 
     for (var i = 0; i < sourceBoards.length; i++) {
       var sourceBoard = sourceBoards[i];
@@ -330,13 +1293,37 @@ function startMigration(params) {
         boardsCompleted: i
       });
 
+      var boardContext = { index: i + 1, total: sourceBoards.length, name: sourceBoard.name };
+
       try {
-        var result = migrateBoard(sourceBoard, targetWs.id, components, migrationId);
+        console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - Starting: "' + sourceBoard.name + '" (id=' + sourceBoard.id + ', kind=' + sourceBoard.board_kind + ')');
+        var result = migrateBoard(sourceBoard, targetWs.id, components, migrationId, targetApiKey, boardContext);
         boardMapping.push(result);
         totalItemsMigrated += result.itemsMigrated;
         totalItemsExpected += result.itemsTotal;
+        totalSubitemsMigrated += (result.subitemsMigrated || 0);
+        console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - SUCCESS: "' + sourceBoard.name + '" → target id=' + result.targetBoardId + ' (' + result.itemsMigrated + '/' + result.itemsTotal + ' items, ' + (result.subitemsMigrated || 0) + ' subitems, ' + (result.formsMigrated || 0) + '/' + (result.formsTotal || 0) + ' forms, method=' + (result.migrationMethod || 'manual') + ')');
+
+        // Move board to correct folder if it was in a folder in the source workspace
+        var sourceFolderId = boardFolderLookup[String(sourceBoard.id)];
+        if (sourceFolderId && folderMapping[sourceFolderId] && result.targetBoardId) {
+          try {
+            moveBoardToFolderOnTarget(targetApiKey, result.targetBoardId, folderMapping[sourceFolderId]);
+            // Find folder name for UI display
+            var folderName = '';
+            for (var fi2 = 0; fi2 < folderList.length; fi2++) {
+              if (folderList[fi2].id === sourceFolderId) { folderName = folderList[fi2].name; break; }
+            }
+            result.targetFolderId = folderMapping[sourceFolderId];
+            result.folderName = folderName;
+            console.log('Migration:   Moved board "' + sourceBoard.name + '" to target folder "' + folderName + '" (source folder=' + sourceFolderId + ' → target folder=' + folderMapping[sourceFolderId] + ')');
+          } catch (moveErr) {
+            console.warn('Migration:   Failed to move board "' + sourceBoard.name + '" to folder: ' + moveErr);
+          }
+        }
       } catch (boardError) {
-        console.error('Failed to migrate board ' + sourceBoard.name + ':', boardError);
+        console.error('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - FAILED: "' + sourceBoard.name + '": ' + boardError.toString());
+        console.error('Migration: Board error stack:', boardError.stack || 'no stack');
         boardMapping.push({
           sourceBoardId: String(sourceBoard.id),
           sourceBoardName: sourceBoard.name,
@@ -357,21 +1344,38 @@ function startMigration(params) {
       Utilities.sleep(300);
     }
 
-    // Step 5: Migrate documents (if selected)
+    // Step 5: Migrate documents with Drive backup (if selected)
+    console.log('Migration: Step 4 DONE - Board loop complete. Migrated ' + boardMapping.length + ' boards (' + totalItemsMigrated + '/' + totalItemsExpected + ' items, ' + totalSubitemsMigrated + ' subitems)');
+    console.log('Migration: Board results: ' + JSON.stringify(boardMapping.map(function(b) { return { name: b.sourceBoardName, status: b.status, items: b.itemsMigrated + '/' + b.itemsTotal }; })));
     var docMapping = [];
+    var docMigrationResult = null;
     if (components.documents) {
-      updateMigrationProgress(migrationId, { percent: 90, message: 'Checking documents...' });
+      console.log('Migration: Step 5 - Migrating documents...');
+      updateMigrationProgress(migrationId, { percent: 88, message: 'Migrating documents (export, backup to Drive, import)...' });
       try {
-        var docs = getDocs(sourceWsId);
-        docs.forEach(function(doc) {
-          docMapping.push({
-            sourceDocId: String(doc.id),
-            sourceDocTitle: doc.title,
-            note: 'Document content must be manually copied'
+        docMigrationResult = migrateDocuments(
+          sourceWsId,
+          String(targetWs.id),
+          migrationId,
+          function(msg) {
+            updateMigrationProgress(migrationId, { message: msg });
+          },
+          targetApiKey
+        );
+        docMapping = docMigrationResult.docMapping || [];
+
+        if (docMigrationResult.errors && docMigrationResult.errors.length > 0) {
+          docMigrationResult.errors.forEach(function(e) {
+            updateMigrationProgress(migrationId, {
+              errors: [{ board: 'Doc: ' + (e.docName || e.docId), msg: e.msg }]
+            });
           });
-        });
+        }
       } catch (e) {
-        console.warn('Failed to enumerate documents:', e);
+        console.warn('Document migration failed:', e);
+        updateMigrationProgress(migrationId, {
+          errors: [{ board: 'Documents', msg: e.toString() }]
+        });
       }
     }
 
@@ -380,18 +1384,40 @@ function startMigration(params) {
     saveMigrationMapping(migrationId, sourceWsId, String(targetWs.id), wsName, boardMapping, docMapping);
 
     // Final status
+    var successCount = boardMapping.filter(function(b) { return b.status === 'success'; }).length;
+    var errorCount = boardMapping.filter(function(b) { return b.status !== 'success'; }).length;
     var finalState = boardMapping.every(function(b) { return b.status === 'success'; })
       ? 'completed' : 'completed_with_errors';
+    console.log('Migration: ═══════════════════════════════════════════════════════');
+    console.log('Migration: MIGRATION ' + migrationId + ' FINISHED');
+    console.log('Migration: State: ' + finalState);
+    console.log('Migration: Boards: ' + successCount + ' succeeded, ' + errorCount + ' failed, ' + sourceBoards.length + ' total');
+    console.log('Migration: Items: ' + totalItemsMigrated + ' migrated / ' + totalItemsExpected + ' expected (' + totalSubitemsMigrated + ' subitems)');
+    console.log('Migration: Docs: ' + (docMigrationResult ? docMigrationResult.docsMigrated + ' migrated' : 'skipped'));
+    console.log('Migration: ═══════════════════════════════════════════════════════');
+
+    // Build completion message
+    var foldersCreated = Object.keys(folderMapping).length;
+    var completionMsg = finalState === 'completed'
+      ? 'Migration complete! ' + sourceBoards.length + ' boards cloned to "' + wsName + '".'
+      : 'Migration finished with some errors. Check details.';
+
+    if (foldersCreated > 0) {
+      completionMsg += ' ' + foldersCreated + ' folder(s) recreated.';
+    }
+    if (docMigrationResult && docMigrationResult.docsMigrated > 0) {
+      completionMsg += ' ' + docMigrationResult.docsMigrated + ' document(s) migrated with Drive backup.';
+    }
 
     updateMigrationProgress(migrationId, {
       state: finalState,
       percent: 100,
-      message: finalState === 'completed'
-        ? 'Migration complete! ' + sourceBoards.length + ' boards cloned to "' + wsName + '".'
-        : 'Migration finished with some errors. Check details.',
+      message: completionMsg,
       boardsCompleted: sourceBoards.length,
       itemsTotal: totalItemsExpected,
       itemsMigrated: totalItemsMigrated,
+      foldersCreated: foldersCreated,
+      foldersTotal: folderList.length,
       targetWorkspaceId: String(targetWs.id),
       targetWorkspaceName: wsName,
       boardMapping: boardMapping.map(function(bm) {
@@ -401,12 +1427,25 @@ function startMigration(params) {
           targetBoardId: bm.targetBoardId,
           targetBoardName: bm.targetBoardName,
           status: bm.status,
+          migrationMethod: bm.migrationMethod || 'manual',
           itemsMigrated: bm.itemsMigrated,
           itemsTotal: bm.itemsTotal,
-          managedColumnsAttached: bm.managedColumnsAttached || 0
+          subitemsMigrated: bm.subitemsMigrated || 0,
+          formsMigrated: bm.formsMigrated || 0,
+          formsTotal: bm.formsTotal || 0,
+          managedColumnsAttached: bm.managedColumnsAttached || 0,
+          folderName: bm.folderName || null,
+          targetFolderId: bm.targetFolderId || null
         };
       }),
       docMapping: docMapping,
+      documentMigration: docMigrationResult ? {
+        docsTotal: docMigrationResult.docsTotal,
+        docsMigrated: docMigrationResult.docsMigrated,
+        docsSkipped: docMigrationResult.docsSkipped,
+        driveFolder: docMigrationResult.driveFolder,
+        errors: docMigrationResult.errors
+      } : null,
       endTime: new Date().toISOString()
     });
 
@@ -430,24 +1469,284 @@ function startMigration(params) {
       });
       logMigrationAction(migrationId, 'ERROR', params.sourceWorkspaceId, '', 'error', error.toString());
     }
-    return handleError('startMigration', error, migrationId);
+    return handleError('_executeMigration', error, migrationId);
   }
 }
 
 // ── Board Migration ──────────────────────────────────────────────────────────
 
-function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
+/**
+ * Migrate a single board. Routes to template-based or manual approach.
+ */
+function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey, boardContext) {
+  var result;
+  if (components.useTemplates && !targetApiKey) {
+    // Template clone only works within the same account
+    result = migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, migrationId, boardContext);
+  } else {
+    result = migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey, boardContext);
+  }
+
+  // Migrate forms if the board was migrated successfully
+  if (result.status === 'success' && result.targetBoardId) {
+    try {
+      if (migrationId && boardContext) {
+        updateMigrationProgress(migrationId, {
+          message: 'Board ' + boardContext.index + '/' + boardContext.total + ': "' + boardContext.name + '" — migrating forms...'
+        });
+      }
+      var formResult = migrateBoardForms(
+        result.sourceBoardId,
+        result.targetBoardId,
+        result.columnMapping || {},
+        targetApiKey,
+        migrationId,
+        boardContext
+      );
+      result.formsMigrated = formResult.formsMigrated;
+      result.formsTotal = formResult.formsTotal;
+      result.formDetails = formResult.details;
+      if (formResult.formsTotal > 0) {
+        console.log('Migration: Forms: ' + formResult.formsMigrated + '/' + formResult.formsTotal + ' migrated for board "' + result.sourceBoardName + '"');
+      }
+    } catch (formError) {
+      console.warn('Migration: Form migration failed for board "' + result.sourceBoardName + '": ' + formError);
+      result.formsMigrated = 0;
+      result.formsTotal = -1;
+      result.formError = formError.toString();
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Migrate subitems of a source item to a newly created target parent item.
+ * Subitem column values are written directly (no column mapping needed since
+ * subitems get their own auto-created subitem board on the target).
+ * Returns the count of subitems migrated.
+ */
+function migrateSubitems(sourceItem, targetParentItemId, targetApiKey) {
+  var subitems = sourceItem.subitems || [];
+  if (subitems.length === 0) return 0;
+
+  var migrated = 0;
+  for (var s = 0; s < subitems.length; s++) {
+    var sub = subitems[s];
+    try {
+      // Build column values from the subitem — skip system/computed types
+      var colValues = {};
+      (sub.column_values || []).forEach(function(cv) {
+        if (cv.value) {
+          try {
+            var parsed = JSON.parse(cv.value);
+            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency'];
+            if (skipTypes.indexOf(cv.type) < 0) {
+              colValues[cv.id] = parsed;
+            }
+          } catch (e) {
+            // unparseable value — skip
+          }
+        }
+      });
+
+      if (targetApiKey) {
+        createSubitemOnTarget(
+          targetApiKey,
+          targetParentItemId,
+          sub.name,
+          Object.keys(colValues).length > 0 ? colValues : null
+        );
+      } else {
+        createSubitem(
+          targetParentItemId,
+          sub.name,
+          Object.keys(colValues).length > 0 ? colValues : null
+        );
+      }
+      migrated++;
+      Utilities.sleep(150);
+    } catch (subError) {
+      console.warn('Failed to migrate subitem "' + sub.name + '" under parent "' + sourceItem.name + '": ' + subError);
+    }
+  }
+  return migrated;
+}
+
+/**
+ * Template-based board migration: duplicate_board preserves views, automations,
+ * formulas, managed columns, and column settings. Only items are migrated separately.
+ */
+function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, migrationId, boardContext) {
+  var bc = boardContext || {};
+  var progressPrefix = bc.index ? ('Board ' + bc.index + '/' + bc.total + ': "' + bc.name + '"') : ('"' + sourceBoard.name + '"');
+
+  if (migrationId) {
+    updateMigrationProgress(migrationId, {
+      message: progressPrefix + ' — duplicating board structure (template)...'
+    });
+  }
+
+  // Step 1: Duplicate board structure to target workspace
+  var dupResult = duplicateBoardStructure(
+    sourceBoard.id,
+    targetWorkspaceId,
+    null, // keep original name
+    !!components.subscribers
+  );
+
+  var targetBoard = dupResult.board;
+  if (!targetBoard || !targetBoard.id) {
+    throw new Error('duplicate_board returned no board for: ' + sourceBoard.name);
+  }
+
+  // If async, wait briefly for the board to be ready
+  if (dupResult.isAsync) {
+    Utilities.sleep(3000);
+    // Re-fetch to get columns and groups
+    var refreshed = getBoardOrigin(targetBoard.id);
+    if (refreshed) {
+      targetBoard.columns = refreshed.columns;
+      targetBoard.groups = refreshed.groups;
+    }
+  }
+
+  // Step 2: Get source board structure for mapping
+  var sourceStructure = getBoardStructure(sourceBoard.id);
+  if (!sourceStructure) throw new Error('Could not read board structure for: ' + sourceBoard.name);
+
+  // Step 3: Build column mapping by title (source ID -> target ID)
+  var colMapResult = buildColumnMappingByTitle(sourceStructure.columns, targetBoard.columns);
+  var columnMapping = colMapResult.mapping;
+
+  if (colMapResult.unmapped.length > 0) {
+    console.warn('Unmapped columns for ' + sourceBoard.name + ': ' +
+      colMapResult.unmapped.map(function(c) { return c.title + ' (' + c.type + ')'; }).join(', '));
+  }
+
+  // Step 4: Build group mapping by title
+  var grpMapResult = buildGroupMappingByTitle(sourceStructure.groups, targetBoard.groups);
+  var groupMapping = grpMapResult.mapping;
+
+  // Step 5: Subscribers are handled by duplicate_board's keep_subscribers param
+
+  // Step 6: Migrate items (only writable column values) and their subitems
+  if (migrationId) {
+    updateMigrationProgress(migrationId, {
+      message: progressPrefix + ' — migrating items...'
+    });
+  }
+  var allItems = getAllBoardItems(sourceBoard.id);
+  var itemsTotal = allItems.length;
+  var itemsMigrated = 0;
+  var subitemsMigrated = 0;
+
+  for (var i = 0; i < allItems.length; i++) {
+    var item = allItems[i];
+
+    // Report progress every 10 items or on the first item
+    if (migrationId && (i === 0 || (i + 1) % 10 === 0 || i === allItems.length - 1)) {
+      updateMigrationProgress(migrationId, {
+        message: progressPrefix + ' — migrating items ' + (i + 1) + '/' + itemsTotal
+      });
+    }
+
+    try {
+      var columnValues = {};
+      (item.column_values || []).forEach(function(cv) {
+        var mapped = columnMapping[cv.id];
+        if (cv.value && mapped) {
+          try {
+            var parsed = JSON.parse(cv.value);
+            var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency'];
+            if (skipTypes.indexOf(cv.type) < 0) {
+              columnValues[mapped.targetId] = parsed;
+            }
+          } catch (parseError) {
+            if (cv.text) {
+              columnValues[mapped.targetId] = cv.text;
+            }
+          }
+        }
+      });
+
+      var targetGroupId = null;
+      if (item.group && groupMapping[item.group.id]) {
+        targetGroupId = groupMapping[item.group.id].targetId;
+      }
+
+      var newItem = createItem(
+        targetBoard.id,
+        item.name,
+        targetGroupId,
+        Object.keys(columnValues).length > 0 ? columnValues : null
+      );
+
+      itemsMigrated++;
+
+      // Migrate subitems if present
+      if (item.subitems && item.subitems.length > 0 && newItem && newItem.id) {
+        var subCount = migrateSubitems(item, newItem.id, null);
+        subitemsMigrated += subCount;
+        console.log('Migration:   Migrated ' + subCount + '/' + item.subitems.length + ' subitems for item "' + item.name + '"');
+      }
+
+      Utilities.sleep(150);
+    } catch (itemError) {
+      console.warn('Failed to migrate item "' + item.name + '":', itemError);
+    }
+  }
+
+  return {
+    sourceBoardId: String(sourceBoard.id),
+    sourceBoardName: sourceStructure.name,
+    targetBoardId: String(targetBoard.id),
+    targetBoardName: targetBoard.name,
+    status: 'success',
+    migrationMethod: 'template',
+    itemsMigrated: itemsMigrated,
+    itemsTotal: itemsTotal,
+    columnsMapped: Object.keys(columnMapping).length,
+    columnsSkipped: colMapResult.unmapped.length,
+    groupsMapped: Object.keys(groupMapping).length,
+    subitemsMigrated: subitemsMigrated,
+    managedColumnsAttached: 0, // managed columns preserved automatically via duplicate_board
+    columnMapping: columnMapping,
+    groupMapping: groupMapping,
+    managedColumnMapping: []
+  };
+}
+
+/**
+ * Manual board migration: create board from scratch, add columns individually,
+ * detect and attach managed columns. Original approach.
+ */
+function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey, boardContext) {
+  var bc = boardContext || {};
+  var progressPrefix = bc.index ? ('Board ' + bc.index + '/' + bc.total + ': "' + bc.name + '"') : ('"' + sourceBoard.name + '"');
+
   var structure = getBoardStructure(sourceBoard.id);
   if (!structure) throw new Error('Could not read board structure for: ' + sourceBoard.name);
 
-  // Create board in new workspace
-  var targetBoard = createBoard(
+  // Create board in new workspace (target account if cross-account)
+  if (migrationId) {
+    updateMigrationProgress(migrationId, {
+      message: progressPrefix + ' — creating board...'
+    });
+  }
+  var targetBoard = createBoardOnTarget(
+    targetApiKey,
     structure.name,
     structure.board_kind || 'public',
     targetWorkspaceId
   );
 
   // Detect managed column matches if enabled
+  if (migrationId) {
+    updateMigrationProgress(migrationId, {
+      message: progressPrefix + ' — creating columns...'
+    });
+  }
   var managedColMap = {};
   if (components.managedColumns !== false) {
     try {
@@ -460,14 +1759,29 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
     }
   }
 
-  // Create columns (mandatory — skip system columns)
+  // Create columns (mandatory — skip system columns and non-creatable types)
   var columnMapping = {};
   var managedColumnMapping = [];
   var skippedColumns = [];
-  var systemColumns = ['name', 'subitems', 'item_id'];
+  var systemColumnIds = ['name', 'subitems', 'item_id'];
+  var nonCreatableTypes = ['subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
+                           'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
+  var colTotal = (structure.columns || []).length;
+  var colIndex = 0;
 
   (structure.columns || []).forEach(function(col) {
-    if (systemColumns.indexOf(col.id) >= 0 || systemColumns.indexOf(col.type) >= 0) return;
+    colIndex++;
+    if (migrationId && (colIndex === 1 || colIndex % 5 === 0 || colIndex === colTotal)) {
+      updateMigrationProgress(migrationId, {
+        message: progressPrefix + ' — creating columns ' + colIndex + '/' + colTotal
+      });
+    }
+    if (systemColumnIds.indexOf(col.id) >= 0) return;
+    if (nonCreatableTypes.indexOf(col.type) >= 0) {
+      console.log('Migration: Skipping non-creatable column "' + col.title + '" (type=' + col.type + ')');
+      skippedColumns.push({ id: col.id, title: col.title, type: col.type, error: 'Non-creatable type' });
+      return;
+    }
 
     try {
       var newCol;
@@ -477,9 +1791,9 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
       if (managedMatch) {
         try {
           if (managedMatch.managedColumnType === 'color') {
-            newCol = attachStatusManagedColumn(targetBoard.id, managedMatch.managedColumnId, col.title);
+            newCol = attachStatusManagedColumnOnTarget(targetApiKey, targetBoard.id, managedMatch.managedColumnId, col.title);
           } else {
-            newCol = attachDropdownManagedColumn(targetBoard.id, managedMatch.managedColumnId, col.title);
+            newCol = attachDropdownManagedColumnOnTarget(targetApiKey, targetBoard.id, managedMatch.managedColumnId, col.title);
           }
           managedColumnMapping.push({
             sourceColumnId: col.id,
@@ -497,7 +1811,20 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
         }
       }
 
-      newCol = createColumn(targetBoard.id, col.title, col.type);
+      // Pass column settings (labels, etc.) for status/dropdown columns
+      var defaults = null;
+      if (col.settings_str && col.settings_str !== '{}') {
+        try {
+          var settings = JSON.parse(col.settings_str);
+          if (col.type === 'status' && settings.labels) {
+            defaults = settings;
+          } else if (col.type === 'dropdown' && settings.labels) {
+            defaults = settings;
+          }
+        } catch (parseErr) {}
+      }
+
+      newCol = createColumnOnTarget(targetApiKey, targetBoard.id, col.title, col.type, defaults);
       columnMapping[col.id] = { targetId: newCol.id, title: col.title, type: col.type };
       Utilities.sleep(100);
     } catch (e) {
@@ -511,7 +1838,7 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
   if (components.groups !== false) {
     (structure.groups || []).forEach(function(grp) {
       try {
-        var newGroup = createGroup(targetBoard.id, grp.title);
+        var newGroup = createGroupOnTarget(targetApiKey, targetBoard.id, grp.title);
         groupMapping[grp.id] = { targetId: newGroup.id, title: grp.title };
         Utilities.sleep(100);
       } catch (e) {
@@ -520,8 +1847,47 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
     });
   }
 
-  // Add subscribers (optional — no invitations, users exist)
-  if (components.subscribers) {
+  // Delete the auto-created default group ("Group Title") and its default item ("Task 1")
+  // Monday.com always creates this when a board is manually created via create_board
+  try {
+    var targetBoardGroups = _targetAPI(targetApiKey,
+      'query ($boardId: [ID!]!) { boards (ids: $boardId) { groups { id title items_page (limit: 50) { items { id name } } } } }',
+      { boardId: [Number(targetBoard.id)] }
+    );
+    var tBoard = targetBoardGroups.boards && targetBoardGroups.boards[0];
+    if (tBoard && tBoard.groups) {
+      tBoard.groups.forEach(function(grp) {
+        // Find the default group — it's named "Group Title" and not in our groupMapping values
+        var isMigratedGroup = Object.keys(groupMapping).some(function(key) {
+          return groupMapping[key].targetId === grp.id;
+        });
+        if (!isMigratedGroup) {
+          // Delete items in the default group first
+          var items = (grp.items_page && grp.items_page.items) || [];
+          items.forEach(function(item) {
+            try {
+              deleteItemOnTarget(targetApiKey, item.id);
+              console.log('Deleted default item "' + item.name + '" (id=' + item.id + ') from group "' + grp.title + '"');
+            } catch (delItemErr) {
+              console.warn('Failed to delete default item "' + item.name + '": ' + delItemErr);
+            }
+          });
+          // Now delete the group itself
+          try {
+            deleteGroupOnTarget(targetApiKey, targetBoard.id, grp.id);
+            console.log('Deleted default group "' + grp.title + '" (id=' + grp.id + ') from board ' + targetBoard.id);
+          } catch (delGrpErr) {
+            console.warn('Failed to delete default group "' + grp.title + '": ' + delGrpErr);
+          }
+        }
+      });
+    }
+  } catch (cleanupErr) {
+    console.warn('Failed to clean up default group on board ' + targetBoard.id + ':', cleanupErr);
+  }
+
+  // Add subscribers (optional — only for same-account; skip for cross-account)
+  if (components.subscribers && !targetApiKey) {
     try {
       var subscribers = getBoardSubscribers(sourceBoard.id);
       var subscriberIds = [];
@@ -531,20 +1897,33 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
         }
       });
       if (subscriberIds.length > 0) {
-        addUsersToBoard(targetBoard.id, subscriberIds);
+        addUsersToBoardOnTarget(targetApiKey, targetBoard.id, subscriberIds);
       }
     } catch (e) {
       console.warn('Failed to add subscribers to board ' + structure.name + ':', e);
     }
   }
 
-  // Migrate items (mandatory)
+  // Migrate items (mandatory) and their subitems
+  if (migrationId) {
+    updateMigrationProgress(migrationId, {
+      message: progressPrefix + ' — migrating items...'
+    });
+  }
   var allItems = getAllBoardItems(sourceBoard.id);
   var itemsTotal = allItems.length;
   var itemsMigrated = 0;
+  var subitemsMigrated = 0;
 
   for (var i = 0; i < allItems.length; i++) {
     var item = allItems[i];
+
+    // Report progress every 10 items or on the first item
+    if (migrationId && (i === 0 || (i + 1) % 10 === 0 || i === allItems.length - 1)) {
+      updateMigrationProgress(migrationId, {
+        message: progressPrefix + ' — migrating items ' + (i + 1) + '/' + itemsTotal
+      });
+    }
 
     try {
       var columnValues = {};
@@ -555,8 +1934,12 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
             var parsed = JSON.parse(cv.value);
             var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation'];
             if (skipTypes.indexOf(cv.type) < 0) {
-              // People columns work because user IDs are the same account
-              columnValues[mapped.targetId] = parsed;
+              // For cross-account: people columns won't match (different user IDs)
+              if (targetApiKey && cv.type === 'people') {
+                // Skip people columns for cross-account migration
+              } else {
+                columnValues[mapped.targetId] = parsed;
+              }
             }
           } catch (parseError) {
             if (cv.text) {
@@ -571,7 +1954,8 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
         targetGroupId = groupMapping[item.group.id].targetId;
       }
 
-      createItem(
+      var newItem = createItemOnTarget(
+        targetApiKey,
         targetBoard.id,
         item.name,
         targetGroupId,
@@ -579,6 +1963,14 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
       );
 
       itemsMigrated++;
+
+      // Migrate subitems if present
+      if (item.subitems && item.subitems.length > 0 && newItem && newItem.id) {
+        var subCount = migrateSubitems(item, newItem.id, targetApiKey);
+        subitemsMigrated += subCount;
+        console.log('Migration:   Migrated ' + subCount + '/' + item.subitems.length + ' subitems for item "' + item.name + '"');
+      }
+
       Utilities.sleep(150);
     } catch (itemError) {
       console.warn('Failed to migrate item "' + item.name + '":', itemError);
@@ -591,8 +1983,10 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId) {
     targetBoardId: String(targetBoard.id),
     targetBoardName: structure.name,
     status: 'success',
+    migrationMethod: 'manual',
     itemsMigrated: itemsMigrated,
     itemsTotal: itemsTotal,
+    subitemsMigrated: subitemsMigrated,
     columnsMapped: Object.keys(columnMapping).length,
     columnsSkipped: skippedColumns.length,
     groupsMapped: Object.keys(groupMapping).length,
@@ -738,9 +2132,17 @@ function saveMigrationMapping(migrationId, sourceWsId, targetWsId, targetWsName,
     if (docMapping && docMapping.length > 0) {
       headerRows.push(['']);
       headerRows.push(['=== DOCUMENT MAPPING ===']);
-      headerRows.push(['Source Doc ID', 'Source Doc Title', 'Note']);
+      headerRows.push(['Source Doc ID', 'Source Doc Name', 'Target Doc ID', 'Status', 'Drive File URL', 'Blocks Created', 'Note']);
       docMapping.forEach(function(dm) {
-        headerRows.push([dm.sourceDocId, dm.sourceDocTitle, dm.note]);
+        headerRows.push([
+          dm.sourceDocId,
+          dm.sourceDocName || dm.sourceDocTitle || '',
+          dm.targetDocId || 'N/A',
+          dm.status || '',
+          dm.driveFileUrl || '',
+          dm.blocksCreated || 0,
+          dm.note || ''
+        ]);
       });
     }
 

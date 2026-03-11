@@ -74,12 +74,20 @@ function getWorkspaceInventory(workspaceId) {
         console.warn('Failed to get item count for board ' + board.id + ':', e);
       }
 
+      // Exclude non-creatable/system column types from count so source
+      // totals reflect only what actually gets migrated to the target.
+      var nonCreatableTypes = ['subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
+                               'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
+      var creatableColumns = (board.columns || []).filter(function(col) {
+        return nonCreatableTypes.indexOf(col.type) < 0;
+      });
+
       return {
         id: String(board.id),
         name: board.name,
         kind: board.board_kind || 'public',
         state: board.state || 'active',
-        columnCount: board.columns ? board.columns.length : 0,
+        columnCount: creatableColumns.length,
         groupCount: board.groups ? board.groups.length : 0,
         itemCount: itemCount,
         columns: (board.columns || []).map(function(col) {
