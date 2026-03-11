@@ -19,8 +19,9 @@
 
 var BATCH_MIGRATION_CONFIG = {
   MAX_EXECUTION_MS: 240000,     // 4 minutes — yield before GAS 6-min limit
-  TRIGGER_DELAY_MS: 5000,       // 5 seconds between phases
+  TRIGGER_DELAY_MS: 30000,      // 30 seconds between phases (safe for trigger scheduling)
   STATE_TTL: 21600,             // 6 hours cache TTL
+  CACHE_CHUNK_SIZE: 50000,      // 50KB per cache chunk (CacheService limit: 100KB/value)
   MAX_RETRIES: 2                // Max retries for a failed board
 };
 
@@ -51,17 +52,29 @@ function _getBatchState(migrationId) {
 
 /**
  * Save batch migration state to dual storage.
+ * boardMapping is stored separately in chunked cache to keep state under 9KB.
  */
 function _saveBatchState(migrationId, state) {
   var key = 'migBatch_' + migrationId;
   state.lastUpdate = new Date().toISOString();
 
-  var json = JSON.stringify(state);
+  // Store boardMapping separately (can grow large with many boards)
+  if (state.boardMapping && state.boardMapping.length > 0) {
+    _saveBoardMapping(migrationId, state.boardMapping);
+  }
 
-  // Trim errors if state exceeds 9KB PropertiesService limit
+  // Build a lean state object without boardMapping for Properties storage
+  var leanState = Object.assign({}, state);
+  leanState.boardMapping = undefined; // Don't serialize into state
+  leanState._boardMappingCount = (state.boardMapping || []).length;
+
+  var json = JSON.stringify(leanState);
+
+  // Trim errors if state still exceeds 9KB PropertiesService limit
   if (json.length > 8500) {
-    state.errors = (state.errors || []).slice(-5);
-    json = JSON.stringify(state);
+    leanState.errors = (leanState.errors || []).slice(-5);
+    leanState.folderList = []; // folderList only needed during INIT phase
+    json = JSON.stringify(leanState);
   }
 
   PropertiesService.getScriptProperties().setProperty(key, json);
@@ -71,13 +84,99 @@ function _saveBatchState(migrationId, state) {
 }
 
 /**
- * Clean up batch state after completion.
+ * Read batch migration state and re-attach boardMapping from chunked cache.
+ */
+function _getBatchStateWithMapping(migrationId) {
+  var state = _getBatchState(migrationId);
+  if (!state) return null;
+
+  // Re-attach boardMapping from separate storage
+  state.boardMapping = _getBoardMapping(migrationId) || [];
+  return state;
+}
+
+/**
+ * Save boardMapping to CacheService in chunks (large arrays).
+ */
+function _saveBoardMapping(migrationId, boardMapping) {
+  var prefix = 'migBoardMap_' + migrationId + '_';
+  var cache = CacheService.getScriptCache();
+  var json = JSON.stringify(boardMapping);
+  var totalChunks = Math.ceil(json.length / BATCH_MIGRATION_CONFIG.CACHE_CHUNK_SIZE);
+
+  cache.put(prefix + 'chunks', String(totalChunks), BATCH_MIGRATION_CONFIG.STATE_TTL);
+  for (var i = 0; i < totalChunks; i++) {
+    var start = i * BATCH_MIGRATION_CONFIG.CACHE_CHUNK_SIZE;
+    var end = start + BATCH_MIGRATION_CONFIG.CACHE_CHUNK_SIZE;
+    cache.put(prefix + i, json.substring(start, end), BATCH_MIGRATION_CONFIG.STATE_TTL);
+  }
+
+  // Also persist to Properties as backup (if it fits)
+  if (json.length < 9000) {
+    PropertiesService.getScriptProperties().setProperty(prefix + 'data', json);
+  }
+}
+
+/**
+ * Get boardMapping from chunked cache, with Properties fallback.
+ */
+function _getBoardMapping(migrationId) {
+  var prefix = 'migBoardMap_' + migrationId + '_';
+  var cache = CacheService.getScriptCache();
+
+  // Try cache first
+  var chunksStr = cache.get(prefix + 'chunks');
+  if (chunksStr) {
+    var totalChunks = parseInt(chunksStr);
+    var json = '';
+    var allFound = true;
+    for (var i = 0; i < totalChunks; i++) {
+      var chunk = cache.get(prefix + i);
+      if (!chunk) { allFound = false; break; }
+      json += chunk;
+    }
+    if (allFound) {
+      try { return JSON.parse(json); } catch (e) {}
+    }
+  }
+
+  // Fallback to Properties
+  var stored = PropertiesService.getScriptProperties().getProperty(prefix + 'data');
+  if (stored) {
+    try {
+      var mapping = JSON.parse(stored);
+      // Re-cache for future reads
+      _saveBoardMapping(migrationId, mapping);
+      return mapping;
+    } catch (e) {}
+  }
+
+  return [];
+}
+
+/**
+ * Clean up batch state and boardMapping after completion.
  */
 function _clearBatchState(migrationId) {
   var key = 'migBatch_' + migrationId;
+  var prefix = 'migBoardMap_' + migrationId + '_';
+  var cache = CacheService.getScriptCache();
+  var props = PropertiesService.getScriptProperties();
+
   try {
-    PropertiesService.getScriptProperties().deleteProperty(key);
-    CacheService.getScriptCache().remove(key);
+    props.deleteProperty(key);
+    cache.remove(key);
+
+    // Clean up boardMapping chunks
+    var chunksStr = cache.get(prefix + 'chunks');
+    if (chunksStr) {
+      var totalChunks = parseInt(chunksStr);
+      for (var i = 0; i < totalChunks; i++) {
+        cache.remove(prefix + i);
+      }
+      cache.remove(prefix + 'chunks');
+    }
+    props.deleteProperty(prefix + 'data');
   } catch (e) {}
 }
 
@@ -187,7 +286,7 @@ function _cleanupMigrationTriggers() {
         var tId = key.replace('MIG_TRIGGER_', '');
         var migId = allProps[key];
         var batchState = _getBatchState(migId);
-        if (batchState && batchState.phase !== 'completed' && batchState.phase !== 'error') {
+        if (batchState && batchState.phase !== 'completed' && batchState.phase !== 'error' && batchState.phase !== 'cancelled') {
           activeTriggerIds[tId] = true;
         } else {
           // Stale mapping — clean up
@@ -215,6 +314,62 @@ function _cleanupMigrationTriggers() {
 }
 
 /**
+ * Clean up orphaned batch states and stale trigger mappings.
+ * Call periodically or after batch completion to keep storage clean.
+ * Removes states older than 1 hour that are in terminal states.
+ */
+function cleanupOrphanedMigrationState() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var allProps = props.getProperties();
+    var oneHourAgo = Date.now() - (60 * 60 * 1000);
+    var cleaned = { states: 0, mappings: 0 };
+
+    for (var key in allProps) {
+      // Clean up stale batch states
+      if (key.indexOf('migBatch_') === 0) {
+        try {
+          var state = JSON.parse(allProps[key]);
+          var isTerminal = (state.phase === 'completed' || state.phase === 'error' || state.phase === 'cancelled');
+          var lastUpdate = state.lastUpdate ? new Date(state.lastUpdate).getTime() : 0;
+          if (isTerminal && lastUpdate < oneHourAgo) {
+            var migId = key.replace('migBatch_', '');
+            _clearBatchState(migId);
+            cleaned.states++;
+          }
+        } catch (e) { /* skip malformed */ }
+      }
+
+      // Clean up orphaned trigger mappings (no matching active state)
+      if (key.indexOf('MIG_TRIGGER_') === 0) {
+        var mappedMigId = allProps[key];
+        var stateJson = allProps['migBatch_' + mappedMigId];
+        if (!stateJson) {
+          props.deleteProperty(key);
+          cleaned.mappings++;
+        } else {
+          try {
+            var mappedState = JSON.parse(stateJson);
+            if (mappedState.phase === 'completed' || mappedState.phase === 'error' || mappedState.phase === 'cancelled') {
+              props.deleteProperty(key);
+              cleaned.mappings++;
+            }
+          } catch (e) { /* skip */ }
+        }
+      }
+    }
+
+    if (cleaned.states > 0 || cleaned.mappings > 0) {
+      console.log('Migration: Orphan cleanup: ' + JSON.stringify(cleaned));
+    }
+    return cleaned;
+  } catch (error) {
+    console.error('Migration: Orphan cleanup error:', error);
+    return { states: 0, mappings: 0 };
+  }
+}
+
+/**
  * Emergency cleanup: remove ALL migration triggers and batch state.
  * Run from the Apps Script editor if things get stuck.
  */
@@ -235,6 +390,9 @@ function forceCleanupMigrationBatchData() {
       try { props.deleteProperty(key); result.statesDeleted++; } catch (e) {}
     }
     if (key.indexOf('MIG_TRIGGER_') === 0) {
+      try { props.deleteProperty(key); result.mappingsDeleted++; } catch (e) {}
+    }
+    if (key.indexOf('migBoardMap_') === 0) {
       try { props.deleteProperty(key); result.mappingsDeleted++; } catch (e) {}
     }
   }
@@ -548,6 +706,7 @@ function _phaseInit(migrationId, state) {
 /**
  * Migrate boards one at a time. Yields between boards if approaching
  * the execution time limit, then schedules a continuation trigger.
+ * Retries failed boards up to MAX_RETRIES times before moving on.
  */
 function _phaseBoards(migrationId, state) {
   var sourceBoards = state.sourceBoards || [];
@@ -555,6 +714,9 @@ function _phaseBoards(migrationId, state) {
   var targetApiKey = state.targetApiKey;
   var targetWsId = state.targetWsId;
   var phaseStart = Date.now();
+
+  // Re-attach boardMapping from chunked cache
+  state.boardMapping = _getBoardMapping(migrationId) || [];
 
   console.log('Migration: BOARDS phase — starting at board ' + (state.boardIndex + 1) + '/' + sourceBoards.length);
 
@@ -569,6 +731,22 @@ function _phaseBoards(migrationId, state) {
       return; // Yield — trigger will resume
     }
 
+    // Check for cancellation mid-loop
+    var progressStr = CacheService.getScriptCache().get('mig_' + migrationId)
+      || PropertiesService.getScriptProperties().getProperty('mig_' + migrationId);
+    if (progressStr) {
+      try {
+        var progressCheck = JSON.parse(progressStr);
+        if (progressCheck.state === 'cancelled') {
+          console.log('Migration: Cancelled during board loop at board ' + (state.boardIndex + 1));
+          state.phase = 'cancelled';
+          _saveBatchState(migrationId, state);
+          _cleanupMigrationTriggers();
+          return;
+        }
+      } catch (e) {}
+    }
+
     var i = state.boardIndex;
     var boardInfo = sourceBoards[i];
     var boardPercent = 10 + Math.floor(((i + 1) / sourceBoards.length) * 75);
@@ -581,57 +759,81 @@ function _phaseBoards(migrationId, state) {
 
     var boardContext = { index: i + 1, total: sourceBoards.length, name: boardInfo.name };
 
-    try {
-      console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - Starting: "' + boardInfo.name + '"');
+    // Retry logic for board migration
+    var boardSuccess = false;
+    var boardRetries = 0;
 
-      // Re-fetch full board structure (not stored in state to keep it small)
-      var fullBoard = _fetchFullBoard(boardInfo.id);
-      if (!fullBoard) throw new Error('Could not fetch board structure for id=' + boardInfo.id);
+    while (!boardSuccess && boardRetries <= BATCH_MIGRATION_CONFIG.MAX_RETRIES) {
+      try {
+        if (boardRetries > 0) {
+          console.log('Migration: Retrying board "' + boardInfo.name + '" (attempt ' + (boardRetries + 1) + '/' + (BATCH_MIGRATION_CONFIG.MAX_RETRIES + 1) + ')');
+          updateMigrationProgress(migrationId, {
+            message: 'Retrying board ' + (i + 1) + '/' + sourceBoards.length + ': ' + boardInfo.name + ' (attempt ' + (boardRetries + 1) + ')'
+          });
+          // Exponential backoff: 2s, 4s
+          Utilities.sleep(Math.pow(2, boardRetries) * 1000);
+        } else {
+          console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - Starting: "' + boardInfo.name + '"');
+        }
 
-      var result = migrateBoard(fullBoard, targetWsId, components, migrationId, targetApiKey, boardContext);
-      state.boardMapping.push(_summarizeBoardResult(result));
-      state.totalItemsMigrated += result.itemsMigrated;
-      state.totalItemsExpected += result.itemsTotal;
-      state.totalSubitemsMigrated += (result.subitemsMigrated || 0);
+        // Re-fetch full board structure (not stored in state to keep it small)
+        var fullBoard = _fetchFullBoard(boardInfo.id);
+        if (!fullBoard) throw new Error('Could not fetch board structure for id=' + boardInfo.id);
 
-      console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - SUCCESS: "' + boardInfo.name +
-        '" → ' + result.targetBoardId + ' (' + result.itemsMigrated + '/' + result.itemsTotal + ' items)');
+        var result = migrateBoard(fullBoard, targetWsId, components, migrationId, targetApiKey, boardContext);
+        state.boardMapping.push(_summarizeBoardResult(result));
+        state.totalItemsMigrated += result.itemsMigrated;
+        state.totalItemsExpected += result.itemsTotal;
+        state.totalSubitemsMigrated += (result.subitemsMigrated || 0);
 
-      // Move board to correct folder
-      var sourceFolderId = state.boardFolderLookup[boardInfo.id];
-      if (sourceFolderId && state.folderMapping[sourceFolderId] && result.targetBoardId) {
-        try {
-          moveBoardToFolderOnTarget(targetApiKey, result.targetBoardId, state.folderMapping[sourceFolderId]);
-          var lastResult = state.boardMapping[state.boardMapping.length - 1];
-          lastResult.targetFolderId = state.folderMapping[sourceFolderId];
-          // Find folder name
-          for (var fi = 0; fi < state.folderList.length; fi++) {
-            if (state.folderList[fi].id === sourceFolderId) {
-              lastResult.folderName = state.folderList[fi].name;
-              break;
+        console.log('Migration: Board ' + (i + 1) + '/' + sourceBoards.length + ' - SUCCESS: "' + boardInfo.name +
+          '" → ' + result.targetBoardId + ' (' + result.itemsMigrated + '/' + result.itemsTotal + ' items)');
+
+        // Move board to correct folder
+        var sourceFolderId = state.boardFolderLookup[boardInfo.id];
+        if (sourceFolderId && state.folderMapping[sourceFolderId] && result.targetBoardId) {
+          try {
+            moveBoardToFolderOnTarget(targetApiKey, result.targetBoardId, state.folderMapping[sourceFolderId]);
+            var lastResult = state.boardMapping[state.boardMapping.length - 1];
+            lastResult.targetFolderId = state.folderMapping[sourceFolderId];
+            // Find folder name
+            for (var fi = 0; fi < state.folderList.length; fi++) {
+              if (state.folderList[fi].id === sourceFolderId) {
+                lastResult.folderName = state.folderList[fi].name;
+                break;
+              }
             }
+          } catch (moveErr) {
+            console.warn('Migration: Failed to move board to folder: ' + moveErr);
           }
-        } catch (moveErr) {
-          console.warn('Migration: Failed to move board to folder: ' + moveErr);
+        }
+
+        boardSuccess = true;
+
+      } catch (boardError) {
+        boardRetries++;
+        if (boardRetries > BATCH_MIGRATION_CONFIG.MAX_RETRIES) {
+          console.error('Migration: Board ' + (i + 1) + ' FAILED after ' + boardRetries + ' attempts: ' + boardError.toString());
+          state.boardMapping.push({
+            sourceBoardId: boardInfo.id,
+            sourceBoardName: boardInfo.name,
+            targetBoardId: null,
+            status: 'error',
+            error: boardError.toString(),
+            itemsMigrated: 0,
+            itemsTotal: 0
+          });
+          updateMigrationProgress(migrationId, {
+            errors: [{ board: boardInfo.name, msg: boardError.toString() }]
+          });
+        } else {
+          console.warn('Migration: Board ' + (i + 1) + ' attempt ' + boardRetries + ' failed: ' + boardError.toString());
         }
       }
-    } catch (boardError) {
-      console.error('Migration: Board ' + (i + 1) + ' FAILED: ' + boardError.toString());
-      state.boardMapping.push({
-        sourceBoardId: boardInfo.id,
-        sourceBoardName: boardInfo.name,
-        targetBoardId: null,
-        status: 'error',
-        error: boardError.toString(),
-        itemsMigrated: 0,
-        itemsTotal: 0
-      });
-      updateMigrationProgress(migrationId, {
-        errors: [{ board: boardInfo.name, msg: boardError.toString() }]
-      });
     }
 
     state.boardIndex = i + 1;
+    state.retryCount = 0; // Reset retry count per board
     _saveBatchState(migrationId, state);
     Utilities.sleep(300);
   }
@@ -750,7 +952,13 @@ function _phaseDocuments(migrationId, state) {
 function _phaseFinalize(migrationId, state) {
   console.log('Migration: FINALIZE phase starting...');
 
+  // Re-attach boardMapping from chunked cache
+  state.boardMapping = _getBoardMapping(migrationId) || [];
+
   updateMigrationProgress(migrationId, { percent: 95, message: 'Saving migration mapping...' });
+
+  // Clean up orphaned state from previous runs
+  cleanupOrphanedMigrationState();
 
   // Save mapping to spreadsheet
   saveMigrationMapping(
