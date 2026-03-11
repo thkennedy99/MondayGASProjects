@@ -1001,3 +1001,453 @@ function _getMissingSubscribers(sourceSubs, targetSubs, isCrossAccount, targetAc
 
   return missing;
 }
+
+
+// ── Post-Migration: Populate People Columns ─────────────────────────────────
+
+/**
+ * Populate people columns on migrated boards after users/guests have been
+ * activated in the target account.
+ *
+ * This is designed to run AFTER:
+ *   1. Workspace migration (boards, items, columns created)
+ *   2. User migration (users invited/assigned in target account)
+ *
+ * It reads the original people column values from source boards, maps
+ * source user IDs → target user IDs (by email), and writes the mapped
+ * values to the corresponding target board items.
+ *
+ * @param {Object} params
+ * @param {string} params.sourceWorkspaceId - Source workspace ID
+ * @param {string} params.targetWorkspaceId - Target workspace ID
+ * @param {string} params.targetAccountId   - Target account ID (for API key resolution)
+ * @param {Array}  [params.boardFilter]     - Optional list of source board IDs to process (default: all)
+ * @param {boolean} [params.dryRun]         - If true, report what would change without writing (default: false)
+ * @returns {Object} Result with per-board details
+ */
+function populatePeopleColumns(params) {
+  try {
+    var sourceWorkspaceId = params.sourceWorkspaceId;
+    var targetWorkspaceId = params.targetWorkspaceId;
+    var targetAccountId = params.targetAccountId;
+    var boardFilter = params.boardFilter || null;
+    var dryRun = params.dryRun || false;
+
+    if (!sourceWorkspaceId || !targetWorkspaceId || !targetAccountId) {
+      throw new Error('Missing required parameters: sourceWorkspaceId, targetWorkspaceId, targetAccountId');
+    }
+
+    var targetApiKey = getTargetApiKeyForAccount(targetAccountId);
+    if (!targetApiKey) throw new Error('No API key found for target account: ' + targetAccountId);
+
+    var results = {
+      dryRun: dryRun,
+      boardsProcessed: 0,
+      itemsUpdated: 0,
+      columnsUpdated: 0,
+      usersNotMapped: [],
+      errors: [],
+      boardDetails: []
+    };
+
+    // ── Step 1: Build source→target user ID map (by email) ──
+
+    console.log('PeopleColumns: Building user ID mapping...');
+    var sourceUsers = _getAllSourceAccountUsers();
+    var targetUsers = _getAllUsersOnTarget(targetApiKey);
+
+    var userIdMap = _buildUserIdMap(sourceUsers, targetUsers);
+    console.log('PeopleColumns: Mapped ' + Object.keys(userIdMap).length + ' users by email');
+
+    // ── Step 2: Get board mapping (source → target) ──
+
+    var sourceBoards = getBoardsInWorkspace(sourceWorkspaceId);
+    var targetBoards = _getBoardsInWorkspaceOnTarget(targetWorkspaceId, targetApiKey);
+    var boardNameMap = _buildBoardNameMapping(sourceBoards, targetBoards);
+
+    // ── Step 3: Process each source board ──
+
+    sourceBoards.forEach(function(sb) {
+      var sbId = String(sb.id);
+
+      // Apply board filter if provided
+      if (boardFilter && boardFilter.indexOf(sbId) === -1) return;
+
+      var mapped = boardNameMap[sbId];
+      if (!mapped) {
+        console.log('PeopleColumns: Skipping board "' + sb.name + '" — no target match');
+        return;
+      }
+
+      var boardResult = _populatePeopleColumnsForBoard(
+        sbId, sb.name, mapped.targetBoardId, mapped.targetBoardName,
+        targetApiKey, userIdMap, dryRun, results
+      );
+
+      results.boardDetails.push(boardResult);
+      results.boardsProcessed++;
+    });
+
+    // Deduplicate unmapped users
+    var seenUnmapped = {};
+    results.usersNotMapped = results.usersNotMapped.filter(function(u) {
+      if (seenUnmapped[u.sourceUserId]) return false;
+      seenUnmapped[u.sourceUserId] = true;
+      return true;
+    });
+
+    // Log action
+    logMigrationAction(
+      'people_' + Utilities.getUuid().substring(0, 8),
+      'populate_people_columns' + (dryRun ? '_dryrun' : ''),
+      sourceWorkspaceId,
+      targetWorkspaceId,
+      results.errors.length > 0 ? 'completed_with_errors' : 'completed',
+      {
+        boardsProcessed: results.boardsProcessed,
+        itemsUpdated: results.itemsUpdated,
+        columnsUpdated: results.columnsUpdated,
+        unmappedUsers: results.usersNotMapped.length,
+        errors: results.errors.length
+      }
+    );
+
+    console.log('PeopleColumns: Done — ' + results.itemsUpdated + ' items updated, ' +
+      results.columnsUpdated + ' column values written, ' +
+      results.usersNotMapped.length + ' unmapped users');
+
+    return safeReturn({ success: true, data: results });
+  } catch (error) {
+    return handleError('populatePeopleColumns', error);
+  }
+}
+
+
+/**
+ * Process a single board pair: read source people column values,
+ * map user IDs, and write to the target board items.
+ */
+function _populatePeopleColumnsForBoard(sourceBoardId, sourceBoardName, targetBoardId, targetBoardName, targetApiKey, userIdMap, dryRun, results) {
+  var boardResult = {
+    sourceBoardId: sourceBoardId,
+    sourceBoardName: sourceBoardName,
+    targetBoardId: targetBoardId,
+    targetBoardName: targetBoardName,
+    peopleColumnsFound: 0,
+    itemsUpdated: 0,
+    columnsUpdated: 0,
+    skippedNoMapping: 0,
+    errors: []
+  };
+
+  try {
+    // Get source board structure to identify people columns
+    var structure = getBoardStructure(sourceBoardId);
+    if (!structure) {
+      boardResult.errors.push('Could not read source board structure');
+      return boardResult;
+    }
+
+    var peopleColumns = (structure.columns || []).filter(function(c) {
+      return c.type === 'people';
+    });
+
+    if (peopleColumns.length === 0) {
+      console.log('PeopleColumns: Board "' + sourceBoardName + '" has no people columns — skipping');
+      return boardResult;
+    }
+
+    boardResult.peopleColumnsFound = peopleColumns.length;
+    console.log('PeopleColumns: Board "' + sourceBoardName + '" has ' + peopleColumns.length + ' people column(s)');
+
+    // Build column ID mapping (source → target) by title
+    var targetStructure = _getBoardStructureOnTarget(targetBoardId, targetApiKey);
+    if (!targetStructure) {
+      boardResult.errors.push('Could not read target board structure');
+      return boardResult;
+    }
+
+    var targetColByTitle = {};
+    (targetStructure.columns || []).forEach(function(c) {
+      targetColByTitle[c.title.toLowerCase()] = c;
+    });
+
+    var peopleColMapping = []; // { sourceId, targetId, title }
+    peopleColumns.forEach(function(sc) {
+      var tc = targetColByTitle[sc.title.toLowerCase()];
+      if (tc && tc.type === 'people') {
+        peopleColMapping.push({ sourceId: sc.id, targetId: tc.id, title: sc.title });
+      } else {
+        console.warn('PeopleColumns: People column "' + sc.title + '" not found or type mismatch in target board');
+      }
+    });
+
+    if (peopleColMapping.length === 0) {
+      boardResult.errors.push('No matching people columns found in target board');
+      return boardResult;
+    }
+
+    // Get all source items
+    var sourceItems = getAllBoardItems(sourceBoardId);
+    console.log('PeopleColumns: Read ' + sourceItems.length + ' source items');
+
+    // Get all target items and build name→item map for matching
+    var targetItems = _getAllBoardItemsOnTarget(targetBoardId, targetApiKey);
+    console.log('PeopleColumns: Read ' + targetItems.length + ' target items');
+
+    // Build target item lookup by name+group for matching
+    var targetItemMap = _buildTargetItemLookup(targetItems);
+
+    // Process each source item
+    var processedCount = 0;
+    for (var i = 0; i < sourceItems.length; i++) {
+      var srcItem = sourceItems[i];
+
+      // Find the matching target item
+      var targetItem = _findMatchingTargetItem(srcItem, targetItemMap);
+      if (!targetItem) continue;
+
+      // Extract people column values and map user IDs
+      var columnUpdates = _mapPeopleColumnsForItem(srcItem, peopleColMapping, userIdMap, results);
+
+      if (Object.keys(columnUpdates).length === 0) continue;
+
+      if (dryRun) {
+        boardResult.itemsUpdated++;
+        boardResult.columnsUpdated += Object.keys(columnUpdates).length;
+        continue;
+      }
+
+      // Write mapped people values to target item
+      try {
+        _targetAPI(targetApiKey,
+          'mutation ($itemId: ID!, $boardId: ID!, $values: JSON!) { change_multiple_column_values (item_id: $itemId, board_id: $boardId, column_values: $values) { id } }',
+          { itemId: Number(targetItem.id), boardId: Number(targetBoardId), values: JSON.stringify(columnUpdates) }
+        );
+
+        boardResult.itemsUpdated++;
+        boardResult.columnsUpdated += Object.keys(columnUpdates).length;
+        processedCount++;
+
+        // Rate limit
+        if (processedCount % 10 === 0) {
+          Utilities.sleep(300);
+        } else {
+          Utilities.sleep(100);
+        }
+      } catch (updateErr) {
+        boardResult.errors.push('Failed to update item "' + srcItem.name + '": ' + updateErr.toString());
+        results.errors.push({
+          board: sourceBoardName,
+          item: srcItem.name,
+          error: updateErr.toString()
+        });
+      }
+    }
+
+    results.itemsUpdated += boardResult.itemsUpdated;
+    results.columnsUpdated += boardResult.columnsUpdated;
+
+  } catch (boardErr) {
+    boardResult.errors.push(boardErr.toString());
+    results.errors.push({ board: sourceBoardName, error: boardErr.toString() });
+  }
+
+  return boardResult;
+}
+
+
+/**
+ * Get all users in the source account.
+ */
+function _getAllSourceAccountUsers() {
+  var allUsers = [];
+  var page = 1;
+  while (true) {
+    var data = callMondayAPI(
+      'query ($page: Int!) { users (limit: 100, page: $page) { id name email is_guest enabled } }',
+      { page: page }
+    );
+    var users = data.users || [];
+    if (users.length === 0) break;
+    allUsers = allUsers.concat(users);
+    page++;
+    if (users.length < 100) break;
+    Utilities.sleep(200);
+  }
+  return allUsers.map(function(u) {
+    return { id: String(u.id), name: u.name, email: u.email, isGuest: !!u.is_guest };
+  });
+}
+
+
+/**
+ * Build a map of sourceUserId → targetUserId by matching on email.
+ */
+function _buildUserIdMap(sourceUsers, targetUsers) {
+  var targetByEmail = {};
+  targetUsers.forEach(function(u) {
+    if (u.email) targetByEmail[u.email.toLowerCase()] = String(u.id);
+  });
+
+  var map = {};
+  sourceUsers.forEach(function(u) {
+    if (u.email) {
+      var targetId = targetByEmail[u.email.toLowerCase()];
+      if (targetId) {
+        map[String(u.id)] = targetId;
+      }
+    }
+  });
+
+  return map;
+}
+
+
+/**
+ * Get board structure from the target account.
+ */
+function _getBoardStructureOnTarget(boardId, targetApiKey) {
+  var data = callMondayAPIWithKey(targetApiKey,
+    'query ($boardId: [ID!]) { boards (ids: $boardId) { id name columns { id title type } } }',
+    { boardId: [Number(boardId)] }
+  );
+  return data.boards && data.boards[0] ? data.boards[0] : null;
+}
+
+
+/**
+ * Get all items from a board on the target account using cursor pagination.
+ */
+function _getAllBoardItemsOnTarget(boardId, targetApiKey) {
+  var allItems = [];
+  var cursor = null;
+  var firstPage = true;
+
+  while (true) {
+    var query, variables;
+    if (firstPage) {
+      query = 'query ($boardId: [ID!]) { boards (ids: $boardId) { items_page (limit: 500) { cursor items { id name group { id title } column_values { id type text value } } } } }';
+      variables = { boardId: [Number(boardId)] };
+    } else {
+      query = 'query ($cursor: String!) { next_items_page (cursor: $cursor, limit: 500) { cursor items { id name group { id title } column_values { id type text value } } } }';
+      variables = { cursor: cursor };
+    }
+
+    var data = callMondayAPIWithKey(targetApiKey, query, variables);
+
+    var page;
+    if (firstPage) {
+      page = data.boards[0].items_page;
+      firstPage = false;
+    } else {
+      page = data.next_items_page;
+    }
+
+    allItems = allItems.concat(page.items || []);
+    cursor = page.cursor;
+
+    if (!cursor) break;
+    Utilities.sleep(200);
+  }
+
+  return allItems;
+}
+
+
+/**
+ * Build a lookup structure for target items by name (and group if available).
+ * Returns { byNameAndGroup: { "groupTitle|||itemName": item }, byName: { "itemName": [items] } }
+ */
+function _buildTargetItemLookup(targetItems) {
+  var byNameAndGroup = {};
+  var byName = {};
+
+  targetItems.forEach(function(item) {
+    var groupTitle = item.group ? item.group.title : '';
+    var key = groupTitle + '|||' + item.name;
+    byNameAndGroup[key] = item;
+
+    if (!byName[item.name]) byName[item.name] = [];
+    byName[item.name].push(item);
+  });
+
+  return { byNameAndGroup: byNameAndGroup, byName: byName };
+}
+
+
+/**
+ * Find a matching target item for a source item.
+ * First tries exact name+group match, then falls back to name-only.
+ */
+function _findMatchingTargetItem(sourceItem, targetItemMap) {
+  var groupTitle = sourceItem.group ? sourceItem.group.title : '';
+  var key = groupTitle + '|||' + sourceItem.name;
+
+  // Exact match by name + group
+  if (targetItemMap.byNameAndGroup[key]) {
+    return targetItemMap.byNameAndGroup[key];
+  }
+
+  // Fallback: name-only (take first if unambiguous)
+  var byName = targetItemMap.byName[sourceItem.name];
+  if (byName && byName.length === 1) {
+    return byName[0];
+  }
+
+  return null;
+}
+
+
+/**
+ * For a single source item, extract people column values and map user IDs.
+ * Returns an object of { targetColumnId: { personsAndTeams: [...] } } ready for mutation.
+ */
+function _mapPeopleColumnsForItem(sourceItem, peopleColMapping, userIdMap, results) {
+  var updates = {};
+
+  peopleColMapping.forEach(function(colMap) {
+    // Find this column in the source item
+    var cv = (sourceItem.column_values || []).find(function(c) { return c.id === colMap.sourceId; });
+    if (!cv || !cv.value) return;
+
+    var parsed;
+    try { parsed = JSON.parse(cv.value); } catch (e) { return; }
+
+    var persons = parsed.personsAndTeams;
+    if (!persons || persons.length === 0) return;
+
+    // Map each person/team ID
+    var mappedPersons = [];
+    var hasUnmapped = false;
+
+    persons.forEach(function(p) {
+      var sourceId = String(p.id);
+      var kind = p.kind || 'person';
+
+      if (kind === 'team') {
+        // Teams can't be mapped by user ID — skip for now
+        // (team IDs differ across accounts)
+        return;
+      }
+
+      var targetId = userIdMap[sourceId];
+      if (targetId) {
+        mappedPersons.push({ id: Number(targetId), kind: 'person' });
+      } else {
+        hasUnmapped = true;
+        results.usersNotMapped.push({
+          sourceUserId: sourceId,
+          item: sourceItem.name,
+          column: colMap.title
+        });
+      }
+    });
+
+    if (mappedPersons.length > 0) {
+      updates[colMap.targetId] = { personsAndTeams: mappedPersons };
+    }
+  });
+
+  return updates;
+}

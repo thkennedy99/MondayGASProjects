@@ -1532,7 +1532,12 @@ function migrateSubitems(sourceItem, targetParentItemId, targetApiKey) {
             var parsed = JSON.parse(cv.value);
             var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency', 'file'];
             if (skipTypes.indexOf(cv.type) < 0) {
-              colValues[cv.id] = parsed;
+              // For cross-account: people columns won't match (different user IDs)
+              if (targetApiKey && cv.type === 'people') {
+                // Skip people columns for cross-account — populated post-migration
+              } else {
+                colValues[cv.id] = parsed;
+              }
             }
           } catch (e) {
             // unparseable value — skip
