@@ -383,10 +383,29 @@ function getGroupItemsOnTarget(targetApiKey, boardId, groupId) {
 }
 
 function createColumnOnTarget(targetApiKey, boardId, title, columnType, defaults) {
+  var normalizedType = _normalizeColumnType(columnType);
+
+  // Use typed mutations for status and dropdown columns (generic create_column fails with defaults for these)
+  if (defaults && normalizedType === 'status') {
+    var data = _targetAPI(targetApiKey,
+      'mutation ($boardId: ID!, $title: String!, $defaults: CreateStatusColumnSettingsInput!) { create_status_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+      { boardId: Number(boardId), title: title, defaults: defaults }
+    );
+    return data.create_status_column;
+  }
+  if (defaults && normalizedType === 'dropdown') {
+    var data = _targetAPI(targetApiKey,
+      'mutation ($boardId: ID!, $title: String!, $defaults: CreateDropdownColumnSettingsInput!) { create_dropdown_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+      { boardId: Number(boardId), title: title, defaults: defaults }
+    );
+    return data.create_dropdown_column;
+  }
+
+  // Generic create_column for all other types
   var variables = {
     boardId: Number(boardId),
     title: title,
-    type: _normalizeColumnType(columnType)
+    type: normalizedType
   };
 
   var query;
@@ -2242,15 +2261,30 @@ function prepareTemplatesOnTarget(params) {
         if (regularColumns.length > 0) {
           var colRequests = regularColumns.map(function(col) {
             var defaults = _buildColumnDefaults(col);
+            var normalizedType = _normalizeColumnType(col.type);
+
+            if (defaults && normalizedType === 'status') {
+              return {
+                query: 'mutation ($boardId: ID!, $title: String!, $defaults: CreateStatusColumnSettingsInput!) { create_status_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+                variables: { boardId: Number(targetBoard.id), title: col.title, defaults: defaults }
+              };
+            }
+            if (defaults && normalizedType === 'dropdown') {
+              return {
+                query: 'mutation ($boardId: ID!, $title: String!, $defaults: CreateDropdownColumnSettingsInput!) { create_dropdown_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+                variables: { boardId: Number(targetBoard.id), title: col.title, defaults: defaults }
+              };
+            }
+
             if (defaults) {
               return {
                 query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
-                variables: { boardId: Number(targetBoard.id), title: col.title, type: _normalizeColumnType(col.type), defaults: JSON.stringify(defaults) }
+                variables: { boardId: Number(targetBoard.id), title: col.title, type: normalizedType, defaults: JSON.stringify(defaults) }
               };
             }
             return {
               query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }',
-              variables: { boardId: Number(targetBoard.id), title: col.title, type: _normalizeColumnType(col.type) }
+              variables: { boardId: Number(targetBoard.id), title: col.title, type: normalizedType }
             };
           });
           batchMondayAPICalls(targetApiKey, colRequests, 6);
@@ -2835,11 +2869,28 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
 
     var colRequests = regularColumns.map(function(col) {
       var defaults = _buildColumnDefaults(col);
+      var normalizedType = _normalizeColumnType(col.type);
+
+      // Use typed mutations for status and dropdown columns (generic create_column fails with defaults for these)
+      if (defaults && normalizedType === 'status') {
+        return {
+          query: 'mutation ($boardId: ID!, $title: String!, $defaults: CreateStatusColumnSettingsInput!) { create_status_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+          variables: { boardId: Number(targetBoard.id), title: col.title, defaults: defaults },
+          _resultKey: 'create_status_column'
+        };
+      }
+      if (defaults && normalizedType === 'dropdown') {
+        return {
+          query: 'mutation ($boardId: ID!, $title: String!, $defaults: CreateDropdownColumnSettingsInput!) { create_dropdown_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+          variables: { boardId: Number(targetBoard.id), title: col.title, defaults: defaults },
+          _resultKey: 'create_dropdown_column'
+        };
+      }
 
       var variables = {
         boardId: Number(targetBoard.id),
         title: col.title,
-        type: _normalizeColumnType(col.type)
+        type: normalizedType
       };
 
       var query;
@@ -2850,7 +2901,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
         query = 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }';
       }
 
-      return { query: query, variables: variables };
+      return { query: query, variables: variables, _resultKey: 'create_column' };
     });
 
     // Execute in parallel batches (6 at a time to avoid complexity limits)
@@ -2859,9 +2910,11 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     for (var ci = 0; ci < colResults.length; ci++) {
       var col = regularColumns[ci];
       var result = colResults[ci];
+      var resultKey = colRequests[ci]._resultKey || 'create_column';
 
-      if (result && result.create_column && result.create_column.id) {
-        columnMapping[col.id] = { targetId: result.create_column.id, title: col.title, type: col.type };
+      var colResult = result && result[resultKey];
+      if (colResult && colResult.id) {
+        columnMapping[col.id] = { targetId: colResult.id, title: col.title, type: col.type };
       } else {
         var errMsg = (result && result.error) ? result.error : 'No result';
         console.warn('Skipped column ' + col.title + ' (' + col.type + '): ' + errMsg);
@@ -3673,38 +3726,38 @@ function testColumnCreationFormats() {
     testBoardId = boardData.create_board.id;
     console.log('Created test board: ' + testBoardId);
 
-    // Try creating a dropdown column
+    // Try creating a dropdown column using typed mutation
     try {
-      var ddDefaults = JSON.stringify({ labels: [{ label: 'Alpha' }, { label: 'Beta' }, { label: 'Gamma' }] });
+      var ddDefaults = { labels: [{ label: 'Alpha' }, { label: 'Beta' }, { label: 'Gamma' }] };
       var ddResult = callMondayAPI(
-        'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
-        { boardId: Number(testBoardId), title: 'TestDropdown', type: 'dropdown', defaults: ddDefaults }
+        'mutation ($boardId: ID!, $title: String!, $defaults: CreateDropdownColumnSettingsInput!) { create_dropdown_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+        { boardId: Number(testBoardId), title: 'TestDropdown', defaults: ddDefaults }
       );
-      logTest('Live: create dropdown column with labels',
-        ddResult.create_column && ddResult.create_column.id,
-        'Column ID = ' + (ddResult.create_column && ddResult.create_column.id));
+      logTest('Live: create dropdown column (typed mutation)',
+        ddResult.create_dropdown_column && ddResult.create_dropdown_column.id,
+        'Column ID = ' + (ddResult.create_dropdown_column && ddResult.create_dropdown_column.id));
     } catch (e) {
-      logTest('Live: create dropdown column with labels', false, e.toString());
+      logTest('Live: create dropdown column (typed mutation)', false, e.toString());
     }
 
-    // Try creating a status column with basic labels
+    // Try creating a status column using typed mutation
     try {
-      var stDefaults = JSON.stringify({
+      var stDefaults = {
         labels: [
           { label: 'Todo', color: 'bright_green', index: 0 },
           { label: 'Doing', color: 'working_orange', index: 1 },
           { label: 'Done', color: 'done_green', index: 2 }
         ]
-      });
+      };
       var stResult = callMondayAPI(
-        'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
-        { boardId: Number(testBoardId), title: 'TestStatus', type: 'status', defaults: stDefaults }
+        'mutation ($boardId: ID!, $title: String!, $defaults: CreateStatusColumnSettingsInput!) { create_status_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+        { boardId: Number(testBoardId), title: 'TestStatus', defaults: stDefaults }
       );
-      logTest('Live: create status column with labels',
-        stResult.create_column && stResult.create_column.id,
-        'Column ID = ' + (stResult.create_column && stResult.create_column.id));
+      logTest('Live: create status column (typed mutation)',
+        stResult.create_status_column && stResult.create_status_column.id,
+        'Column ID = ' + (stResult.create_status_column && stResult.create_status_column.id));
     } catch (e) {
-      logTest('Live: create status column with labels', false, e.toString());
+      logTest('Live: create status column (typed mutation)', false, e.toString());
     }
 
     // Try creating a status column using _buildColumnDefaults with real board data
@@ -3724,12 +3777,12 @@ function testColumnCreationFormats() {
       var realColDefaults = _buildColumnDefaults(realCol);
       console.log('Real column defaults: ' + JSON.stringify(realColDefaults));
       var realStResult = callMondayAPI(
-        'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
-        { boardId: Number(testBoardId), title: 'RealStatusTest', type: 'status', defaults: JSON.stringify(realColDefaults) }
+        'mutation ($boardId: ID!, $title: String!, $defaults: CreateStatusColumnSettingsInput!) { create_status_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+        { boardId: Number(testBoardId), title: 'RealStatusTest', defaults: realColDefaults }
       );
       logTest('Live: create status column with REAL mapped colors',
-        realStResult.create_column && realStResult.create_column.id,
-        'Column ID = ' + (realStResult.create_column && realStResult.create_column.id));
+        realStResult.create_status_column && realStResult.create_status_column.id,
+        'Column ID = ' + (realStResult.create_status_column && realStResult.create_status_column.id));
     } catch (e) {
       logTest('Live: create status column with REAL mapped colors', false, e.toString());
     }
