@@ -49,21 +49,10 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
       targetBoardByName[b.name] = b;
     });
 
-    // Detect template linkage on target boards for managed template validation
-    var targetTemplateMap = {}; // targetBoardId → created_from_board_id
-    targetBoards.forEach(function(b) {
-      if (b.created_from_board_id) {
-        targetTemplateMap[String(b.id)] = String(b.created_from_board_id);
-      }
-    });
-
-    // Also check source boards for template linkage (same-account managed templates)
-    var sourceTemplateMap = {}; // sourceBoardId → created_from_board_id
-    sourceBoards.forEach(function(b) {
-      if (b.created_from_board_id) {
-        sourceTemplateMap[String(b.id)] = String(b.created_from_board_id);
-      }
-    });
+    // Template linkage maps (created_from_board_id no longer available in API)
+    // These remain empty — template detection now relies on managed template sets
+    var targetTemplateMap = {};
+    var sourceTemplateMap = {};
 
     var boardComparisons = [];
     var totalSourceItems = 0;
@@ -174,7 +163,7 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
         var targetTemplateBoardId = targetTemplateMap[targetBoardIdStr] || null;
         var sourceTemplateBoardId = sourceTemplateMap[String(sourceBoard.id)] || null;
         var migrationMethod = targetTemplateBoardId ? 'managed_template'
-          : (targetBoard.created_from_board_id ? 'template' : 'manual');
+          : 'manual';
 
         // For managed template boards, extra columns may come from the template itself.
         // Classify extras as template-provided vs truly unexpected.
@@ -507,11 +496,12 @@ function validateBoardItems(sourceBoardId, targetBoardId, options) {
     if (targetApiKey) {
       try {
         var bInfo = callMondayAPIWithKey(targetApiKey,
-          'query ($boardId: [ID!]!) { boards (ids: $boardId) { id created_from_board_id } }',
+          'query ($boardId: [ID!]!) { boards (ids: $boardId) { id } }',
           { boardId: [Number(targetBoardId)] }
         );
         var bi = bInfo.boards && bInfo.boards[0];
-        if (bi && bi.created_from_board_id) targetTemplateBoardId = String(bi.created_from_board_id);
+        // created_from_board_id no longer available — template linkage detected via template sets
+        targetTemplateBoardId = null;
       } catch (e) { /* ignore */ }
     }
 
@@ -583,7 +573,7 @@ function quickValidation(sourceWorkspaceId, targetWorkspaceId, options) {
           itemCount: itemCount,
           groupCount: board.groups ? board.groups.length : 0,
           columnCount: creatableCols.length,
-          createdFromBoardId: board.created_from_board_id ? String(board.created_from_board_id) : null
+          createdFromBoardId: null
         };
       });
       var totalItems = tgtBoardSummaries.reduce(function(s, b) { return s + b.itemCount; }, 0);

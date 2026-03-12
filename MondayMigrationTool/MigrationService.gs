@@ -1867,13 +1867,11 @@ function detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSet
       });
     }
   } else {
-    // Same-account: check created_from_board_id on the source boards
+    // Same-account: created_from_board_id no longer available in Monday.com API.
+    // For same-account managed templates, rely on template sets stored in Script Properties.
+    // Without a template set, all boards are unmapped and will use manual migration.
     sourceBoards.forEach(function(b) {
-      if (b.created_from_board_id) {
-        templateMapping[String(b.id)] = String(b.created_from_board_id);
-      } else {
-        unmappedBoards.push({ id: String(b.id), name: b.name });
-      }
+      unmappedBoards.push({ id: String(b.id), name: b.name });
     });
   }
 
@@ -1935,8 +1933,9 @@ function migrateBoardFromManagedTemplate(sourceBoard, templateBoardId, targetWor
   for (var attempt = 0; attempt < 15; attempt++) {
     Utilities.sleep(2000);
 
-    // Search for a new board with this name in the target workspace
-    var query = 'query ($wsId: [ID!]!) { boards (workspace_ids: $wsId, limit: 200, order_by: created_at) { id name created_from_board_id columns { id title type settings_str } groups { id title } } }';
+    // Search for the newly created board by name in the target workspace
+    // (created_from_board_id no longer available — match by name instead)
+    var query = 'query ($wsId: [ID!]!) { boards (workspace_ids: $wsId, limit: 200, order_by: created_at) { id name columns { id title type settings_str } groups { id title } } }';
     var data;
     if (targetApiKey) {
       data = callMondayAPIWithKey(targetApiKey, query, { wsId: [Number(targetWorkspaceId)] });
@@ -1945,10 +1944,10 @@ function migrateBoardFromManagedTemplate(sourceBoard, templateBoardId, targetWor
     }
 
     var boards = data.boards || [];
-    // Find the board created from our template with the right name
-    for (var bi = 0; bi < boards.length; bi++) {
-      if (String(boards[bi].created_from_board_id) === String(templateBoardId) &&
-          boards[bi].name === sourceBoard.name) {
+    // Find the board with the expected name (use_template creates with same name)
+    // Check from the end since order_by: created_at puts newest last
+    for (var bi = boards.length - 1; bi >= 0; bi--) {
+      if (boards[bi].name === sourceBoard.name) {
         targetBoard = boards[bi];
         break;
       }

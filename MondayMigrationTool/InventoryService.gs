@@ -91,7 +91,7 @@ function getWorkspaceInventory(workspaceId) {
         groupCount: board.groups ? board.groups.length : 0,
         itemCount: itemCount,
         folderId: board.board_folder_id ? String(board.board_folder_id) : null,
-        createdFromBoardId: board.created_from_board_id ? String(board.created_from_board_id) : null,
+        createdFromBoardId: null,
         columns: (board.columns || []).map(function(col) {
           return {
             id: col.id,
@@ -171,9 +171,10 @@ function getBoardInventory(boardId) {
     });
 
     // Check template linkage
-    var createdFromBoardId = board.created_from_board_id ? String(board.created_from_board_id) : null;
+    // created_from_board_id no longer available in Monday.com API
+    var createdFromBoardId = null;
     var templateInfo = null;
-    if (createdFromBoardId) {
+    if (false) {
       templateInfo = { templateBoardId: createdFromBoardId };
       try {
         var tplBoard = getBoardStructure(createdFromBoardId);
