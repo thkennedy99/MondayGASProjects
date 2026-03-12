@@ -824,7 +824,11 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
             if (srcF.afterSubmissionView.allowEditSubmission != null) asv.allowEditSubmission = !!srcF.afterSubmissionView.allowEditSubmission;
             if (srcF.afterSubmissionView.allowViewSubmission != null) asv.allowViewSubmission = !!srcF.afterSubmissionView.allowViewSubmission;
             if (srcF.afterSubmissionView.redirectAfterSubmission) {
-              asv.redirectAfterSubmission = srcF.afterSubmissionView.redirectAfterSubmission;
+              var ras = srcF.afterSubmissionView.redirectAfterSubmission;
+              // Only include if redirectUrl is a valid string — API rejects null/undefined
+              if (ras.redirectUrl && typeof ras.redirectUrl === 'string') {
+                asv.redirectAfterSubmission = ras;
+              }
             }
             if (Object.keys(asv).length > 0) features.afterSubmissionView = asv;
           }
@@ -923,21 +927,15 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
         console.warn('Migration:   Could not update form settings: ' + e);
       }
 
-      // 6. Configure questions — match source questions to target questions via column mapping
+      // 6. Configure questions — batch all updates via fetchAll for speed
       var questionsConfigured = 0;
       var questionOrder = [];
       var totalQuestions = (sourceForm.questions || []).length;
+      var questionBatchRequests = []; // Collect all question update mutations
 
       if (sourceForm.questions) {
         for (var q = 0; q < sourceForm.questions.length; q++) {
           var srcQ = sourceForm.questions[q];
-
-          // Report progress for every question (these can be slow with retries)
-          if (migrationId && boardContext) {
-            updateMigrationProgress(migrationId, {
-              message: 'Board ' + boardContext.index + '/' + boardContext.total + ': "' + boardContext.name + '" — form "' + (sourceForm.title || formView.viewName) + '" question ' + (q + 1) + '/' + totalQuestions
-            });
-          }
 
           // Map source question ID (= source column ID) to target column ID
           var targetQId = null;
@@ -953,38 +951,49 @@ function migrateBoardForms(sourceBoardId, targetBoardId, columnMapping, targetAp
           }
 
           if (targetQId && targetQuestionMap[targetQId]) {
-            // Update the matching target question
-            try {
-              var updateInput = {
-                type: srcQ.type, // Required field — e.g. "Name", "ShortText", "Email", "MultiSelect"
-                visible: srcQ.visible,
-                required: srcQ.required
-              };
-              if (srcQ.description) updateInput.description = srcQ.description;
-              if (srcQ.settings) {
-                var settingsInput = {};
-                if (srcQ.settings.display) settingsInput.display = srcQ.settings.display;
-                if (srcQ.settings.optionsOrder) settingsInput.optionsOrder = srcQ.settings.optionsOrder;
-                if (srcQ.settings.checkedByDefault !== null) settingsInput.checkedByDefault = srcQ.settings.checkedByDefault;
-                if (srcQ.settings.defaultCurrentDate !== null) settingsInput.defaultCurrentDate = srcQ.settings.defaultCurrentDate;
-                if (srcQ.settings.includeTime !== null) settingsInput.includeTime = srcQ.settings.includeTime;
-                if (Object.keys(settingsInput).length > 0) updateInput.settings = settingsInput;
-              }
-
-              if (targetApiKey) {
-                updateFormQuestionOnTarget(targetApiKey, targetFormView.token, targetQId, updateInput);
-              } else {
-                updateFormQuestion(targetFormView.token, targetQId, updateInput);
-              }
-              questionsConfigured++;
-              Utilities.sleep(100);
-            } catch (qErr) {
-              console.warn('Migration:   Could not update question "' + srcQ.title + '": ' + qErr);
+            var updateInput = {
+              type: srcQ.type, // Required field — e.g. "Name", "ShortText", "Email", "MultiSelect"
+              visible: srcQ.visible,
+              required: srcQ.required
+            };
+            if (srcQ.description) updateInput.description = srcQ.description;
+            if (srcQ.settings) {
+              var settingsInput = {};
+              if (srcQ.settings.display) settingsInput.display = srcQ.settings.display;
+              if (srcQ.settings.optionsOrder) settingsInput.optionsOrder = srcQ.settings.optionsOrder;
+              if (srcQ.settings.checkedByDefault !== null) settingsInput.checkedByDefault = srcQ.settings.checkedByDefault;
+              if (srcQ.settings.defaultCurrentDate !== null) settingsInput.defaultCurrentDate = srcQ.settings.defaultCurrentDate;
+              if (srcQ.settings.includeTime !== null) settingsInput.includeTime = srcQ.settings.includeTime;
+              if (Object.keys(settingsInput).length > 0) updateInput.settings = settingsInput;
             }
+
+            questionBatchRequests.push({
+              query: 'mutation ($token: String!, $qId: String!, $question: UpdateQuestionInput!) { update_form_question (formToken: $token, questionId: $qId, question: $question) { id } }',
+              variables: { token: targetFormView.token, qId: targetQId, question: updateInput },
+              _srcTitle: srcQ.title // For error reporting
+            });
 
             questionOrder.push({ id: targetQId });
           } else {
             console.warn('Migration:   No target match for question "' + srcQ.title + '" (srcId=' + srcQ.id + ')');
+          }
+        }
+      }
+
+      // Execute all question updates in parallel batches
+      if (questionBatchRequests.length > 0) {
+        if (migrationId && boardContext) {
+          updateMigrationProgress(migrationId, {
+            message: 'Board ' + boardContext.index + '/' + boardContext.total + ': "' + boardContext.name + '" — configuring ' + questionBatchRequests.length + ' form questions'
+          });
+        }
+        var apiKey = targetApiKey || null;
+        var qResults = batchMondayAPICalls(apiKey, questionBatchRequests, 6);
+        for (var qr = 0; qr < qResults.length; qr++) {
+          if (qResults[qr].success) {
+            questionsConfigured++;
+          } else {
+            console.warn('Migration:   Could not update question "' + questionBatchRequests[qr]._srcTitle + '": ' + (qResults[qr].error || 'unknown'));
           }
         }
       }
