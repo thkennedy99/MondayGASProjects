@@ -376,6 +376,12 @@ function getTargetAccounts() {
 
     var accounts = [];
 
+    // Platform display labels — map API key users to friendly names
+    var PLATFORM_LABELS = {
+      'tkennedy@guidewire.com': 'Tech Alliances Monday Platform',
+      'togreanjr@guidewire.com': 'Guidewire Corporate Monday Platform'
+    };
+
     // Source account
     if (CONFIG.MONDAY_API_KEY) {
       var source = _validateApiKey(CONFIG.MONDAY_API_KEY);
@@ -383,7 +389,7 @@ function getTargetAccounts() {
         accounts.push({
           accountId: source.accountId,
           accountName: source.accountName,
-          userEmail: source.userEmail,
+          displayLabel: PLATFORM_LABELS[source.userEmail] || source.accountName,
           userName: source.userName,
           role: 'source'
         });
@@ -397,7 +403,7 @@ function getTargetAccounts() {
         accounts.push({
           accountId: target.accountId,
           accountName: target.accountName,
-          userEmail: target.userEmail,
+          displayLabel: PLATFORM_LABELS[target.userEmail] || target.accountName,
           userName: target.userName,
           role: 'target'
         });
@@ -679,4 +685,78 @@ function generateMigrationId() {
 
 function safeReturn(data) {
   return JSON.parse(JSON.stringify(data));
+}
+
+// ── Template Management Entry Points ────────────────────────────────────────
+
+/**
+ * Get template sets available for a source workspace + target account.
+ * @param {string} sourceWsId - Source workspace ID
+ * @param {string} targetAccountId - Target account ID (optional, filters by account)
+ * @returns {Object} { success, sets: [...] }
+ */
+function getTemplateSetsForMigration(sourceWsId, targetAccountId) {
+  try {
+    var allSets = listTemplateSets();
+    var filtered = allSets;
+    if (sourceWsId) {
+      filtered = filtered.filter(function(s) { return s.sourceWorkspaceId === String(sourceWsId); });
+    }
+    if (targetAccountId) {
+      // Template sets don't store accountId yet — filter by label if available
+    }
+    return safeReturn({ success: true, sets: filtered });
+  } catch (error) {
+    return handleError('getTemplateSetsForMigration', error);
+  }
+}
+
+/**
+ * Prepare template boards on the target platform for cross-account migration.
+ * Creates skeleton boards with columns/groups, ready for user to add automations.
+ * @param {Object} params - { sourceWorkspaceId, targetAccountId, targetWorkspaceName, selectedBoardIds, setName }
+ * @returns {Object} { success, setId, boards }
+ */
+function initTemplatePreparation(params) {
+  try {
+    return prepareTemplatesOnTarget(params);
+  } catch (error) {
+    return handleError('initTemplatePreparation', error);
+  }
+}
+
+/**
+ * Delete a template set and optionally its boards.
+ * @param {string} setId
+ * @returns {Object} { success }
+ */
+function removeTemplateSet(setId) {
+  try {
+    deleteTemplateSet(setId);
+    return safeReturn({ success: true });
+  } catch (error) {
+    return handleError('removeTemplateSet', error);
+  }
+}
+
+/**
+ * Detect managed templates for boards in a source workspace.
+ * For same-account: checks created_from_board_id on source boards.
+ * @param {string} sourceWsId
+ * @returns {Object} { success, templateMapping, unmappedBoards }
+ */
+function detectWorkspaceTemplates(sourceWsId) {
+  try {
+    var boards = getBoardsInWorkspace(sourceWsId);
+    var result = detectManagedTemplatesForBoards(boards, null, null);
+    return safeReturn({
+      success: true,
+      templateMapping: result.templateMapping,
+      templateCount: Object.keys(result.templateMapping).length,
+      unmappedBoards: result.unmappedBoards,
+      unmappedCount: result.unmappedBoards.length
+    });
+  } catch (error) {
+    return handleError('detectWorkspaceTemplates', error);
+  }
 }

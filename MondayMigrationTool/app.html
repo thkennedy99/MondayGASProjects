@@ -362,10 +362,10 @@ const TargetAccountSelector = ({ selectedAccountId, onAccountChange, label }) =>
         ) : (
           <>
             <select className="form-select" value={selectedAccountId || ''} onChange={e => onAccountChange(e.target.value)}>
-              <option value="">Select destination account...</option>
+              <option value="">Select destination platform...</option>
               {accounts.map(a => (
                 <option key={a.accountId} value={a.accountId}>
-                  {a.accountName} — {a.userEmail}{a.role === 'source' ? ' (source)' : ' (migration target)'}
+                  {a.displayLabel || a.accountName}{a.role === 'source' ? ' (source)' : ' (migration target)'}
                 </option>
               ))}
             </select>
@@ -374,8 +374,8 @@ const TargetAccountSelector = ({ selectedAccountId, onAccountChange, label }) =>
               <div className="alert alert-success mt-3 mb-0 d-flex align-items-center">
                 <div>
                   <strong><i className="bi bi-check-circle me-1" />Destination:</strong>{' '}
-                  {selectedAccount.accountName} ({selectedAccount.userEmail})
-                  <br /><small className="text-muted">Account ID: {selectedAccount.accountId} &middot; {selectedAccount.role === 'source' ? 'Source account' : 'Migration target account'}</small>
+                  {selectedAccount.displayLabel || selectedAccount.accountName}
+                  <br /><small className="text-muted">Account ID: {selectedAccount.accountId} &middot; {selectedAccount.role === 'source' ? 'Source platform' : 'Migration target platform'}</small>
                 </div>
               </div>
             )}
@@ -386,8 +386,7 @@ const TargetAccountSelector = ({ selectedAccountId, onAccountChange, label }) =>
                 <strong>Cross-account notes:</strong>
                 <ul className="mb-0 mt-1">
                   <li>People columns will be <strong>skipped</strong> (user IDs differ between accounts)</li>
-                  <li>Template Clone will use <strong>manual mode</strong> (duplicate_board only works within the same account)</li>
-                  <li>Managed columns may need to be <strong>recreated</strong> in the target account</li>
+                  <li>Enable <strong>Managed Templates</strong> to preserve automations/webhooks via <code>use_template</code></li>
                   <li>Users & guests should be assigned separately via the <strong>Users & Guests</strong> tab after migration</li>
                 </ul>
               </div>
@@ -693,9 +692,16 @@ const MigrationTab = () => {
     groups: true,
     folders: true,
     useTemplates: true,
+    useManagedTemplates: false,
     managedColumns: true,
     documents: true
   });
+
+  // Template management state
+  const [templateStatus, setTemplateStatus] = useState(null);
+  const [templateSets, setTemplateSets] = useState([]);
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [preparingTemplates, setPreparingTemplates] = useState(false);
   const [componentDefs, setComponentDefs] = useState(null);
   const [migrationId, setMigrationId] = useState(null);
   const [progress, setProgress] = useState(null);
@@ -764,7 +770,81 @@ const MigrationTab = () => {
   const handleWorkspaceChange = (wsId) => {
     setSelectedWs(wsId);
     loadBoardsForWorkspace(wsId);
+    setTemplateStatus(null); // Reset template status when workspace changes
   };
+
+  // Detect existing managed templates for boards in the selected workspace
+  const detectTemplates = async () => {
+    if (!selectedWs) return;
+    setTemplateLoading(true);
+    try {
+      const result = await api.call('detectWorkspaceTemplates', selectedWs);
+      if (result.success) {
+        setTemplateStatus(result);
+      } else {
+        toast.show(result.error || 'Failed to detect templates', 'danger');
+      }
+    } catch (e) {
+      toast.show('Template detection failed: ' + e.message, 'danger');
+    }
+    setTemplateLoading(false);
+  };
+
+  // Load template sets for cross-account scenarios
+  const loadTemplateSets = async () => {
+    try {
+      const result = await api.call('getTemplateSetsForMigration', selectedWs, selectedTargetAccount);
+      if (result.success) setTemplateSets(result.sets || []);
+    } catch (e) { console.warn('Failed to load template sets:', e); }
+  };
+
+  // Prepare skeleton templates on target platform (cross-account)
+  const prepareTemplatesOnTarget = async () => {
+    if (!selectedWs || !selectedTargetAccount) {
+      toast.show('Select a source workspace and target account first', 'warning');
+      return;
+    }
+    setPreparingTemplates(true);
+    try {
+      const wsName = workspaces.find(w => w.id === selectedWs)?.name || 'Workspace';
+      const params = {
+        sourceWorkspaceId: selectedWs,
+        targetAccountId: selectedTargetAccount,
+        targetWorkspaceName: wsName + ' Templates',
+        selectedBoardIds: boardSelectorOpen && selectedBoardIds.length > 0 ? selectedBoardIds : null,
+        setName: wsName + ' Template Set'
+      };
+      const result = await api.call('initTemplatePreparation', params);
+      if (result.success) {
+        toast.show('Template boards created on target! Add automations/webhooks, then run migration.', 'success', 8000);
+        loadTemplateSets(); // Refresh the list
+      } else {
+        toast.show(result.error || 'Failed to prepare templates', 'danger');
+      }
+    } catch (e) {
+      toast.show('Template preparation failed: ' + e.message, 'danger');
+    }
+    setPreparingTemplates(false);
+  };
+
+  // Delete a template set
+  const deleteTemplateSetHandler = async (setId) => {
+    try {
+      const result = await api.call('removeTemplateSet', setId);
+      if (result.success) {
+        toast.show('Template set removed', 'success');
+        setTemplateSets(prev => prev.filter(s => s.id !== setId));
+      }
+    } catch (e) { toast.show('Failed to remove template set: ' + e.message, 'danger'); }
+  };
+
+  // When managed templates checkbox is toggled on, auto-detect
+  useEffect(() => {
+    if (components.useManagedTemplates && selectedWs) {
+      detectTemplates();
+      if (selectedTargetAccount) loadTemplateSets();
+    }
+  }, [components.useManagedTemplates, selectedWs, selectedTargetAccount]);
 
   const toggleBoardSelection = (boardId) => {
     setSelectedBoardIds(prev =>
@@ -999,6 +1079,109 @@ const MigrationTab = () => {
                     )}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Managed Templates Section — shown when enabled and workspace selected */}
+          {components.useManagedTemplates && selectedWs && (
+            <div className="col-12">
+              <div className="card border-info">
+                <div className="card-header bg-info bg-opacity-10 d-flex justify-content-between align-items-center">
+                  <span><i className="bi bi-diagram-2 me-1" /> Managed Templates</span>
+                  {templateLoading && <span className="spinner-border spinner-border-sm text-info" />}
+                </div>
+                <div className="card-body">
+                  {/* Same-account: auto-detected templates */}
+                  {templateStatus && !selectedTargetAccount && (
+                    <>
+                      {templateStatus.templateCount > 0 ? (
+                        <div className="alert alert-success mb-2">
+                          <i className="bi bi-check-circle me-1" />
+                          <strong>{templateStatus.templateCount} boards</strong> already linked to managed templates (same account).
+                          These will be created as managed instances automatically.
+                        </div>
+                      ) : (
+                        <div className="alert alert-info mb-2">
+                          <i className="bi bi-info-circle me-1" />
+                          No existing template links detected. Boards will be created using the standard approach.
+                        </div>
+                      )}
+                      {templateStatus.unmappedCount > 0 && (
+                        <div className="alert alert-warning mb-0">
+                          <i className="bi bi-exclamation-triangle me-1" />
+                          <strong>{templateStatus.unmappedCount} boards</strong> have no template link and will use standard creation:
+                          <ul className="mb-0 mt-1">
+                            {templateStatus.unmappedBoards.slice(0, 8).map((b, i) => (
+                              <li key={i}>{b.name || b.id}</li>
+                            ))}
+                            {templateStatus.unmappedBoards.length > 8 && <li>...and {templateStatus.unmappedBoards.length - 8} more</li>}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* Same-account with target selected on same platform */}
+                  {templateStatus && selectedTargetAccount && (() => {
+                    const sourceAcct = accounts => accounts.find(a => a.role === 'source');
+                    return null; // Handled by auto-detect above
+                  })()}
+
+                  {/* Cross-account: template preparation workflow */}
+                  {selectedTargetAccount && (
+                    <>
+                      <p className="mb-2">
+                        <strong>Cross-account template workflow:</strong> Create skeleton template boards on the target platform,
+                        then manually add your automations and webhooks before running the migration.
+                      </p>
+
+                      {/* Existing template sets */}
+                      {templateSets.length > 0 && (
+                        <div className="mb-3">
+                          <h6 className="mb-2">Saved Template Sets</h6>
+                          {templateSets.map(set => (
+                            <div key={set.id} className="d-flex align-items-center justify-content-between border rounded p-2 mb-2">
+                              <div>
+                                <strong>{set.name || set.id}</strong>
+                                <br /><small className="text-muted">
+                                  {set.boards ? set.boards.length : 0} boards &middot; Created {new Date(set.createdAt).toLocaleDateString()}
+                                </small>
+                              </div>
+                              <button className="btn btn-outline-danger btn-sm" onClick={() => deleteTemplateSetHandler(set.id)}>
+                                <i className="bi bi-trash me-1" />Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Prepare templates button */}
+                      <button
+                        className="btn btn-outline-info"
+                        onClick={prepareTemplatesOnTarget}
+                        disabled={preparingTemplates || !selectedWs}
+                      >
+                        {preparingTemplates ? (
+                          <><span className="spinner-border spinner-border-sm me-1" />Creating template boards...</>
+                        ) : (
+                          <><i className="bi bi-plus-circle me-1" />Prepare Template Boards on Target</>
+                        )}
+                      </button>
+                      <div className="form-text mt-1">
+                        Creates skeleton boards with columns and groups on the target platform. After creation, open them in Monday.com to add automations and webhooks.
+                      </div>
+                    </>
+                  )}
+
+                  {/* No target selected */}
+                  {!selectedTargetAccount && !templateStatus && !templateLoading && (
+                    <div className="text-muted">
+                      <i className="bi bi-info-circle me-1" />
+                      Select a workspace above to detect existing managed templates, or select a cross-account target to prepare new templates.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -2672,9 +2855,11 @@ const WelcomePage = ({ onGetStarted }) => {
         'Duplicate boards with all groups and columns',
         'Migrate items, subitems, and updates',
         'Transfer files and attachments',
+        'Optionally create boards as managed template instances to preserve automations/webhooks',
         'Users and guests are NOT migrated in this step'
       ],
-      highlight: 'Structure only — no users or guests are moved yet'
+      highlight: 'Structure only — no users or guests are moved yet',
+      templateNote: true
     },
     {
       num: 4,
@@ -2849,6 +3034,16 @@ const WelcomePage = ({ onGetStarted }) => {
                     color: step.color
                   }}>
                     <i className="bi bi-lightbulb me-1" />{step.highlight}
+                  </div>
+                )}
+                {step.templateNote && (
+                  <div className="mt-2 px-3 py-2 rounded" style={{
+                    background: '#fff3e0',
+                    borderLeft: '3px solid #ff6900',
+                    fontSize: '0.85rem'
+                  }}>
+                    <strong style={{ color: '#e65100' }}><i className="bi bi-diagram-2 me-1" />Managed Templates (optional):</strong>
+                    <span style={{ color: '#6d4c41' }}> For cross-account migrations that need automations or webhooks, enable <em>Managed Templates</em> in the migration config. The tool will create skeleton boards on the target platform — you then manually add your automations/webhooks to those templates before running the full migration. Boards are created as managed instances linked to the template, so future template changes propagate automatically.</span>
                   </div>
                 )}
               </div>

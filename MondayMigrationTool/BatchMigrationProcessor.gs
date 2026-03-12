@@ -637,7 +637,8 @@ function _phaseInit(migrationId, state) {
       id: String(b.id),
       name: b.name,
       board_kind: b.board_kind || 'public',
-      board_folder_id: b.board_folder_id || null
+      board_folder_id: b.board_folder_id || null,
+      created_from_board_id: b.created_from_board_id || null
     };
   });
 
@@ -696,14 +697,31 @@ function _phaseInit(migrationId, state) {
   state.folderMapping = folderMapping;
   state.folderList = folderList;
 
-  // Build board → folder lookup
+  // Build board → folder lookup (source folder ID → target folder ID)
   var boardFolderLookup = {};
   state.sourceBoards.forEach(function(b) {
-    if (b.board_folder_id) {
-      boardFolderLookup[b.id] = String(b.board_folder_id);
+    if (b.board_folder_id && folderMapping[String(b.board_folder_id)]) {
+      boardFolderLookup[b.id] = folderMapping[String(b.board_folder_id)];
     }
   });
   state.boardFolderLookup = boardFolderLookup;
+
+  // Detect managed templates if enabled
+  if (components.useManagedTemplates) {
+    console.log('Migration: Detecting managed templates for source boards...');
+    var templateSetId = components._templateSetId || null;
+    var tplResult = detectManagedTemplatesForBoards(state.sourceBoards, targetApiKey, templateSetId);
+    state.templateMapping = tplResult.templateMapping;
+
+    var mappedCount = Object.keys(tplResult.templateMapping).length;
+    var unmappedCount = tplResult.unmappedBoards.length;
+    console.log('Migration: Template detection — ' + mappedCount + ' boards with templates, ' + unmappedCount + ' standalone');
+
+    if (unmappedCount > 0) {
+      console.log('Migration: Standalone boards (no template): ' +
+        tplResult.unmappedBoards.map(function(b) { return '"' + b.name + '"'; }).join(', '));
+    }
+  }
 
   // Transition to BOARDS phase
   state.phase = 'boards';
@@ -795,6 +813,14 @@ function _phaseBoards(migrationId, state) {
         // Re-fetch full board structure (not stored in state to keep it small)
         var fullBoard = _fetchFullBoard(boardInfo.id);
         if (!fullBoard) throw new Error('Could not fetch board structure for id=' + boardInfo.id);
+
+        // Attach template mapping and folder lookup to components for the board migration
+        if (state.templateMapping) {
+          components._templateMapping = state.templateMapping;
+        }
+        if (state.boardFolderLookup) {
+          components._boardFolderLookup = state.boardFolderLookup;
+        }
 
         var result = migrateBoard(fullBoard, targetWsId, components, migrationId, targetApiKey, boardContext);
         state.boardMapping.push(_summarizeBoardResult(result));

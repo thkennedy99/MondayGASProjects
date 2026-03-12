@@ -752,7 +752,7 @@ function getWorkspaceDetails(workspaceId) {
 function getBoardsInWorkspace(workspaceId) {
   console.log('Migration: Fetching boards for workspace ID: ' + workspaceId);
   var data = callMondayAPI(
-    'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind board_folder_id state columns { id title type settings_str } groups { id title color } } }',
+    'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind board_folder_id state created_from_board_id columns { id title type settings_str } groups { id title color } } }',
     { wsId: [Number(workspaceId)] }
   );
   var allBoards = data.boards || [];
@@ -1799,4 +1799,93 @@ function downloadMondayAsset(publicUrl, fileName) {
   var blob = response.getBlob();
   if (fileName) blob.setName(fileName);
   return blob;
+}
+
+// ── Template Operations ──────────────────────────────────────────────────────
+
+/**
+ * Use a managed template to create a new board instance linked back to the template.
+ * This preserves automations, webhooks, and creates a managed link so template
+ * changes propagate to all instances.
+ *
+ * @param {string|null} apiKey - API key (null = source account)
+ * @param {number} templateId - The template board ID
+ * @param {string} destinationName - Name for the new board instance
+ * @param {number} destinationWorkspaceId - Target workspace ID
+ * @param {number|null} destinationFolderId - Target folder ID (optional)
+ * @returns {Object} { processId } — async operation, poll for completion
+ */
+function useTemplateOnTarget(apiKey, templateId, destinationName, destinationWorkspaceId, destinationFolderId) {
+  var query = 'mutation ($templateId: Int!, $name: String!, $wsId: Int!, $folderId: Int) { use_template (template_id: $templateId, destination_name: $name, destination_workspace_id: $wsId, destination_folder_id: $folderId) { process_id } }';
+  var variables = {
+    templateId: Number(templateId),
+    name: destinationName,
+    wsId: Number(destinationWorkspaceId)
+  };
+  if (destinationFolderId) {
+    variables.folderId = Number(destinationFolderId);
+  }
+
+  var data;
+  if (apiKey) {
+    data = callMondayAPIWithKey(apiKey, query, variables);
+  } else {
+    data = callMondayAPI(query, variables);
+  }
+
+  return {
+    processId: data.use_template ? data.use_template.process_id : null
+  };
+}
+
+/**
+ * Detect boards created from templates by checking created_from_board_id.
+ * Returns a mapping of template board IDs to the boards created from them.
+ *
+ * @param {string|null} apiKey - API key (null = source account)
+ * @param {string} workspaceId - Workspace to scan
+ * @returns {Object} { templateBoards: { templateBoardId: [{ id, name }] }, boardTemplateMap: { boardId: templateBoardId } }
+ */
+function detectTemplateBoardsInWorkspace(apiKey, workspaceId) {
+  var query = 'query ($wsId: [ID!]!) { boards (workspace_ids: $wsId, limit: 200) { id name created_from_board_id board_folder_id state } }';
+  var data;
+  if (apiKey) {
+    data = callMondayAPIWithKey(apiKey, query, { wsId: [Number(workspaceId)] });
+  } else {
+    data = callMondayAPI(query, { wsId: [Number(workspaceId)] });
+  }
+
+  var boards = data.boards || [];
+  var templateBoards = {};  // templateBoardId → [boards created from it]
+  var boardTemplateMap = {}; // boardId → templateBoardId it was created from
+
+  boards.forEach(function(b) {
+    if (b.created_from_board_id && b.state === 'active') {
+      var tplId = String(b.created_from_board_id);
+      if (!templateBoards[tplId]) templateBoards[tplId] = [];
+      templateBoards[tplId].push({ id: String(b.id), name: b.name, folderId: b.board_folder_id });
+      boardTemplateMap[String(b.id)] = tplId;
+    }
+  });
+
+  return { templateBoards: templateBoards, boardTemplateMap: boardTemplateMap };
+}
+
+/**
+ * Get board details including created_from_board_id to check if it's a template instance.
+ * @param {string|null} apiKey - API key (null = source account)
+ * @param {string} boardId - Board ID
+ * @returns {Object} Board with created_from_board_id, columns, groups
+ */
+function getBoardWithTemplateInfo(apiKey, boardId) {
+  var query = 'query ($boardId: [ID!]!) { boards (ids: $boardId) { id name created_from_board_id board_folder_id columns { id title type settings_str } groups { id title } } }';
+  var data;
+  if (apiKey) {
+    data = callMondayAPIWithKey(apiKey, query, { boardId: [Number(boardId)] });
+  } else {
+    data = callMondayAPI(query, { boardId: [Number(boardId)] });
+  }
+
+  var boards = data.boards || [];
+  return boards.length > 0 ? boards[0] : null;
 }

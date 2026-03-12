@@ -12,14 +12,15 @@
 // ── Migration Component Definitions ──────────────────────────────────────────
 
 var MIGRATION_COMPONENTS = {
-  boards:         { label: 'Boards',            mandatory: true,  description: 'Board structure (always included)' },
-  columns:        { label: 'Columns',           mandatory: true,  description: 'Column definitions (always included)' },
-  items:          { label: 'Items (Rows)',      mandatory: true,  description: 'All item data (always included)' },
-  groups:         { label: 'Groups',            mandatory: false, description: 'Board groups / sections', defaultOn: true },
-  folders:        { label: 'Directory Structure', mandatory: false, description: 'Recreate folder hierarchy in the target workspace (if off, all boards go to workspace root)', defaultOn: true },
-  useTemplates:   { label: 'Template Clone',    mandatory: false, description: 'Use duplicate_board to preserve views, automations, formulas, and managed column links (recommended)', defaultOn: true },
-  managedColumns: { label: 'Managed Columns',   mandatory: false, description: 'Preserve account-level managed column links for status/dropdown consistency (used when Template Clone is off)', defaultOn: true },
-  documents:      { label: 'Documents',          mandatory: false, description: 'Export docs as markdown, backup to Google Drive, and recreate in target workspace', defaultOn: true }
+  boards:             { label: 'Boards',               mandatory: true,  description: 'Board structure (always included)' },
+  columns:            { label: 'Columns',              mandatory: true,  description: 'Column definitions (always included)' },
+  items:              { label: 'Items (Rows)',         mandatory: true,  description: 'All item data (always included)' },
+  groups:             { label: 'Groups',               mandatory: false, description: 'Board groups / sections', defaultOn: true },
+  folders:            { label: 'Directory Structure',  mandatory: false, description: 'Recreate folder hierarchy in the target workspace (if off, all boards go to workspace root)', defaultOn: true },
+  useTemplates:       { label: 'Template Clone',       mandatory: false, description: 'Use duplicate_board to preserve views, automations, formulas, and managed column links (recommended)', defaultOn: true },
+  useManagedTemplates:{ label: 'Managed Templates',    mandatory: false, description: 'Create boards as managed template instances via use_template — preserves automations/webhooks and maintains a live link to the template board', defaultOn: false },
+  managedColumns:     { label: 'Managed Columns',      mandatory: false, description: 'Preserve account-level managed column links for status/dropdown consistency (used when Template Clone is off)', defaultOn: true },
+  documents:          { label: 'Documents',             mandatory: false, description: 'Export docs as markdown, backup to Google Drive, and recreate in target workspace', defaultOn: true }
 };
 
 /**
@@ -1661,10 +1662,24 @@ function _executeMigration(migrationId, params) {
  */
 function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey, boardContext) {
   var result;
-  if (components.useTemplates && !targetApiKey) {
-    // Template clone only works within the same account
+
+  // Route 1: Managed templates — use_template creates linked instances (same or cross-account)
+  if (components.useManagedTemplates && components._templateMapping) {
+    var tplBoardId = components._templateMapping[String(sourceBoard.id)];
+    if (tplBoardId) {
+      result = migrateBoardFromManagedTemplate(sourceBoard, tplBoardId, targetWorkspaceId, components, migrationId, targetApiKey, boardContext);
+    } else {
+      // No template for this board — fall back to manual
+      console.log('Migration: No managed template mapping for board "' + sourceBoard.name + '" — using manual mode');
+      result = migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey, boardContext);
+    }
+  }
+  // Route 2: Same-account template clone (duplicate_board)
+  else if (components.useTemplates && !targetApiKey) {
     result = migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, migrationId, boardContext);
-  } else {
+  }
+  // Route 3: Manual board creation (cross-account without templates, or templates disabled)
+  else {
     result = migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey, boardContext);
   }
 
@@ -1757,6 +1772,581 @@ function migrateSubitems(sourceItem, targetParentItemId, targetApiKey) {
     }
   }
   return migrated;
+}
+
+// ── Managed Template Migration ───────────────────────────────────────────────
+
+/**
+ * Save a template mapping set to ScriptProperties.
+ * Maps source board IDs to template board IDs on the target platform.
+ * @param {string} setId - Unique template set identifier
+ * @param {Object} data - Template set data
+ */
+function saveTemplateSet(setId, data) {
+  var json = JSON.stringify(data);
+  PropertiesService.getScriptProperties().setProperty('tplSet_' + setId, json);
+  if (json.length < 90000) {
+    CacheService.getScriptCache().put('tplSet_' + setId, json, 21600);
+  }
+}
+
+/**
+ * Load a template mapping set.
+ * @param {string} setId
+ * @returns {Object|null}
+ */
+function getTemplateSet(setId) {
+  var key = 'tplSet_' + setId;
+  var cached = CacheService.getScriptCache().get(key);
+  if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+  var stored = PropertiesService.getScriptProperties().getProperty(key);
+  if (stored) { try { return JSON.parse(stored); } catch (e) {} }
+  return null;
+}
+
+/**
+ * List all template sets.
+ * @returns {Array} [{ setId, name, sourceWorkspaceId, createdAt, boardCount }]
+ */
+function listTemplateSets() {
+  var props = PropertiesService.getScriptProperties().getProperties();
+  var sets = [];
+  Object.keys(props).forEach(function(key) {
+    if (key.indexOf('tplSet_') === 0) {
+      try {
+        var data = JSON.parse(props[key]);
+        sets.push({
+          setId: key.replace('tplSet_', ''),
+          name: data.name || '',
+          sourceWorkspaceId: data.sourceWorkspaceId || '',
+          targetAccountLabel: data.targetAccountLabel || '',
+          createdAt: data.createdAt || '',
+          boardCount: data.boards ? Object.keys(data.boards).length : 0
+        });
+      } catch (e) {}
+    }
+  });
+  return sets;
+}
+
+/**
+ * Delete a template set from storage.
+ * @param {string} setId
+ */
+function deleteTemplateSet(setId) {
+  PropertiesService.getScriptProperties().deleteProperty('tplSet_' + setId);
+  CacheService.getScriptCache().remove('tplSet_' + setId);
+}
+
+/**
+ * Detect which source boards have managed templates on the target platform.
+ * For same-account: checks if boards in the source workspace were created from templates.
+ * For cross-account: checks a stored template set.
+ *
+ * @param {Array} sourceBoards - Array of { id, name } source boards
+ * @param {string|null} targetApiKey - Target API key (null = same account)
+ * @param {string|null} templateSetId - If cross-account, the template set to use
+ * @returns {Object} { templateMapping: { sourceBoardId: templateBoardId }, unmappedBoards: [{ id, name }] }
+ */
+function detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSetId) {
+  var templateMapping = {};
+  var unmappedBoards = [];
+
+  if (templateSetId) {
+    // Cross-account: use stored template set
+    var tplSet = getTemplateSet(templateSetId);
+    if (tplSet && tplSet.boards) {
+      sourceBoards.forEach(function(b) {
+        var entry = tplSet.boards[String(b.id)];
+        if (entry && entry.templateBoardId) {
+          templateMapping[String(b.id)] = entry.templateBoardId;
+        } else {
+          unmappedBoards.push({ id: String(b.id), name: b.name });
+        }
+      });
+    }
+  } else {
+    // Same-account: check created_from_board_id on the source boards
+    sourceBoards.forEach(function(b) {
+      if (b.created_from_board_id) {
+        templateMapping[String(b.id)] = String(b.created_from_board_id);
+      } else {
+        unmappedBoards.push({ id: String(b.id), name: b.name });
+      }
+    });
+  }
+
+  return { templateMapping: templateMapping, unmappedBoards: unmappedBoards };
+}
+
+/**
+ * Migrate a board by creating a managed template instance via use_template.
+ * The new board is linked to the template — template changes propagate.
+ * Columns and groups come from the template, so only items/files/forms are migrated.
+ *
+ * @param {Object} sourceBoard - Full source board object (from _fetchFullBoard)
+ * @param {string} templateBoardId - The template board ID on the target platform
+ * @param {string} targetWorkspaceId - Target workspace ID
+ * @param {Object} components - Migration components
+ * @param {string} migrationId - Migration ID for progress tracking
+ * @param {string|null} targetApiKey - Target API key (null = same account)
+ * @param {Object} boardContext - { index, total, name }
+ * @returns {Object} Migration result
+ */
+function migrateBoardFromManagedTemplate(sourceBoard, templateBoardId, targetWorkspaceId, components, migrationId, targetApiKey, boardContext) {
+  var bc = boardContext || {};
+  var progressPrefix = bc.index ? ('Board ' + bc.index + '/' + bc.total + ': "' + bc.name + '"') : ('"' + sourceBoard.name + '"');
+
+  // Step 1: Create board instance from managed template via use_template
+  if (migrationId) {
+    updateMigrationProgress(migrationId, {
+      message: progressPrefix + ' — creating from managed template...'
+    });
+  }
+
+  console.log('Migration: Using managed template ' + templateBoardId + ' for board "' + sourceBoard.name + '"');
+
+  // Determine target folder
+  var targetFolderId = null;
+  if (components._boardFolderLookup && components._boardFolderLookup[String(sourceBoard.id)]) {
+    targetFolderId = components._boardFolderLookup[String(sourceBoard.id)];
+  }
+
+  var templateResult = useTemplateOnTarget(
+    targetApiKey,
+    templateBoardId,
+    sourceBoard.name,
+    targetWorkspaceId,
+    targetFolderId
+  );
+
+  // use_template is async — wait for the board to be created
+  var processId = templateResult.processId;
+  if (!processId) {
+    throw new Error('use_template returned no process_id for board "' + sourceBoard.name + '"');
+  }
+
+  console.log('Migration: use_template started (processId=' + processId + '), waiting for board creation...');
+
+  // Poll for the new board. use_template creates a board with the same name.
+  // We wait up to 30 seconds, checking every 2 seconds.
+  var targetBoard = null;
+  for (var attempt = 0; attempt < 15; attempt++) {
+    Utilities.sleep(2000);
+
+    // Search for a new board with this name in the target workspace
+    var query = 'query ($wsId: [ID!]!) { boards (workspace_ids: $wsId, limit: 200, order_by: created_at) { id name created_from_board_id columns { id title type settings_str } groups { id title } } }';
+    var data;
+    if (targetApiKey) {
+      data = callMondayAPIWithKey(targetApiKey, query, { wsId: [Number(targetWorkspaceId)] });
+    } else {
+      data = callMondayAPI(query, { wsId: [Number(targetWorkspaceId)] });
+    }
+
+    var boards = data.boards || [];
+    // Find the board created from our template with the right name
+    for (var bi = 0; bi < boards.length; bi++) {
+      if (String(boards[bi].created_from_board_id) === String(templateBoardId) &&
+          boards[bi].name === sourceBoard.name) {
+        targetBoard = boards[bi];
+        break;
+      }
+    }
+    if (targetBoard) break;
+  }
+
+  if (!targetBoard) {
+    throw new Error('Timed out waiting for use_template to create board "' + sourceBoard.name + '" (processId=' + processId + ')');
+  }
+
+  console.log('Migration: Board created from template — target ID: ' + targetBoard.id);
+
+  // Step 2: Build column/group mappings by title (template may have extra cols for automations — they stay unmapped)
+  var sourceStructure = (sourceBoard.columns && sourceBoard.groups)
+    ? sourceBoard
+    : getBoardStructure(sourceBoard.id);
+  if (!sourceStructure) throw new Error('Could not read board structure for: ' + sourceBoard.name);
+
+  var colMapResult = buildColumnMappingByTitle(sourceStructure.columns, targetBoard.columns);
+  var columnMapping = colMapResult.mapping;
+
+  if (colMapResult.unmapped.length > 0) {
+    console.warn('Migration: Unmapped columns (template-based) for "' + sourceBoard.name + '": ' +
+      colMapResult.unmapped.map(function(c) { return c.title + ' (' + c.type + ')'; }).join(', '));
+  }
+
+  var grpMapResult = buildGroupMappingByTitle(sourceStructure.groups, targetBoard.groups);
+  var groupMapping = grpMapResult.mapping;
+
+  // Step 3: Delete default items from template groups (use_template may include template items)
+  // Clean each group of any template items
+  if (migrationId) {
+    updateMigrationProgress(migrationId, {
+      message: progressPrefix + ' — cleaning template items...'
+    });
+  }
+
+  try {
+    // Fetch items on the new board (may have template placeholder items)
+    var tgtItemQuery = 'query ($boardId: [ID!]!) { boards (ids: $boardId) { items_page (limit: 500) { items { id name } } } }';
+    var tgtItemData = targetApiKey
+      ? callMondayAPIWithKey(targetApiKey, tgtItemQuery, { boardId: [Number(targetBoard.id)] })
+      : callMondayAPI(tgtItemQuery, { boardId: [Number(targetBoard.id)] });
+    var templateItems = (tgtItemData.boards && tgtItemData.boards[0] && tgtItemData.boards[0].items_page)
+      ? tgtItemData.boards[0].items_page.items : [];
+    if (templateItems.length > 0) {
+      console.log('Migration: Deleting ' + templateItems.length + ' template items from target board');
+      var deleteRequests = templateItems.map(function(item) {
+        return {
+          query: 'mutation ($itemId: ID!) { delete_item (item_id: $itemId) { id } }',
+          variables: { itemId: Number(item.id) }
+        };
+      });
+      batchMondayAPICalls(targetApiKey, deleteRequests, 10);
+    }
+  } catch (cleanErr) {
+    console.warn('Migration: Could not clean template items: ' + cleanErr);
+  }
+
+  // Step 4: Migrate items (BATCHED — same as migrateBoardViaTemplate)
+  if (migrationId) {
+    updateMigrationProgress(migrationId, {
+      message: progressPrefix + ' — migrating items...'
+    });
+  }
+
+  var allItems = getAllBoardItems(sourceBoard.id);
+  var itemsTotal = allItems.length;
+  var itemsMigrated = 0;
+  var subitemsMigrated = 0;
+  var itemIdMap = {};
+
+  // Pre-process items
+  var itemBatchInput = [];
+  var sourceItemOrder = [];
+  for (var i = 0; i < allItems.length; i++) {
+    var item = allItems[i];
+    var columnValues = {};
+    (item.column_values || []).forEach(function(cv) {
+      var mapped = columnMapping[cv.id];
+      if (cv.value && mapped) {
+        try {
+          var parsed = JSON.parse(cv.value);
+          var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency', 'file'];
+          if (skipTypes.indexOf(cv.type) < 0) {
+            columnValues[mapped.targetId] = parsed;
+          }
+        } catch (parseError) {
+          if (cv.text) {
+            columnValues[mapped.targetId] = cv.text;
+          }
+        }
+      }
+    });
+
+    var targetGroupId = null;
+    if (item.group && groupMapping[item.group.id]) {
+      targetGroupId = groupMapping[item.group.id].targetId;
+    }
+
+    itemBatchInput.push({
+      name: item.name,
+      groupId: targetGroupId,
+      columnValues: Object.keys(columnValues).length > 0 ? columnValues : null
+    });
+    sourceItemOrder.push(item);
+  }
+
+  // Execute batched item creation
+  var ITEM_BATCH_SIZE = 5;
+  var ITEM_CONCURRENCY = 8;
+  var ITEM_CHUNK = ITEM_BATCH_SIZE * ITEM_CONCURRENCY;
+
+  for (var chunkStart = 0; chunkStart < itemBatchInput.length; chunkStart += ITEM_CHUNK) {
+    var chunkEnd = Math.min(chunkStart + ITEM_CHUNK, itemBatchInput.length);
+    var chunk = itemBatchInput.slice(chunkStart, chunkEnd);
+
+    if (migrationId) {
+      updateMigrationProgress(migrationId, {
+        message: progressPrefix + ' — migrating items ' + (chunkStart + 1) + '-' + chunkEnd + '/' + itemsTotal
+      });
+    }
+
+    var batchResults = createItemsBatch(targetApiKey, targetBoard.id, chunk, ITEM_BATCH_SIZE, ITEM_CONCURRENCY);
+
+    for (var bri = 0; bri < batchResults.length; bri++) {
+      var globalIdx = chunkStart + bri;
+      var bResult = batchResults[bri];
+      var srcItem = sourceItemOrder[globalIdx];
+
+      if (bResult && bResult.id) {
+        itemsMigrated++;
+        itemIdMap[String(srcItem.id)] = bResult.id;
+      } else {
+        console.warn('Migration: Failed to migrate item "' + srcItem.name + '": ' + (bResult ? bResult.error : 'no result'));
+      }
+    }
+  }
+
+  // Step 5: Batch-migrate subitems
+  var subitemBatchInput = [];
+  var subitemSourceInfo = [];
+  for (var si = 0; si < sourceItemOrder.length; si++) {
+    var sItem = sourceItemOrder[si];
+    if (sItem.subitems && sItem.subitems.length > 0 && itemIdMap[String(sItem.id)]) {
+      var parentTargetId = itemIdMap[String(sItem.id)];
+      for (var sj = 0; sj < sItem.subitems.length; sj++) {
+        var sub = sItem.subitems[sj];
+        var subColValues = {};
+        (sub.column_values || []).forEach(function(cv) {
+          if (cv.value) {
+            try {
+              var parsed = JSON.parse(cv.value);
+              var skipTypes = ['mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'board_relation', 'dependency', 'file'];
+              if (skipTypes.indexOf(cv.type) < 0) {
+                subColValues[cv.id] = parsed;
+              }
+            } catch (e) {}
+          }
+        });
+        subitemBatchInput.push({
+          parentItemId: parentTargetId,
+          name: sub.name,
+          columnValues: Object.keys(subColValues).length > 0 ? subColValues : null
+        });
+        subitemSourceInfo.push({ parentName: sItem.name, subName: sub.name });
+      }
+    }
+  }
+
+  if (subitemBatchInput.length > 0) {
+    if (migrationId) {
+      updateMigrationProgress(migrationId, {
+        message: progressPrefix + ' — migrating ' + subitemBatchInput.length + ' subitems...'
+      });
+    }
+    var subResults = createSubitemsBatch(targetApiKey, subitemBatchInput, 3, 6);
+    for (var sr = 0; sr < subResults.length; sr++) {
+      if (subResults[sr] && subResults[sr].id) {
+        subitemsMigrated++;
+      } else {
+        console.warn('Migration: Failed subitem "' + subitemSourceInfo[sr].subName + '": ' + (subResults[sr] ? subResults[sr].error : 'no result'));
+      }
+    }
+  }
+
+  // Step 6: Migrate file columns
+  var filesMigrated = 0;
+  var fileColumns = getFileColumns(sourceStructure.columns);
+  if (fileColumns.length > 0 && Object.keys(itemIdMap).length > 0) {
+    var fileResult = migrateFileColumns(
+      itemIdMap, fileColumns, columnMapping, targetApiKey, null, migrationId, progressPrefix
+    );
+    filesMigrated = fileResult.filesMigrated;
+  }
+
+  return {
+    sourceBoardId: String(sourceBoard.id),
+    sourceBoardName: sourceStructure.name,
+    targetBoardId: String(targetBoard.id),
+    targetBoardName: targetBoard.name,
+    status: 'success',
+    migrationMethod: 'managed_template',
+    templateBoardId: String(templateBoardId),
+    itemsMigrated: itemsMigrated,
+    itemsTotal: itemsTotal,
+    columnsMapped: Object.keys(columnMapping).length,
+    columnsSkipped: colMapResult.unmapped.length,
+    groupsMapped: Object.keys(groupMapping).length,
+    subitemsMigrated: subitemsMigrated,
+    filesMigrated: filesMigrated,
+    managedColumnsAttached: 0, // inherited from template automatically
+    columnMapping: columnMapping,
+    groupMapping: groupMapping,
+    managedColumnMapping: []
+  };
+}
+
+/**
+ * Create skeleton template boards on the target platform for cross-account migration.
+ * These template boards have the correct columns and groups but no items.
+ * The user then manually adds automations/webhooks before running the actual migration.
+ *
+ * @param {Object} params - { sourceWorkspaceId, targetAccountId, targetWorkspaceName, selectedBoardIds, setName }
+ * @returns {Object} { success, setId, templateCount, boards }
+ */
+function prepareTemplatesOnTarget(params) {
+  try {
+    var sourceWsId = params.sourceWorkspaceId;
+    var targetApiKey = getTargetApiKeyForAccount(params.targetAccountId);
+    if (!targetApiKey) throw new Error('No API key for target account: ' + params.targetAccountId);
+
+    var setId = Utilities.getUuid().replace(/-/g, '').substring(0, 12);
+    var wsName = (params.targetWorkspaceName || 'Templates') + ' [Templates]';
+
+    // Create target workspace for templates
+    var sourceWs = getWorkspaceDetails(sourceWsId);
+    var targetWs = createWorkspaceOnTarget(targetApiKey, wsName, 'open', 'Template workspace for managed board templates');
+
+    // Get source boards
+    var sourceBoards = getBoardsInWorkspace(sourceWsId);
+    // Filter to selected boards if specified
+    if (params.selectedBoardIds && params.selectedBoardIds.length > 0) {
+      var selectedSet = {};
+      params.selectedBoardIds.forEach(function(id) { selectedSet[String(id)] = true; });
+      sourceBoards = sourceBoards.filter(function(b) { return selectedSet[String(b.id)]; });
+    }
+
+    var templateSetData = {
+      setId: setId,
+      name: params.setName || sourceWs.name + ' Templates',
+      sourceWorkspaceId: String(sourceWsId),
+      sourceWorkspaceName: sourceWs.name,
+      targetWorkspaceId: String(targetWs.id),
+      targetWorkspaceName: wsName,
+      targetAccountId: params.targetAccountId,
+      targetAccountLabel: params.targetAccountLabel || '',
+      createdAt: new Date().toISOString(),
+      boards: {}
+    };
+
+    // For each source board, create a skeleton on target
+    var results = [];
+    for (var i = 0; i < sourceBoards.length; i++) {
+      var board = sourceBoards[i];
+      try {
+        // Fetch full structure
+        var fullBoard = _fetchFullBoard(board.id);
+        if (!fullBoard) throw new Error('Could not fetch board: ' + board.name);
+
+        var structure = fullBoard;
+
+        // Create empty board on target
+        var targetBoard = createBoardOnTarget(targetApiKey, board.name + ' [Template]', structure.board_kind || 'public', targetWs.id);
+
+        // Batch create columns (skip non-creatable types)
+        var regularColumns = [];
+        (structure.columns || []).forEach(function(col) {
+          var skipTypes = ['name', 'subtasks', 'board_relation', 'mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'button', 'dependency'];
+          if (skipTypes.indexOf(col.type) < 0) {
+            regularColumns.push(col);
+          }
+        });
+
+        if (regularColumns.length > 0) {
+          var colRequests = regularColumns.map(function(col) {
+            return {
+              query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }',
+              variables: { boardId: Number(targetBoard.id), title: col.title, type: col.type }
+            };
+          });
+          batchMondayAPICalls(targetApiKey, colRequests, 6);
+        }
+
+        // Batch create groups
+        if (structure.groups && structure.groups.length > 0) {
+          var groupRequests = structure.groups.map(function(grp) {
+            return {
+              query: 'mutation ($boardId: ID!, $name: String!) { create_group (board_id: $boardId, group_name: $name) { id title } }',
+              variables: { boardId: Number(targetBoard.id), name: grp.title }
+            };
+          });
+          batchMondayAPICalls(targetApiKey, groupRequests, 6);
+        }
+
+        // Delete default group/item
+        try {
+          _cleanDefaultGroupOnTarget(targetApiKey, targetBoard.id);
+        } catch (cleanErr) {
+          console.warn('Template prep: Could not clean default group for "' + board.name + '": ' + cleanErr);
+        }
+
+        templateSetData.boards[String(board.id)] = {
+          templateBoardId: String(targetBoard.id),
+          templateBoardName: targetBoard.name,
+          sourceBoardName: board.name,
+          status: 'ready',
+          columnsCreated: regularColumns.length,
+          groupsCreated: (structure.groups || []).length
+        };
+
+        results.push({ boardId: String(board.id), boardName: board.name, templateBoardId: String(targetBoard.id), status: 'ready' });
+      } catch (boardErr) {
+        console.error('Template prep failed for "' + board.name + '": ' + boardErr);
+        templateSetData.boards[String(board.id)] = {
+          templateBoardId: null,
+          sourceBoardName: board.name,
+          status: 'error',
+          error: boardErr.toString()
+        };
+        results.push({ boardId: String(board.id), boardName: board.name, status: 'error', error: boardErr.toString() });
+      }
+    }
+
+    // Save template set
+    saveTemplateSet(setId, templateSetData);
+
+    return safeReturn({
+      success: true,
+      setId: setId,
+      targetWorkspaceId: String(targetWs.id),
+      targetWorkspaceName: wsName,
+      templateCount: results.filter(function(r) { return r.status === 'ready'; }).length,
+      boards: results
+    });
+  } catch (error) {
+    return handleError('prepareTemplatesOnTarget', error);
+  }
+}
+
+/**
+ * Helper: clean the default "Group Title" + "Task 1" from a freshly created board on target.
+ */
+function _cleanDefaultGroupOnTarget(targetApiKey, boardId) {
+  var query = 'query ($boardId: [ID!]!) { boards (ids: $boardId) { groups { id title } items_page (limit: 5) { items { id name group { id } } } } }';
+  var data;
+  if (targetApiKey) {
+    data = callMondayAPIWithKey(targetApiKey, query, { boardId: [Number(boardId)] });
+  } else {
+    data = callMondayAPI(query, { boardId: [Number(boardId)] });
+  }
+
+  var boards = data.boards || [];
+  if (boards.length === 0) return;
+
+  var board = boards[0];
+  var items = (board.items_page && board.items_page.items) ? board.items_page.items : [];
+  var groups = board.groups || [];
+
+  // Delete default items first
+  items.forEach(function(item) {
+    if (item.name === 'Task 1' || items.length <= 1) {
+      try {
+        var delQuery = 'mutation ($itemId: ID!) { delete_item (item_id: $itemId) { id } }';
+        if (targetApiKey) {
+          callMondayAPIWithKey(targetApiKey, delQuery, { itemId: Number(item.id) });
+        } else {
+          callMondayAPI(delQuery, { itemId: Number(item.id) });
+        }
+        console.log('Deleted default item "' + item.name + '" (id=' + item.id + ') from group "' + (item.group ? item.group.id : '?') + '"');
+      } catch (e) {}
+    }
+  });
+
+  // Delete default group
+  groups.forEach(function(grp) {
+    if (grp.title === 'Group Title' || (groups.length === 1 && items.length <= 1)) {
+      try {
+        var delGrpQuery = 'mutation ($boardId: ID!, $groupId: String!) { delete_group (board_id: $boardId, group_id: $groupId) { id } }';
+        if (targetApiKey) {
+          callMondayAPIWithKey(targetApiKey, delGrpQuery, { boardId: Number(boardId), groupId: grp.id });
+        } else {
+          callMondayAPI(delGrpQuery, { boardId: Number(boardId), groupId: grp.id });
+        }
+        console.log('Deleted default group "' + grp.title + '" (id=' + grp.id + ') from board ' + boardId);
+      } catch (e) {}
+    }
+  });
 }
 
 /**
