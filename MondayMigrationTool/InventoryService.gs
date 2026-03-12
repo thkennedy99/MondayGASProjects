@@ -90,6 +90,8 @@ function getWorkspaceInventory(workspaceId) {
         columnCount: creatableColumns.length,
         groupCount: board.groups ? board.groups.length : 0,
         itemCount: itemCount,
+        folderId: board.board_folder_id ? String(board.board_folder_id) : null,
+        createdFromBoardId: board.created_from_board_id ? String(board.created_from_board_id) : null,
         columns: (board.columns || []).map(function(col) {
           return {
             id: col.id,
@@ -110,6 +112,16 @@ function getWorkspaceInventory(workspaceId) {
     var totalColumns = boardSummaries.reduce(function(sum, b) { return sum + b.columnCount; }, 0);
     var totalGroups = boardSummaries.reduce(function(sum, b) { return sum + b.groupCount; }, 0);
 
+    // Template linkage summary
+    var templateLinkedBoards = boardSummaries.filter(function(b) { return !!b.createdFromBoardId; });
+    var uniqueTemplateIds = {};
+    templateLinkedBoards.forEach(function(b) { uniqueTemplateIds[b.createdFromBoardId] = true; });
+
+    // Folder summary
+    var folderedBoards = boardSummaries.filter(function(b) { return !!b.folderId; });
+    var uniqueFolderIds = {};
+    folderedBoards.forEach(function(b) { uniqueFolderIds[b.folderId] = true; });
+
     return safeReturn({
       success: true,
       data: {
@@ -120,7 +132,11 @@ function getWorkspaceInventory(workspaceId) {
           boardCount: boards.length,
           totalItems: totalItems,
           totalColumns: totalColumns,
-          totalGroups: totalGroups
+          totalGroups: totalGroups,
+          templateLinkedCount: templateLinkedBoards.length,
+          uniqueTemplateCount: Object.keys(uniqueTemplateIds).length,
+          folderedBoardCount: folderedBoards.length,
+          uniqueFolderCount: Object.keys(uniqueFolderIds).length
         }
       }
     });
@@ -154,6 +170,22 @@ function getBoardInventory(boardId) {
       columnTypes[col.type] = (columnTypes[col.type] || 0) + 1;
     });
 
+    // Check template linkage
+    var createdFromBoardId = board.created_from_board_id ? String(board.created_from_board_id) : null;
+    var templateInfo = null;
+    if (createdFromBoardId) {
+      templateInfo = { templateBoardId: createdFromBoardId };
+      try {
+        var tplBoard = getBoardStructure(createdFromBoardId);
+        if (tplBoard) {
+          templateInfo.templateBoardName = tplBoard.name;
+          templateInfo.templateBoardState = tplBoard.state || 'active';
+        }
+      } catch (e) {
+        templateInfo.templateBoardName = '(unable to resolve)';
+      }
+    }
+
     return safeReturn({
       success: true,
       data: {
@@ -161,6 +193,9 @@ function getBoardInventory(boardId) {
         name: board.name,
         kind: board.board_kind || 'public',
         description: board.description || '',
+        folderId: board.board_folder_id ? String(board.board_folder_id) : null,
+        createdFromBoardId: createdFromBoardId,
+        templateInfo: templateInfo,
         columns: (board.columns || []).map(function(col) {
           return {
             id: col.id,

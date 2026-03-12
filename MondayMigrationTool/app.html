@@ -1337,9 +1337,9 @@ const MigrationTab = () => {
                         <td>{bm.folderName ? <span className="badge bg-light text-dark"><i className="bi bi-folder me-1" />{bm.folderName}</span> : <span className="text-muted">—</span>}</td>
                         <td><code>{bm.targetBoardId || 'N/A'}</code></td>
                         <td>
-                          <span className={`badge ${bm.migrationMethod === 'template' ? 'bg-info' : 'bg-secondary'}`}>
-                            <i className={`bi ${bm.migrationMethod === 'template' ? 'bi-copy' : 'bi-wrench'} me-1`} />
-                            {bm.migrationMethod === 'template' ? 'Template' : 'Manual'}
+                          <span className={`badge ${bm.migrationMethod === 'managed_template' ? 'bg-primary' : bm.migrationMethod === 'template' ? 'bg-info' : 'bg-secondary'}`}>
+                            <i className={`bi ${bm.migrationMethod === 'managed_template' ? 'bi-diagram-2' : bm.migrationMethod === 'template' ? 'bi-copy' : 'bi-wrench'} me-1`} />
+                            {bm.migrationMethod === 'managed_template' ? 'Managed Template' : bm.migrationMethod === 'template' ? 'Template Clone' : 'Manual'}
                           </span>
                         </td>
                         <td><span className={`badge status-${bm.status}`}>{bm.status}</span></td>
@@ -1806,6 +1806,7 @@ const ValidationTab = () => {
                     <tr>
                       <th>Board</th>
                       <th>Matched</th>
+                      <th>Method</th>
                       <th>Source Items</th>
                       <th>Target Items</th>
                       <th>Item Diff</th>
@@ -1823,6 +1824,17 @@ const ValidationTab = () => {
                         <tr key={i}>
                           <td><strong>{bc.boardName}</strong></td>
                           <td>{bc.matched ? <span className="match-great"><i className="bi bi-check-circle" /></span> : <span className="match-poor"><i className="bi bi-x-circle" /></span>}</td>
+                          <td>
+                            {bc.migrationMethod === 'managed_template' ? (
+                              <span className="badge bg-primary" title={bc.templateLinkage?.targetTemplateBoardId ? 'Template: ' + bc.templateLinkage.targetTemplateBoardId : ''}>
+                                <i className="bi bi-diagram-2 me-1" />Managed
+                              </span>
+                            ) : bc.migrationMethod === 'template' ? (
+                              <span className="badge bg-info"><i className="bi bi-copy me-1" />Clone</span>
+                            ) : bc.matched ? (
+                              <span className="badge bg-secondary"><i className="bi bi-wrench me-1" />Manual</span>
+                            ) : <span className="text-muted">—</span>}
+                          </td>
                           <td>{bc.items.source}</td>
                           <td>{bc.items.target}</td>
                           <td className={bc.items.match ? 'match-great' : 'match-poor'}
@@ -1836,10 +1848,12 @@ const ValidationTab = () => {
                             {hasGroupDiff && <small className={`text-danger ${clickable}`}> (-{bc.groups.missing.length})</small>}
                           </td>
                           <td style={hasColDiff ? { cursor: 'pointer' } : {}}
-                            onClick={() => hasColDiff && setModalData({ type: 'columns', title: bc.boardName + ' — Column Discrepancy', source: bc.columns.source, target: bc.columns.target, matched: bc.columns.matched, missing: bc.columns.missing || [], extra: bc.columns.extra || [] })}>
+                            onClick={() => hasColDiff && setModalData({ type: 'columns', title: bc.boardName + ' — Column Discrepancy', source: bc.columns.source, target: bc.columns.target, matched: bc.columns.matched, missing: bc.columns.missing || [], extra: bc.columns.extra || [], templateProvided: bc.columns.templateProvided || [], unexpectedExtra: bc.columns.unexpectedExtra || [] })}>
                             {bc.columns.matched}/{bc.columns.source}
                             {bc.columns.missing?.length > 0 && <small className={`text-danger ${clickable}`}> (-{bc.columns.missing.length})</small>}
-                            {bc.columns.extra?.length > 0 && <small className={`text-info ${clickable}`}> (+{bc.columns.extra.length})</small>}
+                            {bc.columns.templateProvided?.length > 0 && <small className={`text-primary ${clickable}`} title="Template-provided columns"> (+{bc.columns.templateProvided.length} tpl)</small>}
+                            {bc.columns.unexpectedExtra?.length > 0 && <small className={`text-warning ${clickable}`}> (+{bc.columns.unexpectedExtra.length})</small>}
+                            {!bc.columns.templateProvided?.length && !bc.columns.unexpectedExtra?.length && bc.columns.extra?.length > 0 && <small className={`text-info ${clickable}`}> (+{bc.columns.extra.length})</small>}
                           </td>
                         </tr>
                       );
@@ -1924,6 +1938,46 @@ const ValidationTab = () => {
                     {report.formComparison.missing?.length === 0 && report.formComparison.extra?.length === 0 && (
                       <div className="alert alert-success py-2 mb-2"><i className="bi bi-check-circle me-1" />All forms matched.</div>
                     )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Template Linkage Summary */}
+          {report.templateStats && (report.templateStats.managedTemplateBoards > 0 || report.templateStats.templateCloneBoards > 0) && (
+            <div className="card mb-4">
+              <div className="card-header"><i className="bi bi-diagram-2 me-1" /> Template Linkage</div>
+              <div className="card-body">
+                <div className="row g-3 mb-3">
+                  <div className="col-md-3">
+                    <StatCard value={report.templateStats.managedTemplateBoards} label="Managed Template" icon="diagram-2" color="var(--bs-primary)" />
+                  </div>
+                  <div className="col-md-3">
+                    <StatCard value={report.templateStats.templateCloneBoards} label="Template Clone" icon="copy" color="var(--bs-info)" />
+                  </div>
+                  <div className="col-md-3">
+                    <StatCard value={report.templateStats.manualBoards} label="Manual" icon="wrench" />
+                  </div>
+                  <div className="col-md-3">
+                    <StatCard
+                      value={report.templateStats.linkInconsistent}
+                      label="Link Issues"
+                      icon={report.templateStats.linkInconsistent > 0 ? 'exclamation-triangle' : 'check-circle'}
+                      color={report.templateStats.linkInconsistent > 0 ? 'var(--gw-orange)' : 'var(--match-great)'}
+                    />
+                  </div>
+                </div>
+                {report.templateStats.linkInconsistent > 0 && (
+                  <div className="alert alert-warning mb-0">
+                    <i className="bi bi-exclamation-triangle me-1" />
+                    <strong>{report.templateStats.linkInconsistent} boards</strong> have inconsistent template linkage — source and target don't match in template status. Review these boards to ensure automations are properly connected.
+                  </div>
+                )}
+                {report.templateStats.linkInconsistent === 0 && report.templateStats.managedTemplateBoards > 0 && (
+                  <div className="alert alert-success mb-0">
+                    <i className="bi bi-check-circle me-1" />
+                    All managed template boards have consistent linkage. Automations and webhooks from templates should propagate correctly.
                   </div>
                 )}
               </div>

@@ -49,6 +49,22 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
       targetBoardByName[b.name] = b;
     });
 
+    // Detect template linkage on target boards for managed template validation
+    var targetTemplateMap = {}; // targetBoardId → created_from_board_id
+    targetBoards.forEach(function(b) {
+      if (b.created_from_board_id) {
+        targetTemplateMap[String(b.id)] = String(b.created_from_board_id);
+      }
+    });
+
+    // Also check source boards for template linkage (same-account managed templates)
+    var sourceTemplateMap = {}; // sourceBoardId → created_from_board_id
+    sourceBoards.forEach(function(b) {
+      if (b.created_from_board_id) {
+        sourceTemplateMap[String(b.id)] = String(b.created_from_board_id);
+      }
+    });
+
     var boardComparisons = [];
     var totalSourceItems = 0;
     var totalTargetItems = 0;
@@ -153,11 +169,44 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
           }
         });
 
+        // Determine migration method and template linkage
+        var targetBoardIdStr = String(targetBoard.id);
+        var targetTemplateBoardId = targetTemplateMap[targetBoardIdStr] || null;
+        var sourceTemplateBoardId = sourceTemplateMap[String(sourceBoard.id)] || null;
+        var migrationMethod = targetTemplateBoardId ? 'managed_template'
+          : (targetBoard.created_from_board_id ? 'template' : 'manual');
+
+        // For managed template boards, extra columns may come from the template itself.
+        // Classify extras as template-provided vs truly unexpected.
+        var templateProvidedColumns = [];
+        var unexpectedExtraColumns = [];
+        if (migrationMethod === 'managed_template') {
+          extraColumns.forEach(function(ec) {
+            // Columns that exist on target but not source are likely template-managed
+            // (automations, formula columns added to the template after skeleton creation)
+            ec.likelyTemplateProvided = true;
+            templateProvidedColumns.push(ec);
+          });
+        } else {
+          unexpectedExtraColumns = extraColumns;
+        }
+
         boardComparisons.push({
           boardName: sourceBoard.name,
           sourceBoardId: String(sourceBoard.id),
-          targetBoardId: String(targetBoard.id),
+          targetBoardId: targetBoardIdStr,
           matched: true,
+          migrationMethod: migrationMethod,
+          templateLinkage: {
+            sourceTemplateBoardId: sourceTemplateBoardId,
+            targetTemplateBoardId: targetTemplateBoardId,
+            isLinked: !!targetTemplateBoardId,
+            linkConsistent: sourceTemplateBoardId && targetTemplateBoardId
+              ? true // Both linked (may be to different templates in cross-account)
+              : !sourceTemplateBoardId && !targetTemplateBoardId
+                ? true // Neither linked — consistent
+                : false // One linked, one not — inconsistent
+          },
           items: {
             source: sourceItemCount,
             target: targetItemCount,
@@ -175,7 +224,9 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
             target: targetColumnCount,
             matched: matchedColumns,
             missing: missingColumns,
-            extra: extraColumns
+            extra: extraColumns,
+            templateProvided: templateProvidedColumns,
+            unexpectedExtra: unexpectedExtraColumns
           }
         });
       } else {
@@ -276,6 +327,25 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
       });
     }
 
+    // Template linkage summary
+    var templateStats = {
+      managedTemplateBoards: 0,
+      templateCloneBoards: 0,
+      manualBoards: 0,
+      linkedAndConsistent: 0,
+      linkInconsistent: 0
+    };
+    boardComparisons.forEach(function(bc) {
+      if (!bc.matched) return;
+      if (bc.migrationMethod === 'managed_template') templateStats.managedTemplateBoards++;
+      else if (bc.migrationMethod === 'template') templateStats.templateCloneBoards++;
+      else templateStats.manualBoards++;
+      if (bc.templateLinkage) {
+        if (bc.templateLinkage.linkConsistent) templateStats.linkedAndConsistent++;
+        else templateStats.linkInconsistent++;
+      }
+    });
+
     // Calculate overall match percentages
     var boardMatchPct = sourceBoards.length > 0
       ? Math.round((matchedBoards / sourceBoards.length) * 100) : 100;
@@ -350,6 +420,7 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
           missing: missingForms,
           extra: extraForms
         },
+        templateStats: templateStats,
         userVerification: userVerification
       }
     });
@@ -363,16 +434,34 @@ function validateMigration(sourceWorkspaceId, targetWorkspaceId, options) {
  * Returns per-item match details (name matches, column value diffs).
  * @param {string} sourceBoardId
  * @param {string} targetBoardId
+ * @param {Object} [options] - { targetAccountId: string } for cross-account
  * @returns {Object} Item-level comparison
  */
-function validateBoardItems(sourceBoardId, targetBoardId) {
+function validateBoardItems(sourceBoardId, targetBoardId, options) {
   try {
     if (!sourceBoardId || !targetBoardId) {
       throw new Error('Both sourceBoardId and targetBoardId are required');
     }
+    options = options || {};
+
+    var targetApiKey = null;
+    if (options.targetAccountId) {
+      targetApiKey = getTargetApiKeyForAccount(options.targetAccountId);
+    }
 
     var sourceItems = getAllBoardItems(sourceBoardId);
-    var targetItems = getAllBoardItems(targetBoardId);
+    var targetItems;
+    if (targetApiKey) {
+      // Fetch target items using the target API key
+      var tData = callMondayAPIWithKey(targetApiKey,
+        'query ($boardId: [ID!]!) { boards (ids: $boardId) { items_page (limit: 500) { items { id name group { id title } column_values { id text value type } } } } }',
+        { boardId: [Number(targetBoardId)] }
+      );
+      var tBoard = tData.boards && tData.boards[0];
+      targetItems = tBoard && tBoard.items_page ? tBoard.items_page.items : [];
+    } else {
+      targetItems = getAllBoardItems(targetBoardId);
+    }
 
     // Build target lookup by name
     var targetByName = {};
@@ -413,6 +502,19 @@ function validateBoardItems(sourceBoardId, targetBoardId) {
     var matchPct = sourceItems.length > 0
       ? Math.round((matched / sourceItems.length) * 100) : 100;
 
+    // Check template linkage on target board
+    var targetTemplateBoardId = null;
+    if (targetApiKey) {
+      try {
+        var bInfo = callMondayAPIWithKey(targetApiKey,
+          'query ($boardId: [ID!]!) { boards (ids: $boardId) { id created_from_board_id } }',
+          { boardId: [Number(targetBoardId)] }
+        );
+        var bi = bInfo.boards && bInfo.boards[0];
+        if (bi && bi.created_from_board_id) targetTemplateBoardId = String(bi.created_from_board_id);
+      } catch (e) { /* ignore */ }
+    }
+
     return safeReturn({
       success: true,
       data: {
@@ -423,7 +525,8 @@ function validateBoardItems(sourceBoardId, targetBoardId) {
         matched: matched,
         matchPercentage: matchPct,
         missingInTarget: missingInTarget,
-        extraInTarget: extraInTarget
+        extraInTarget: extraInTarget,
+        targetTemplateBoardId: targetTemplateBoardId
       }
     });
   } catch (error) {
@@ -435,22 +538,71 @@ function validateBoardItems(sourceBoardId, targetBoardId) {
  * Quick comparison using just counts (faster, no item-level fetch).
  * @param {string} sourceWorkspaceId
  * @param {string} targetWorkspaceId
+ * @param {Object} [options] - { targetAccountId: string } for cross-account
  * @returns {Object} Count-level comparison
  */
-function quickValidation(sourceWorkspaceId, targetWorkspaceId) {
+function quickValidation(sourceWorkspaceId, targetWorkspaceId, options) {
   try {
     if (!sourceWorkspaceId || !targetWorkspaceId) {
       throw new Error('Both workspace IDs are required');
     }
+    options = options || {};
+
+    var targetApiKey = null;
+    if (options.targetAccountId) {
+      targetApiKey = getTargetApiKeyForAccount(options.targetAccountId);
+      if (!targetApiKey) throw new Error('No API key found for target account: ' + options.targetAccountId);
+    }
 
     var sourceInv = getWorkspaceInventory(sourceWorkspaceId);
-    var targetInv = getWorkspaceInventory(targetWorkspaceId);
-
     if (!sourceInv.success) throw new Error('Failed to get source inventory');
-    if (!targetInv.success) throw new Error('Failed to get target inventory');
-
     var src = sourceInv.data;
-    var tgt = targetInv.data;
+
+    // For cross-account, build target inventory directly from the target API
+    var tgt;
+    if (targetApiKey) {
+      var tgtBoards = _getBoardsInWorkspaceOnTarget(targetWorkspaceId, targetApiKey);
+      var nonCreatableTypes = ['subtasks', 'board_relation', 'mirror', 'formula', 'auto_number',
+                               'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
+      var tgtBoardSummaries = tgtBoards.map(function(board) {
+        var creatableCols = (board.columns || []).filter(function(col) {
+          return nonCreatableTypes.indexOf(col.type) < 0;
+        });
+        var itemCount = 0;
+        try {
+          var d = callMondayAPIWithKey(targetApiKey,
+            'query ($boardId: [ID!]) { boards (ids: $boardId) { id items_count } }',
+            { boardId: [Number(board.id)] }
+          );
+          var b = d.boards && d.boards[0];
+          itemCount = b ? (b.items_count || 0) : 0;
+        } catch (e) {}
+        return {
+          id: String(board.id),
+          name: board.name,
+          itemCount: itemCount,
+          groupCount: board.groups ? board.groups.length : 0,
+          columnCount: creatableCols.length,
+          createdFromBoardId: board.created_from_board_id ? String(board.created_from_board_id) : null
+        };
+      });
+      var totalItems = tgtBoardSummaries.reduce(function(s, b) { return s + b.itemCount; }, 0);
+      var totalGroups = tgtBoardSummaries.reduce(function(s, b) { return s + b.groupCount; }, 0);
+      var totalColumns = tgtBoardSummaries.reduce(function(s, b) { return s + b.columnCount; }, 0);
+      tgt = {
+        boards: tgtBoardSummaries,
+        summary: {
+          boardCount: tgtBoardSummaries.length,
+          totalItems: totalItems,
+          totalGroups: totalGroups,
+          totalColumns: totalColumns
+        }
+      };
+    } else {
+      var targetInv = getWorkspaceInventory(targetWorkspaceId);
+      if (!targetInv.success) throw new Error('Failed to get target inventory');
+      tgt = targetInv.data;
+    }
 
     // Match boards by name
     var srcBoardNames = src.boards.map(function(b) { return b.name; });
@@ -459,11 +611,12 @@ function quickValidation(sourceWorkspaceId, targetWorkspaceId) {
     var boardsMatched = srcBoardNames.filter(function(n) { return tgtBoardNames.indexOf(n) >= 0; }).length;
     var boardsMissing = srcBoardNames.filter(function(n) { return tgtBoardNames.indexOf(n) < 0; });
 
-    // Per-board item count comparison
+    // Per-board item count comparison with template info
+    var templateLinkedCount = 0;
     var boardDetails = src.boards.map(function(srcBoard) {
       var tgtBoard = tgt.boards.find(function(b) { return b.name === srcBoard.name; });
 
-      return {
+      var detail = {
         name: srcBoard.name,
         sourceItems: srcBoard.itemCount,
         targetItems: tgtBoard ? tgtBoard.itemCount : 0,
@@ -471,8 +624,13 @@ function quickValidation(sourceWorkspaceId, targetWorkspaceId) {
         targetGroups: tgtBoard ? tgtBoard.groupCount : 0,
         sourceColumns: srcBoard.columnCount,
         targetColumns: tgtBoard ? tgtBoard.columnCount : 0,
-        matched: !!tgtBoard
+        matched: !!tgtBoard,
+        sourceTemplateBoardId: srcBoard.createdFromBoardId || null,
+        targetTemplateBoardId: tgtBoard && tgtBoard.createdFromBoardId ? tgtBoard.createdFromBoardId : null
       };
+
+      if (detail.targetTemplateBoardId) templateLinkedCount++;
+      return detail;
     });
 
     return safeReturn({
@@ -495,7 +653,8 @@ function quickValidation(sourceWorkspaceId, targetWorkspaceId) {
         },
         boardsMatched: boardsMatched,
         boardsMissing: boardsMissing,
-        boardDetails: boardDetails
+        boardDetails: boardDetails,
+        templateLinkedCount: templateLinkedCount
       }
     });
   } catch (error) {
