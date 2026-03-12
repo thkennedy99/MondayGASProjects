@@ -2242,20 +2242,11 @@ function prepareTemplatesOnTarget(params) {
 
         if (regularColumns.length > 0) {
           var colRequests = regularColumns.map(function(col) {
-            // Include defaults (settings) for status/dropdown columns to preserve labels
-            var defaults = null;
-            if (col.settings_str && col.settings_str !== '{}') {
-              try {
-                var colSettings = JSON.parse(col.settings_str);
-                if ((col.type === 'status' || col.type === 'dropdown') && colSettings.labels) {
-                  defaults = colSettings;
-                }
-              } catch (pe) {}
-            }
+            var defaults = _buildColumnDefaults(col);
             if (defaults) {
               return {
                 query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
-                variables: { boardId: Number(targetBoard.id), title: col.title, type: col.type, defaults: typeof defaults === 'string' ? defaults : JSON.stringify(defaults) }
+                variables: { boardId: Number(targetBoard.id), title: col.title, type: col.type, defaults: JSON.stringify(defaults) }
               };
             }
             return {
@@ -2589,6 +2580,58 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
 }
 
 /**
+ * Build the correct defaults object for create_column from a column's settings_str.
+ * Monday.com API expects specific formats:
+ *   - dropdown: { labels: [{ id, label }] }
+ *   - status: { labels: [{ id, label, color, index }] }
+ * Source settings_str uses different formats (name vs label, object vs array).
+ */
+function _buildColumnDefaults(col) {
+  if (!col.settings_str || col.settings_str === '{}') return null;
+
+  try {
+    var settings = JSON.parse(col.settings_str);
+
+    if (col.type === 'dropdown' && settings.labels) {
+      // Dropdown labels in settings_str: [{ id, name }] or [{ id, label }]
+      var dropdownLabels = [];
+      if (Array.isArray(settings.labels)) {
+        dropdownLabels = settings.labels.map(function(lbl) {
+          return { id: lbl.id, label: lbl.label || lbl.name || '' };
+        });
+      }
+      return dropdownLabels.length > 0 ? { labels: dropdownLabels } : null;
+    }
+
+    if ((col.type === 'status' || col.type === 'color') && settings.labels) {
+      // Status labels in settings_str: { "0": "Label", "1": "Label" } (object keyed by ID)
+      // API expects: [{ id, label, color, index }]
+      var statusLabels = [];
+      var labelsObj = settings.labels;
+      var colorsObj = settings.labels_colors || {};
+      if (!Array.isArray(labelsObj) && typeof labelsObj === 'object') {
+        var idx = 0;
+        for (var labelId in labelsObj) {
+          if (!labelsObj.hasOwnProperty(labelId)) continue;
+          var labelText = labelsObj[labelId];
+          if (typeof labelText !== 'string') continue;
+          var colorInfo = colorsObj[labelId];
+          var colorName = (colorInfo && colorInfo.var_name) ? colorInfo.var_name : null;
+          var entry = { id: Number(labelId), label: labelText, index: idx };
+          if (colorName) entry.color = colorName;
+          statusLabels.push(entry);
+          idx++;
+        }
+      }
+      return statusLabels.length > 0 ? { labels: statusLabels } : null;
+    }
+  } catch (e) {
+    console.warn('Migration: Failed to parse settings for column "' + col.title + '": ' + e);
+  }
+  return null;
+}
+
+/**
  * Manual board migration: create board from scratch, add columns individually,
  * detect and attach managed columns. Original approach.
  */
@@ -2696,15 +2739,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     }
 
     var colRequests = regularColumns.map(function(col) {
-      var defaults = null;
-      if (col.settings_str && col.settings_str !== '{}') {
-        try {
-          var settings = JSON.parse(col.settings_str);
-          if ((col.type === 'status' || col.type === 'dropdown') && settings.labels) {
-            defaults = settings;
-          }
-        } catch (parseErr) {}
-      }
+      var defaults = _buildColumnDefaults(col);
 
       var variables = {
         boardId: Number(targetBoard.id),
@@ -2715,7 +2750,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
       var query;
       if (defaults) {
         query = 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }';
-        variables.defaults = typeof defaults === 'string' ? defaults : JSON.stringify(defaults);
+        variables.defaults = JSON.stringify(defaults);
       } else {
         query = 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }';
       }
@@ -2769,15 +2804,19 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
           var tgtLabels = tgtSettings.labels;
           if (!srcLabels || !tgtLabels) return;
 
-          // Dropdown labels are arrays: [{id: 1, name: "Opt A"}, ...]
+          // Dropdown labels are arrays: [{id: 1, name/label: "Opt A"}, ...]
           if (Array.isArray(srcLabels) && Array.isArray(tgtLabels)) {
             var tgtByName = {};
-            tgtLabels.forEach(function(lbl) { tgtByName[lbl.name] = lbl.id; });
+            tgtLabels.forEach(function(lbl) {
+              var displayName = lbl.name || lbl.label || '';
+              tgtByName[displayName] = lbl.id;
+            });
 
             var remap = {};
             var needsRemap = false;
             srcLabels.forEach(function(lbl) {
-              var tgtId = tgtByName[lbl.name];
+              var srcName = lbl.name || lbl.label || '';
+              var tgtId = tgtByName[srcName];
               if (tgtId !== undefined && tgtId !== lbl.id) {
                 remap[lbl.id] = tgtId;
                 needsRemap = true;
