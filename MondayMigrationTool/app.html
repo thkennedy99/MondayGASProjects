@@ -856,6 +856,7 @@ const MigrationTab = () => {
   const selectNoBoards = () => setSelectedBoardIds([]);
 
   const startMigration = async () => {
+    if (!selectedTargetAccount) { toast.show('Select a destination platform before starting migration', 'warning'); return; }
     if (!selectedWs) { toast.show('Select a source workspace', 'warning'); return; }
     if (boardSelectorOpen && selectedBoardIds.length === 0) {
       toast.show('Select at least one board or close the board selector to migrate all', 'warning');
@@ -1216,7 +1217,7 @@ const MigrationTab = () => {
           )}
 
           <div className="col-12 text-end">
-            <button className="btn btn-gw-orange btn-lg" onClick={startMigration} disabled={!selectedWs}>
+            <button className="btn btn-gw-orange btn-lg" onClick={startMigration} disabled={!selectedWs || !selectedTargetAccount}>
               <i className="bi bi-play-fill me-1" />Start Migration
               {boardSelectorOpen && selectedBoardIds.length > 0 && selectedBoardIds.length < availableBoards.length && (
                 <span className="badge bg-white text-dark ms-2">{selectedBoardIds.length} boards</span>
