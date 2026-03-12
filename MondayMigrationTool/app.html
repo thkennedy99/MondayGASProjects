@@ -931,11 +931,40 @@ const MigrationTab = () => {
   };
 
   const handleCancel = async () => {
-    if (migrationId) {
-      try { await api.call('cancelMigration', migrationId); } catch (e) {}
+    // Stop polling immediately so no further updates overwrite our state
+    if (pollRef.current) {
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
     }
-    if (pollRef.current) clearTimeout(pollRef.current);
     setPolling(false);
+
+    // Update UI immediately to show cancellation in progress
+    setProgress(prev => ({
+      ...prev,
+      state: 'cancelling',
+      message: 'Cancelling migration...'
+    }));
+
+    if (migrationId) {
+      try {
+        const result = await api.call('cancelMigration', migrationId);
+        if (result.success) {
+          toast.show('Migration cancelled successfully.', 'warning');
+        } else {
+          toast.show('Cancel request sent but server returned an error: ' + (result.error || 'unknown'), 'danger');
+        }
+      } catch (e) {
+        toast.show('Cancel request sent. The migration will stop at the next checkpoint.', 'warning');
+      }
+    }
+
+    // Transition to done state with cancelled progress
+    setProgress(prev => ({
+      ...prev,
+      state: 'cancelled',
+      message: 'Migration cancelled by user.'
+    }));
+    setStep('done');
   };
 
   const refreshWorkspaces = async () => {
@@ -1258,8 +1287,13 @@ const MigrationTab = () => {
               )}
 
               <div className="text-center">
-                <button className="btn btn-danger mt-2" onClick={handleCancel}>
-                  <i className="bi bi-x-circle me-1" />Cancel Migration
+                <button className="btn btn-danger mt-2" onClick={handleCancel}
+                  disabled={progress?.state === 'cancelling'}>
+                  {progress?.state === 'cancelling' ? (
+                    <><span className="spinner-border spinner-border-sm me-1" />Cancelling...</>
+                  ) : (
+                    <><i className="bi bi-x-circle me-1" />Cancel Migration</>
+                  )}
                 </button>
               </div>
             </div>
@@ -1270,9 +1304,22 @@ const MigrationTab = () => {
       {/* Step 3: Done */}
       {step === 'done' && progress && (
         <div className="card">
-          <div className={`card-header ${progress.state === 'completed' ? 'bg-success' : progress.state === 'error' ? 'bg-danger' : 'bg-warning'} text-white`}>
-            <i className={`bi ${progress.state === 'completed' ? 'bi-check-circle' : progress.state === 'error' ? 'bi-x-circle' : 'bi-exclamation-triangle'} me-1`} />
-            {progress.state === 'completed' ? 'Migration Complete' : progress.state === 'error' ? 'Migration Failed' : 'Migration Completed with Issues'}
+          <div className={`card-header ${
+            progress.state === 'completed' ? 'bg-success' :
+            progress.state === 'error' ? 'bg-danger' :
+            progress.state === 'cancelled' ? 'bg-secondary' :
+            'bg-warning'
+          } text-white`}>
+            <i className={`bi ${
+              progress.state === 'completed' ? 'bi-check-circle' :
+              progress.state === 'error' ? 'bi-x-circle' :
+              progress.state === 'cancelled' ? 'bi-slash-circle' :
+              'bi-exclamation-triangle'
+            } me-1`} />
+            {progress.state === 'completed' ? 'Migration Complete' :
+             progress.state === 'error' ? 'Migration Failed' :
+             progress.state === 'cancelled' ? 'Migration Cancelled' :
+             'Migration Completed with Issues'}
           </div>
           <div className="card-body">
             <div className="row g-3 mb-4">
@@ -1304,6 +1351,17 @@ const MigrationTab = () => {
                       <div className="col-md-3"><StatCard value={progress.documentMigration.docsSkipped} label="Docs Skipped" icon="file-earmark-x" color="var(--match-poor)" /></div>
                     )}
                   </>
+                )}
+              </div>
+            )}
+
+            {progress.state === 'cancelled' && (
+              <div className="alert alert-secondary mb-3">
+                <i className="bi bi-info-circle me-1" />
+                <strong>Migration was cancelled.</strong> Boards that were already migrated before cancellation remain on the target.
+                Any pending continuation triggers have been cleaned up.
+                {progress.boardsCompleted > 0 && (
+                  <span> {progress.boardsCompleted} of {progress.boardsTotal || '?'} boards were completed before cancellation.</span>
                 )}
               </div>
             )}
