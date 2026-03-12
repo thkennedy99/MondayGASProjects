@@ -2520,6 +2520,8 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
 
     var batchResults = createItemsBatch(null, targetBoard.id, chunk, ITEM_BATCH_SIZE, ITEM_CONCURRENCY);
 
+    // Collect failed items for retry without column values
+    var retryItems = [];
     for (var bi = 0; bi < batchResults.length; bi++) {
       var globalIdx = chunkStart + bi;
       var result = batchResults[bi];
@@ -2529,7 +2531,31 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
         itemsMigrated++;
         itemIdMap[String(srcItem.id)] = result.id;
       } else {
-        console.warn('Failed to migrate item "' + srcItem.name + '": ' + (result ? result.error : 'no result'));
+        var errMsg = result ? result.error : 'no result';
+        console.warn('Failed to migrate item "' + srcItem.name + '": ' + errMsg);
+        var origInput = itemBatchInput[globalIdx];
+        if (origInput && origInput.columnValues) {
+          retryItems.push({ globalIdx: globalIdx, item: { name: origInput.name, groupId: origInput.groupId, columnValues: null } });
+        }
+      }
+    }
+
+    // Retry failed items without column values
+    if (retryItems.length > 0) {
+      console.log('Migration: Retrying ' + retryItems.length + ' failed items without column values...');
+      var retryInputs = retryItems.map(function(r) { return r.item; });
+      var retryResults = createItemsBatch(null, targetBoard.id, retryInputs, ITEM_BATCH_SIZE, ITEM_CONCURRENCY);
+      for (var ri = 0; ri < retryResults.length; ri++) {
+        var retryGlobalIdx = retryItems[ri].globalIdx;
+        var retryResult = retryResults[ri];
+        var retrySrcItem = sourceItemOrder[retryGlobalIdx];
+        if (retryResult && retryResult.id) {
+          itemsMigrated++;
+          itemIdMap[String(retrySrcItem.id)] = retryResult.id;
+          console.log('Migration: Retry succeeded for "' + retrySrcItem.name + '" (without column values)');
+        } else {
+          console.warn('Migration: Retry also failed for "' + retrySrcItem.name + '": ' + (retryResult ? retryResult.error : 'no result'));
+        }
       }
     }
   }
@@ -2923,13 +2949,14 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     }
   }
 
-  // Build dropdown label remapping: source label IDs may differ from target label IDs.
+  // Build dropdown AND status label remapping: source label IDs may differ from target label IDs.
   // Fetch target column settings and build a name-based mapping for dropdown/status columns.
   var dropdownLabelRemap = {}; // sourceColumnId → { sourceLabelId → targetLabelId }
-  var dropdownSourceColumns = (structure.columns || []).filter(function(col) {
-    return col.type === 'dropdown' && col.settings_str && columnMapping[col.id];
+  var statusLabelRemap = {};   // sourceColumnId → { sourceIndex → targetIndex }
+  var remapSourceColumns = (structure.columns || []).filter(function(col) {
+    return (col.type === 'dropdown' || col.type === 'status' || col.type === 'color') && col.settings_str && columnMapping[col.id];
   });
-  if (dropdownSourceColumns.length > 0) {
+  if (remapSourceColumns.length > 0) {
     try {
       var targetColsData = _targetAPI(targetApiKey,
         'query ($boardId: [ID!]!) { boards (ids: $boardId) { columns { id title type settings_str } } }',
@@ -2939,7 +2966,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
       var targetColById = {};
       targetCols.forEach(function(tc) { targetColById[tc.id] = tc; });
 
-      dropdownSourceColumns.forEach(function(srcCol) {
+      remapSourceColumns.forEach(function(srcCol) {
         var mapped = columnMapping[srcCol.id];
         if (!mapped) return;
         var targetCol = targetColById[mapped.targetId];
@@ -2952,37 +2979,75 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
           var tgtLabels = tgtSettings.labels;
           if (!srcLabels || !tgtLabels) return;
 
-          // Dropdown labels are arrays: [{id: 1, name/label: "Opt A"}, ...]
-          if (Array.isArray(srcLabels) && Array.isArray(tgtLabels)) {
-            var tgtByName = {};
-            tgtLabels.forEach(function(lbl) {
-              var displayName = lbl.name || lbl.label || '';
-              tgtByName[displayName] = lbl.id;
-            });
+          if (srcCol.type === 'dropdown') {
+            // Dropdown labels are arrays: [{id: 1, name/label: "Opt A"}, ...]
+            if (Array.isArray(srcLabels) && Array.isArray(tgtLabels)) {
+              var tgtByName = {};
+              tgtLabels.forEach(function(lbl) {
+                var displayName = lbl.name || lbl.label || '';
+                tgtByName[displayName] = lbl.id;
+              });
 
-            var remap = {};
-            var needsRemap = false;
-            srcLabels.forEach(function(lbl) {
-              var srcName = lbl.name || lbl.label || '';
-              var tgtId = tgtByName[srcName];
-              if (tgtId !== undefined && tgtId !== lbl.id) {
-                remap[lbl.id] = tgtId;
-                needsRemap = true;
-              } else if (tgtId !== undefined) {
-                remap[lbl.id] = tgtId; // Same ID — no change needed but include for completeness
+              var remap = {};
+              var needsRemap = false;
+              srcLabels.forEach(function(lbl) {
+                var srcName = lbl.name || lbl.label || '';
+                var tgtId = tgtByName[srcName];
+                if (tgtId !== undefined && tgtId !== lbl.id) {
+                  remap[lbl.id] = tgtId;
+                  needsRemap = true;
+                } else if (tgtId !== undefined) {
+                  remap[lbl.id] = tgtId; // Same ID — no change needed but include for completeness
+                }
+              });
+              if (needsRemap) {
+                dropdownLabelRemap[srcCol.id] = remap;
+                console.log('Migration: Dropdown label remap for "' + srcCol.title + '": ' + JSON.stringify(remap));
               }
-            });
-            if (needsRemap) {
-              dropdownLabelRemap[srcCol.id] = remap;
-              console.log('Migration: Dropdown label remap for "' + srcCol.title + '": ' + JSON.stringify(remap));
+            }
+          } else {
+            // Status labels are objects: { "0": "Not Started", "5": "N/A", "10": "Completed" }
+            // Item values use {index: N} — we must remap source index → target index by label name
+            if (!Array.isArray(srcLabels) && typeof srcLabels === 'object' &&
+                !Array.isArray(tgtLabels) && typeof tgtLabels === 'object') {
+              // Build target: labelText → index
+              var tgtNameToIndex = {};
+              for (var tgtIdx in tgtLabels) {
+                if (!tgtLabels.hasOwnProperty(tgtIdx)) continue;
+                var tgtText = tgtLabels[tgtIdx];
+                if (typeof tgtText === 'string' && tgtText !== '') {
+                  tgtNameToIndex[tgtText] = parseInt(tgtIdx, 10);
+                }
+              }
+
+              var statusRemap = {};
+              var statusNeedsRemap = false;
+              for (var srcIdx in srcLabels) {
+                if (!srcLabels.hasOwnProperty(srcIdx)) continue;
+                var srcText = srcLabels[srcIdx];
+                if (typeof srcText !== 'string' || srcText === '') continue;
+                var srcIdxNum = parseInt(srcIdx, 10);
+                var tgtIdxNum = tgtNameToIndex[srcText];
+                if (tgtIdxNum !== undefined) {
+                  statusRemap[srcIdxNum] = tgtIdxNum;
+                  if (srcIdxNum !== tgtIdxNum) {
+                    statusNeedsRemap = true;
+                  }
+                }
+                // If label doesn't exist on target, don't include — will be stripped later
+              }
+              if (statusNeedsRemap) {
+                statusLabelRemap[srcCol.id] = statusRemap;
+                console.log('Migration: Status label remap for "' + srcCol.title + '": ' + JSON.stringify(statusRemap));
+              }
             }
           }
         } catch (parseErr) {
-          console.warn('Migration: Could not parse dropdown settings for "' + srcCol.title + '": ' + parseErr);
+          console.warn('Migration: Could not parse label settings for "' + srcCol.title + '": ' + parseErr);
         }
       });
     } catch (fetchErr) {
-      console.warn('Migration: Could not fetch target column settings for dropdown remap: ' + fetchErr);
+      console.warn('Migration: Could not fetch target column settings for label remap: ' + fetchErr);
     }
   }
 
@@ -3083,6 +3148,19 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
                 return remap[srcId] !== undefined ? remap[srcId] : srcId;
               });
               columnValues[mapped.targetId] = parsed;
+            } else if ((cv.type === 'status' || cv.type === 'color') && parsed.index !== undefined) {
+              // Remap status label index from source → target
+              var statusRemap = statusLabelRemap[cv.id];
+              if (statusRemap) {
+                var remappedIdx = statusRemap[parsed.index];
+                if (remappedIdx !== undefined) {
+                  parsed.index = remappedIdx;
+                  columnValues[mapped.targetId] = parsed;
+                }
+                // If source index has no target mapping, skip this column value (label doesn't exist on target)
+              } else {
+                columnValues[mapped.targetId] = parsed;
+              }
             } else {
               columnValues[mapped.targetId] = parsed;
             }
@@ -3125,6 +3203,8 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
 
     var batchResults = createItemsBatch(targetApiKey, targetBoard.id, chunk, ITEM_BATCH_SIZE, ITEM_CONCURRENCY);
 
+    // Collect failed items for retry without column values
+    var retryItems = [];
     for (var bi = 0; bi < batchResults.length; bi++) {
       var globalIdx = chunkStart + bi;
       var result = batchResults[bi];
@@ -3134,7 +3214,32 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
         itemsMigrated++;
         itemIdMap[String(srcItem.id)] = result.id;
       } else {
-        console.warn('Failed to migrate item "' + srcItem.name + '": ' + (result ? result.error : 'no result'));
+        var errMsg = result ? result.error : 'no result';
+        console.warn('Failed to migrate item "' + srcItem.name + '": ' + errMsg);
+        // Retry failed items without column values — at least preserve name + group
+        var origInput = itemBatchInput[globalIdx];
+        if (origInput && origInput.columnValues) {
+          retryItems.push({ globalIdx: globalIdx, item: { name: origInput.name, groupId: origInput.groupId, columnValues: null } });
+        }
+      }
+    }
+
+    // Retry failed items without column values
+    if (retryItems.length > 0) {
+      console.log('Migration: Retrying ' + retryItems.length + ' failed items without column values...');
+      var retryInputs = retryItems.map(function(r) { return r.item; });
+      var retryResults = createItemsBatch(targetApiKey, targetBoard.id, retryInputs, ITEM_BATCH_SIZE, ITEM_CONCURRENCY);
+      for (var ri = 0; ri < retryResults.length; ri++) {
+        var retryGlobalIdx = retryItems[ri].globalIdx;
+        var retryResult = retryResults[ri];
+        var retrySrcItem = sourceItemOrder[retryGlobalIdx];
+        if (retryResult && retryResult.id) {
+          itemsMigrated++;
+          itemIdMap[String(retrySrcItem.id)] = retryResult.id;
+          console.log('Migration: Retry succeeded for "' + retrySrcItem.name + '" (without column values)');
+        } else {
+          console.warn('Migration: Retry also failed for "' + retrySrcItem.name + '": ' + (retryResult ? retryResult.error : 'no result'));
+        }
       }
     }
   }
