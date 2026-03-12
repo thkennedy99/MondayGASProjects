@@ -386,7 +386,7 @@ function createColumnOnTarget(targetApiKey, boardId, title, columnType, defaults
   var variables = {
     boardId: Number(boardId),
     title: title,
-    type: columnType
+    type: _normalizeColumnType(columnType)
   };
 
   var query;
@@ -1143,12 +1143,11 @@ function attachDropdownManagedColumnOnTarget(targetApiKey, boardId, managedColum
   if (title) { variables.title = title; args += ', $title: String'; params += ', title: $title'; }
   if (description) { variables.description = description; args += ', $description: String'; params += ', description: $description'; }
 
-  // Use activate_managed_column (replaces deprecated attach_dropdown_managed_column)
   var data = _targetAPI(targetApiKey,
-    'mutation (' + args + ') { activate_managed_column (' + params + ') { id title type } }',
+    'mutation (' + args + ') { attach_dropdown_managed_column (' + params + ') { id title type } }',
     variables
   );
-  return data.activate_managed_column;
+  return data.attach_dropdown_managed_column;
 }
 
 function createDocOnTarget(targetApiKey, workspaceId, name, kind, folderId) {
@@ -2246,12 +2245,12 @@ function prepareTemplatesOnTarget(params) {
             if (defaults) {
               return {
                 query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
-                variables: { boardId: Number(targetBoard.id), title: col.title, type: col.type, defaults: JSON.stringify(defaults) }
+                variables: { boardId: Number(targetBoard.id), title: col.title, type: _normalizeColumnType(col.type), defaults: JSON.stringify(defaults) }
               };
             }
             return {
               query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }',
-              variables: { boardId: Number(targetBoard.id), title: col.title, type: col.type }
+              variables: { boardId: Number(targetBoard.id), title: col.title, type: _normalizeColumnType(col.type) }
             };
           });
           batchMondayAPICalls(targetApiKey, colRequests, 6);
@@ -2580,10 +2579,83 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
 }
 
 /**
+ * Normalize column type from API response format to ColumnType enum value.
+ * The Monday.com API returns internal type names (e.g. 'color') but the
+ * create_column mutation expects the ColumnType enum (e.g. 'status').
+ */
+function _normalizeColumnType(type) {
+  var typeMap = {
+    'color': 'status'   // API returns 'color' but ColumnType enum uses 'status'
+  };
+  return typeMap[type] || type;
+}
+
+/**
+ * Valid StatusColumnColors enum values from Monday.com GraphQL schema.
+ */
+var STATUS_COLOR_ENUM_VALUES = [
+  'working_orange', 'done_green', 'stuck_red', 'dark_blue', 'purple', 'explosive',
+  'grass_green', 'bright_blue', 'saladish', 'egg_yolk', 'blackish', 'dark_red',
+  'sofia_pink', 'lipstick', 'dark_purple', 'bright_green', 'chili_blue',
+  'american_gray', 'brown', 'dark_orange', 'sunset', 'bubble', 'peach', 'berry',
+  'winter', 'river', 'navy', 'aquamarine', 'indigo', 'dark_indigo', 'pecan',
+  'lavender', 'royal', 'steel', 'orchid', 'lilac', 'tan', 'sky', 'coffee', 'teal'
+];
+
+/**
+ * Default color sequence for status labels when source color is unknown or invalid.
+ * These map to the default Monday.com color palette order.
+ */
+var STATUS_DEFAULT_COLORS = [
+  'bright_green', 'working_orange', 'done_green', 'stuck_red', 'bright_blue',
+  'purple', 'dark_orange', 'sofia_pink', 'egg_yolk', 'grass_green',
+  'dark_blue', 'saladish', 'dark_purple', 'berry', 'dark_red',
+  'lipstick', 'explosive', 'blackish', 'american_gray', 'brown'
+];
+
+/**
+ * Map from Monday.com internal var_name values (returned in settings_str labels_colors)
+ * to the StatusColumnColors enum values accepted by create_column mutations.
+ * Source var_names use hyphens and legacy names; enum uses underscores.
+ */
+var VAR_NAME_TO_ENUM_COLOR = {
+  // Direct matches (underscore normalization handles these too, but explicit is safer)
+  'purple': 'purple', 'explosive': 'explosive', 'saladish': 'saladish',
+  'blackish': 'blackish', 'lipstick': 'lipstick', 'brown': 'brown',
+  'sunset': 'sunset', 'bubble': 'bubble', 'peach': 'peach', 'berry': 'berry',
+  'winter': 'winter', 'river': 'river', 'navy': 'navy', 'aquamarine': 'aquamarine',
+  'indigo': 'indigo', 'pecan': 'pecan', 'lavender': 'lavender', 'royal': 'royal',
+  'steel': 'steel', 'orchid': 'orchid', 'lilac': 'lilac', 'tan': 'tan',
+  'sky': 'sky', 'coffee': 'coffee', 'teal': 'teal',
+  // Hyphenated → underscore
+  'grass-green': 'grass_green', 'bright-blue': 'bright_blue', 'egg-yolk': 'egg_yolk',
+  'dark-red': 'dark_red', 'sofia-pink': 'sofia_pink', 'dark-purple': 'dark_purple',
+  'bright-green': 'bright_green', 'chili-blue': 'chili_blue',
+  'american-gray': 'american_gray', 'dark-orange': 'dark_orange',
+  'dark-blue': 'dark_blue', 'dark-indigo': 'dark_indigo',
+  'working-orange': 'working_orange', 'done-green': 'done_green',
+  'stuck-red': 'stuck_red',
+  // Legacy/alias var_names (seen in real board data)
+  'orange': 'working_orange',
+  'green-shadow': 'done_green',
+  'red-shadow': 'stuck_red',
+  'grey': 'american_gray',
+  'yellow': 'egg_yolk',
+  'mustered': 'egg_yolk',          // mustard → egg_yolk
+  'blue-links': 'dark_blue',
+  'lime-green': 'saladish',
+  'black': 'blackish',
+  'red': 'stuck_red',
+  'green': 'done_green',
+  'blue': 'bright_blue',
+  'pink': 'sofia_pink'
+};
+
+/**
  * Build the correct defaults object for create_column from a column's settings_str.
  * Monday.com API expects specific formats:
- *   - dropdown: { labels: [{ id, label }] }
- *   - status: { labels: [{ id, label, color, index }] }
+ *   - dropdown: { labels: [{ label: String }] }
+ *   - status: { labels: [{ label: String, color: StatusColumnColors, index: Int }] }
  * Source settings_str uses different formats (name vs label, object vs array).
  */
 function _buildColumnDefaults(col) {
@@ -2593,33 +2665,56 @@ function _buildColumnDefaults(col) {
     var settings = JSON.parse(col.settings_str);
 
     if (col.type === 'dropdown' && settings.labels) {
-      // Dropdown labels in settings_str: [{ id, name }] or [{ id, label }]
+      // Dropdown: CreateDropdownLabelInput only takes { label: String! }
       var dropdownLabels = [];
       if (Array.isArray(settings.labels)) {
         dropdownLabels = settings.labels.map(function(lbl) {
-          return { id: lbl.id, label: lbl.label || lbl.name || '' };
-        });
+          return { label: lbl.label || lbl.name || '' };
+        }).filter(function(lbl) { return lbl.label !== ''; });
       }
       return dropdownLabels.length > 0 ? { labels: dropdownLabels } : null;
     }
 
     if ((col.type === 'status' || col.type === 'color') && settings.labels) {
-      // Status labels in settings_str: { "0": "Label", "1": "Label" } (object keyed by ID)
-      // API expects: [{ id, label, color, index }]
+      // Status: CreateStatusLabelInput takes { label: String!, color: StatusColumnColors!, index: Int! }
+      // Source settings_str format: labels = { "0": "LabelText", "1": "LabelText" }
+      // labels_colors = { "0": { color: "#hex", border: "#hex", var_name: "color_name" }, ... }
       var statusLabels = [];
       var labelsObj = settings.labels;
       var colorsObj = settings.labels_colors || {};
+
       if (!Array.isArray(labelsObj) && typeof labelsObj === 'object') {
         var idx = 0;
         for (var labelId in labelsObj) {
           if (!labelsObj.hasOwnProperty(labelId)) continue;
           var labelText = labelsObj[labelId];
-          if (typeof labelText !== 'string') continue;
+          if (typeof labelText !== 'string' || labelText === '') continue;
+
+          // Resolve color: map source var_name to StatusColumnColors enum
           var colorInfo = colorsObj[labelId];
-          var colorName = (colorInfo && colorInfo.var_name) ? colorInfo.var_name : null;
-          var entry = { id: Number(labelId), label: labelText, index: idx };
-          if (colorName) entry.color = colorName;
-          statusLabels.push(entry);
+          var colorName = null;
+          if (colorInfo && colorInfo.var_name) {
+            var srcVarName = colorInfo.var_name.toLowerCase().trim();
+            // 1. Check explicit mapping table
+            colorName = VAR_NAME_TO_ENUM_COLOR[srcVarName] || null;
+            // 2. Try underscore normalization
+            if (!colorName) {
+              var normalized = srcVarName.replace(/-/g, '_');
+              if (STATUS_COLOR_ENUM_VALUES.indexOf(normalized) >= 0) {
+                colorName = normalized;
+              }
+            }
+          }
+          // Fallback: assign from default palette
+          if (!colorName) {
+            colorName = STATUS_DEFAULT_COLORS[idx % STATUS_DEFAULT_COLORS.length];
+          }
+
+          statusLabels.push({
+            label: labelText,
+            color: colorName,
+            index: idx
+          });
           idx++;
         }
       }
@@ -2744,7 +2839,7 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
       var variables = {
         boardId: Number(targetBoard.id),
         title: col.title,
-        type: col.type
+        type: _normalizeColumnType(col.type)
       };
 
       var query;
@@ -3453,4 +3548,206 @@ function cancelMigration(migrationId) {
   } catch (error) {
     return handleError('cancelMigration', error, migrationId);
   }
+}
+
+// ── Test Functions ───────────────────────────────────────────────────────────
+
+/**
+ * Test column creation formats by creating a temporary board, adding status
+ * and dropdown columns with labels, then deleting the board.
+ * Run from Apps Script editor to validate the _buildColumnDefaults format.
+ */
+function testColumnCreationFormats() {
+  var results = { tests: [], passed: 0, failed: 0 };
+
+  function logTest(name, passed, detail) {
+    results.tests.push({ name: name, passed: passed, detail: detail });
+    if (passed) results.passed++; else results.failed++;
+    console.log((passed ? 'PASS' : 'FAIL') + ' | ' + name + (detail ? ' — ' + detail : ''));
+  }
+
+  // 1. Test _buildColumnDefaults for dropdown
+  var dropdownCol = {
+    title: 'Test Dropdown',
+    type: 'dropdown',
+    settings_str: JSON.stringify({
+      labels: [
+        { id: 1, name: 'Option A' },
+        { id: 2, name: 'Option B' },
+        { id: 3, name: 'Option C' }
+      ]
+    })
+  };
+  var dropdownDefaults = _buildColumnDefaults(dropdownCol);
+  logTest('Dropdown defaults structure',
+    dropdownDefaults && dropdownDefaults.labels && dropdownDefaults.labels.length === 3,
+    JSON.stringify(dropdownDefaults));
+  logTest('Dropdown label has no id field',
+    dropdownDefaults && dropdownDefaults.labels[0] && !dropdownDefaults.labels[0].id,
+    'First label: ' + JSON.stringify(dropdownDefaults && dropdownDefaults.labels[0]));
+  logTest('Dropdown label has label field',
+    dropdownDefaults && dropdownDefaults.labels[0] && dropdownDefaults.labels[0].label === 'Option A',
+    'label = ' + (dropdownDefaults && dropdownDefaults.labels[0] && dropdownDefaults.labels[0].label));
+
+  // 2. Test _buildColumnDefaults for status
+  var statusCol = {
+    title: 'Test Status',
+    type: 'status',
+    settings_str: JSON.stringify({
+      labels: { '0': 'Not Started', '1': 'In Progress', '2': 'Done', '5': 'Blocked' },
+      labels_colors: {
+        '0': { color: '#c4c4c4', border: '#c4c4c4', var_name: 'american_gray' },
+        '1': { color: '#fdab3d', border: '#fdab3d', var_name: 'working_orange' },
+        '2': { color: '#00c875', border: '#00c875', var_name: 'done_green' },
+        '5': { color: '#e2445c', border: '#e2445c', var_name: 'stuck_red' }
+      }
+    })
+  };
+  var statusDefaults = _buildColumnDefaults(statusCol);
+  logTest('Status defaults structure',
+    statusDefaults && statusDefaults.labels && statusDefaults.labels.length === 4,
+    JSON.stringify(statusDefaults));
+  logTest('Status label has no id field',
+    statusDefaults && statusDefaults.labels[0] && statusDefaults.labels[0].id === undefined,
+    'First label: ' + JSON.stringify(statusDefaults && statusDefaults.labels[0]));
+  logTest('Status label has valid color enum',
+    statusDefaults && statusDefaults.labels[0] && STATUS_COLOR_ENUM_VALUES.indexOf(statusDefaults.labels[0].color) >= 0,
+    'color = ' + (statusDefaults && statusDefaults.labels[0] && statusDefaults.labels[0].color));
+  logTest('Status label has index field',
+    statusDefaults && statusDefaults.labels[0] && typeof statusDefaults.labels[0].index === 'number',
+    'index = ' + (statusDefaults && statusDefaults.labels[0] && statusDefaults.labels[0].index));
+
+  // 3. Test status with unknown color (should fallback)
+  var statusColBadColor = {
+    title: 'Test Bad Color',
+    type: 'status',
+    settings_str: JSON.stringify({
+      labels: { '0': 'Unknown Color' },
+      labels_colors: { '0': { color: '#123456', border: '#123456', var_name: 'nonexistent_color' } }
+    })
+  };
+  var badColorDefaults = _buildColumnDefaults(statusColBadColor);
+  logTest('Status with bad color uses fallback',
+    badColorDefaults && badColorDefaults.labels[0] && STATUS_COLOR_ENUM_VALUES.indexOf(badColorDefaults.labels[0].color) >= 0,
+    'color = ' + (badColorDefaults && badColorDefaults.labels[0] && badColorDefaults.labels[0].color));
+
+  // 4. Test with REAL board data var_names (Activity Status from board 9791255941)
+  var realStatusCol = {
+    title: 'Activity Status (real data)',
+    type: 'status',
+    settings_str: JSON.stringify({
+      labels: { '0': 'Not Started', '1': 'Blockers', '2': 'In Progress', '3': 'Ongoing', '10': 'Completed' },
+      labels_colors: {
+        '0': { color: '#fdab3d', border: '#e99729', var_name: 'orange' },
+        '1': { color: '#df2f4a', border: '#ce3048', var_name: 'red-shadow' },
+        '2': { color: '#9cd326', border: '#89b921', var_name: 'lime-green' },
+        '3': { color: '#007eb5', border: '#3db0df', var_name: 'blue-links' },
+        '10': { color: '#74afcc', border: '#74afcc', var_name: 'river' }
+      }
+    })
+  };
+  var realDefaults = _buildColumnDefaults(realStatusCol);
+  logTest('Real status: all labels parsed',
+    realDefaults && realDefaults.labels && realDefaults.labels.length === 5,
+    'Count: ' + (realDefaults && realDefaults.labels ? realDefaults.labels.length : 0));
+  if (realDefaults && realDefaults.labels) {
+    var allValid = realDefaults.labels.every(function(l) {
+      return STATUS_COLOR_ENUM_VALUES.indexOf(l.color) >= 0;
+    });
+    logTest('Real status: all colors are valid enum values', allValid,
+      'Colors: ' + realDefaults.labels.map(function(l) { return l.label + '=' + l.color; }).join(', '));
+  }
+
+  // 5. Test _normalizeColumnType
+  logTest('normalizeColumnType: color → status', _normalizeColumnType('color') === 'status', '');
+  logTest('normalizeColumnType: status → status', _normalizeColumnType('status') === 'status', '');
+  logTest('normalizeColumnType: dropdown → dropdown', _normalizeColumnType('dropdown') === 'dropdown', '');
+
+  // 4. Live API test: create a temp board, add columns, then delete
+  var testBoardId = null;
+  try {
+    console.log('\n--- Live API Test ---');
+    var boardData = callMondayAPI(
+      'mutation { create_board (board_name: "__MigrationTest_DeleteMe", board_kind: private) { id } }'
+    );
+    testBoardId = boardData.create_board.id;
+    console.log('Created test board: ' + testBoardId);
+
+    // Try creating a dropdown column
+    try {
+      var ddDefaults = JSON.stringify({ labels: [{ label: 'Alpha' }, { label: 'Beta' }, { label: 'Gamma' }] });
+      var ddResult = callMondayAPI(
+        'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
+        { boardId: Number(testBoardId), title: 'TestDropdown', type: 'dropdown', defaults: ddDefaults }
+      );
+      logTest('Live: create dropdown column with labels',
+        ddResult.create_column && ddResult.create_column.id,
+        'Column ID = ' + (ddResult.create_column && ddResult.create_column.id));
+    } catch (e) {
+      logTest('Live: create dropdown column with labels', false, e.toString());
+    }
+
+    // Try creating a status column with basic labels
+    try {
+      var stDefaults = JSON.stringify({
+        labels: [
+          { label: 'Todo', color: 'bright_green', index: 0 },
+          { label: 'Doing', color: 'working_orange', index: 1 },
+          { label: 'Done', color: 'done_green', index: 2 }
+        ]
+      });
+      var stResult = callMondayAPI(
+        'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
+        { boardId: Number(testBoardId), title: 'TestStatus', type: 'status', defaults: stDefaults }
+      );
+      logTest('Live: create status column with labels',
+        stResult.create_column && stResult.create_column.id,
+        'Column ID = ' + (stResult.create_column && stResult.create_column.id));
+    } catch (e) {
+      logTest('Live: create status column with labels', false, e.toString());
+    }
+
+    // Try creating a status column using _buildColumnDefaults with real board data
+    try {
+      var realCol = {
+        title: 'RealStatusTest',
+        type: 'status',
+        settings_str: JSON.stringify({
+          labels: { '0': 'Not Started', '1': 'Blockers', '2': 'In Progress' },
+          labels_colors: {
+            '0': { color: '#fdab3d', border: '#e99729', var_name: 'orange' },
+            '1': { color: '#df2f4a', border: '#ce3048', var_name: 'red-shadow' },
+            '2': { color: '#9cd326', border: '#89b921', var_name: 'lime-green' }
+          }
+        })
+      };
+      var realColDefaults = _buildColumnDefaults(realCol);
+      console.log('Real column defaults: ' + JSON.stringify(realColDefaults));
+      var realStResult = callMondayAPI(
+        'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
+        { boardId: Number(testBoardId), title: 'RealStatusTest', type: 'status', defaults: JSON.stringify(realColDefaults) }
+      );
+      logTest('Live: create status column with REAL mapped colors',
+        realStResult.create_column && realStResult.create_column.id,
+        'Column ID = ' + (realStResult.create_column && realStResult.create_column.id));
+    } catch (e) {
+      logTest('Live: create status column with REAL mapped colors', false, e.toString());
+    }
+
+    // Cleanup: delete the test board
+    try {
+      callMondayAPI(
+        'mutation ($boardId: ID!) { delete_board (board_id: $boardId) { id } }',
+        { boardId: Number(testBoardId) }
+      );
+      console.log('Deleted test board: ' + testBoardId);
+    } catch (e) {
+      console.warn('Failed to delete test board ' + testBoardId + ': ' + e);
+    }
+  } catch (boardErr) {
+    logTest('Live: create test board', false, boardErr.toString());
+  }
+
+  console.log('\n=== Test Summary: ' + results.passed + ' passed, ' + results.failed + ' failed ===');
+  return results;
 }

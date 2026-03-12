@@ -1362,12 +1362,11 @@ function attachDropdownManagedColumn(boardId, managedColumnId, title, descriptio
     params += ', description: $description';
   }
 
-  // Use activate_managed_column (replaces deprecated attach_dropdown_managed_column)
   var data = callMondayAPI(
-    'mutation (' + args + ') { activate_managed_column (' + params + ') { id title type } }',
+    'mutation (' + args + ') { attach_dropdown_managed_column (' + params + ') { id title type } }',
     variables
   );
-  return data.activate_managed_column;
+  return data.attach_dropdown_managed_column;
 }
 
 /**
