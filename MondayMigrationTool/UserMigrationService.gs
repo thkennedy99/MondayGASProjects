@@ -303,7 +303,6 @@ function _executeSameAccountUserMigration(sourceWorkspaceId, targetWorkspaceId, 
           error: e.toString()
         });
       }
-      Utilities.sleep(200);
     }
 
     // 2b: Add missing individual subscribers (not team-covered), split by role
@@ -352,8 +351,6 @@ function _executeSameAccountUserMigration(sourceWorkspaceId, targetWorkspaceId, 
         results.errors.push({ board: bm.targetBoardName, action: 'add_owners_to_board', error: e.toString() });
       }
     }
-
-    Utilities.sleep(200);
   });
 
   results.usersProcessed = wsSubscriberIds.length + wsOwnerIds.length;
@@ -413,7 +410,6 @@ function _executeCrossAccountAssignExisting(targetWorkspaceId, targetApiKey, sca
           error: e.toString()
         });
       }
-      Utilities.sleep(200);
     }
 
     // 2b: Add missing individual subscribers with target user IDs, split by role
@@ -464,8 +460,6 @@ function _executeCrossAccountAssignExisting(targetWorkspaceId, targetApiKey, sca
         results.errors.push({ board: bm.targetBoardName, action: 'assign_owners', error: e.toString() });
       }
     }
-
-    Utilities.sleep(200);
   });
 
   results.usersProcessed = matchedUsers.length;
@@ -524,8 +518,6 @@ function _executeCrossAccountInviteUsers(targetWorkspaceId, targetApiKey, scanDa
         error: e.toString()
       });
     }
-
-    Utilities.sleep(500);
   }
 
   results.usersProcessed = toInvite.length;
@@ -1229,10 +1221,8 @@ function _populatePeopleColumnsForBoard(sourceBoardId, sourceBoardName, targetBo
         boardResult.columnsUpdated += Object.keys(columnUpdates).length;
         processedCount++;
 
-        // Rate limit
-        if (processedCount % 10 === 0) {
-          Utilities.sleep(300);
-        } else {
+        // Brief rate limit every 20 items
+        if (processedCount % 20 === 0) {
           Utilities.sleep(100);
         }
       } catch (updateErr) {

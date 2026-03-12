@@ -104,7 +104,6 @@ function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, pro
             docsSkipped++;
           }
 
-          Utilities.sleep(200);
           continue;
         }
 
@@ -114,7 +113,6 @@ function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, pro
         // 3c. Create new doc in target workspace (in the same folder as the source if folder mapping exists)
         var targetFolderId = (folderMapping && doc.doc_folder_id) ? (folderMapping[String(doc.doc_folder_id)] || null) : null;
         var newDoc = createDocOnTarget(targetApiKey, targetWorkspaceId, docName, doc.doc_kind || 'public', targetFolderId);
-        Utilities.sleep(300);
 
         // 3d. Import markdown content into new doc
         var importResult = addMarkdownToDocOnTarget(targetApiKey, newDoc.id, markdown);
@@ -131,7 +129,6 @@ function migrateDocuments(sourceWorkspaceId, targetWorkspaceId, migrationId, pro
         });
 
         docsMigrated++;
-        Utilities.sleep(300);
 
       } catch (docError) {
         console.error('Failed to migrate document "' + docName + '":', docError);

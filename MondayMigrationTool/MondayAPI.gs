@@ -1254,9 +1254,12 @@ function getManagedColumns() {
 /**
  * Get only active managed columns.
  */
+var _managedColumnsCache = null;
 function getActiveManagedColumns() {
+  if (_managedColumnsCache) return _managedColumnsCache;
   var all = getManagedColumns();
-  return all.filter(function(mc) { return mc.state === 'active'; });
+  _managedColumnsCache = all.filter(function(mc) { return mc.state === 'active'; });
+  return _managedColumnsCache;
 }
 
 /**

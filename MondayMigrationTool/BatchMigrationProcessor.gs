@@ -18,8 +18,8 @@
 // ── Batch Configuration ─────────────────────────────────────────────────────
 
 var BATCH_MIGRATION_CONFIG = {
-  MAX_EXECUTION_MS: 240000,     // 4 minutes — yield before GAS 6-min limit
-  TRIGGER_DELAY_MS: 30000,      // 30 seconds between phases (safe for trigger scheduling)
+  MAX_EXECUTION_MS: 330000,     // 5.5 minutes — closer to GAS 6-min limit for fewer yields
+  TRIGGER_DELAY_MS: 5000,       // 5 seconds between phases (was 30s — unnecessary)
   STATE_TTL: 21600,             // 6 hours cache TTL
   CACHE_CHUNK_SIZE: 50000,      // 50KB per cache chunk (CacheService limit: 100KB/value)
   MAX_RETRIES: 2                // Max retries for a failed board
