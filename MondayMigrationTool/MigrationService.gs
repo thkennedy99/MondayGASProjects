@@ -2705,6 +2705,7 @@ var VAR_NAME_TO_ENUM_COLOR = {
   'blue-links': 'dark_blue',
   'lime-green': 'saladish',
   'black': 'blackish',
+  'soft-black': 'blackish',
   'red': 'stuck_red',
   'green': 'done_green',
   'blue': 'bright_blue',
@@ -2933,6 +2934,8 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     // Execute in parallel batches (6 at a time to avoid complexity limits)
     var colResults = batchMondayAPICalls(targetApiKey, colRequests, 6);
 
+    // Collect failed typed columns for fallback retry
+    var typedRetries = [];
     for (var ci = 0; ci < colResults.length; ci++) {
       var col = regularColumns[ci];
       var result = colResults[ci];
@@ -2943,8 +2946,40 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
         columnMapping[col.id] = { targetId: colResult.id, title: col.title, type: col.type };
       } else {
         var errMsg = (result && result.error) ? result.error : 'No result';
-        console.warn('Skipped column ' + col.title + ' (' + col.type + '): ' + errMsg);
-        skippedColumns.push({ id: col.id, title: col.title, type: col.type, error: errMsg });
+        // If a typed mutation (create_status_column/create_dropdown_column) failed,
+        // retry with generic create_column without defaults so the column exists
+        if (resultKey !== 'create_column') {
+          console.warn('Typed column creation failed for ' + col.title + ' (' + col.type + '): ' + errMsg + ' — retrying with generic create_column');
+          typedRetries.push({ col: col, index: ci });
+        } else {
+          console.warn('Skipped column ' + col.title + ' (' + col.type + '): ' + errMsg);
+          skippedColumns.push({ id: col.id, title: col.title, type: col.type, error: errMsg });
+        }
+      }
+    }
+
+    // Fallback: retry failed typed mutations with generic create_column (no custom labels, but column exists)
+    if (typedRetries.length > 0) {
+      var retryRequests = typedRetries.map(function(r) {
+        return {
+          query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }',
+          variables: { boardId: Number(targetBoard.id), title: r.col.title, type: _normalizeColumnType(r.col.type) },
+          _resultKey: 'create_column'
+        };
+      });
+      var retryResults = batchMondayAPICalls(targetApiKey, retryRequests, 6);
+      for (var ri = 0; ri < retryResults.length; ri++) {
+        var retryCol = typedRetries[ri].col;
+        var retryResult = retryResults[ri];
+        var retryColResult = retryResult && retryResult.create_column;
+        if (retryColResult && retryColResult.id) {
+          columnMapping[retryCol.id] = { targetId: retryColResult.id, title: retryCol.title, type: retryCol.type };
+          console.log('Migration: Fallback create_column succeeded for "' + retryCol.title + '" (without custom labels)');
+        } else {
+          var retryErr = (retryResult && retryResult.error) ? retryResult.error : 'No result';
+          console.warn('Skipped column ' + retryCol.title + ' (' + retryCol.type + '): typed and generic creation both failed: ' + retryErr);
+          skippedColumns.push({ id: retryCol.id, title: retryCol.title, type: retryCol.type, error: 'typed: failed, generic: ' + retryErr });
+        }
       }
     }
   }
@@ -3245,6 +3280,67 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
   }
 
   // Batch-migrate subitems
+  // For cross-account: build subitem column mapping (source col ID → target col ID by title)
+  var subitemColMapping = null; // null = use source IDs as-is (same account)
+  if (targetApiKey) {
+    // Find source subitem board ID from the subtasks column settings
+    var subtasksCol = (structure.columns || []).find(function(c) { return c.type === 'subtasks'; });
+    if (subtasksCol && subtasksCol.settings_str) {
+      try {
+        var subtasksSettings = JSON.parse(subtasksCol.settings_str);
+        var srcSubBoardId = subtasksSettings.boardIds && subtasksSettings.boardIds[0];
+        if (srcSubBoardId) {
+          var srcSubBoard = getBoardStructure(String(srcSubBoardId));
+          if (srcSubBoard && srcSubBoard.columns) {
+            // Build source column title → ID mapping
+            var srcSubColByTitle = {};
+            srcSubBoard.columns.forEach(function(c) { srcSubColByTitle[c.title] = c.id; });
+
+            // Create one dummy subitem to trigger target subitem board creation, then fetch target structure
+            var firstParentId = null;
+            for (var fp = 0; fp < sourceItemOrder.length; fp++) {
+              if (sourceItemOrder[fp].subitems && sourceItemOrder[fp].subitems.length > 0 && itemIdMap[String(sourceItemOrder[fp].id)]) {
+                firstParentId = itemIdMap[String(sourceItemOrder[fp].id)];
+                break;
+              }
+            }
+            if (firstParentId) {
+              var dummySub = createSubitemsBatch(targetApiKey, [{ parentItemId: firstParentId, name: '__mapping_probe__', columnValues: null }], 1, 1);
+              if (dummySub[0] && dummySub[0].id) {
+                // Query the dummy subitem to find its board ID
+                try {
+                  var subItemData = _targetAPI(targetApiKey,
+                    'query ($itemId: [ID!]) { items (ids: $itemId) { board { id columns { id title type } } } }',
+                    { itemId: [Number(dummySub[0].id)] }
+                  );
+                  var tgtSubBoard = subItemData.items && subItemData.items[0] && subItemData.items[0].board;
+                  if (tgtSubBoard && tgtSubBoard.columns) {
+                    subitemColMapping = {};
+                    var tgtSubColByTitle = {};
+                    tgtSubBoard.columns.forEach(function(c) { tgtSubColByTitle[c.title] = c.id; });
+                    srcSubBoard.columns.forEach(function(srcCol) {
+                      var tgtId = tgtSubColByTitle[srcCol.title];
+                      if (tgtId) {
+                        subitemColMapping[srcCol.id] = tgtId;
+                      }
+                    });
+                    console.log('Migration: Subitem column mapping built — ' + Object.keys(subitemColMapping).length + ' columns mapped');
+                  }
+                } catch (subMapErr) {
+                  console.warn('Migration: Could not build subitem column mapping: ' + subMapErr);
+                }
+                // Delete the dummy subitem
+                try { deleteItemOnTarget(targetApiKey, dummySub[0].id); } catch (e) {}
+              }
+            }
+          }
+        }
+      } catch (subErr) {
+        console.warn('Migration: Could not parse subtasks settings for subitem mapping: ' + subErr);
+      }
+    }
+  }
+
   var subitemBatchInput = [];
   var subitemSourceInfo = [];
   for (var si = 0; si < sourceItemOrder.length; si++) {
@@ -3263,7 +3359,11 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
                 if (targetApiKey && cv.type === 'people') {
                   // Skip people columns for cross-account
                 } else {
-                  subColValues[cv.id] = parsed;
+                  // Map source subitem column ID → target column ID for cross-account
+                  var targetColId = subitemColMapping ? subitemColMapping[cv.id] : cv.id;
+                  if (targetColId) {
+                    subColValues[targetColId] = parsed;
+                  }
                 }
               }
             } catch (e) {}
