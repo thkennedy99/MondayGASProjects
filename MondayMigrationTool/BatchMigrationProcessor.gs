@@ -697,11 +697,12 @@ function _phaseInit(migrationId, state) {
   state.folderMapping = folderMapping;
   state.folderList = folderList;
 
-  // Build board → folder lookup (source folder ID → target folder ID)
+  // Build board → folder lookup: boardId → SOURCE folder ID
+  // The move code will then look up folderMapping[sourceFolderId] to get the target folder ID.
   var boardFolderLookup = {};
   state.sourceBoards.forEach(function(b) {
     if (b.board_folder_id && folderMapping[String(b.board_folder_id)]) {
-      boardFolderLookup[b.id] = folderMapping[String(b.board_folder_id)];
+      boardFolderLookup[b.id] = String(b.board_folder_id);
     }
   });
   state.boardFolderLookup = boardFolderLookup;
@@ -818,8 +819,17 @@ function _phaseBoards(migrationId, state) {
         if (state.templateMapping) {
           components._templateMapping = state.templateMapping;
         }
-        if (state.boardFolderLookup) {
-          components._boardFolderLookup = state.boardFolderLookup;
+        // Derive target folder lookup on the fly from boardFolderLookup + folderMapping
+        // to avoid storing duplicate data in state
+        if (state.boardFolderLookup && state.folderMapping) {
+          var targetFolderLookup = {};
+          for (var bId in state.boardFolderLookup) {
+            var srcFolderId = state.boardFolderLookup[bId];
+            if (srcFolderId && state.folderMapping[srcFolderId]) {
+              targetFolderLookup[bId] = state.folderMapping[srcFolderId];
+            }
+          }
+          components._boardFolderLookup = targetFolderLookup;
         }
 
         var result = migrateBoard(fullBoard, targetWsId, components, migrationId, targetApiKey, boardContext);
@@ -876,6 +886,11 @@ function _phaseBoards(migrationId, state) {
 
     state.boardIndex = i + 1;
     state.retryCount = 0; // Reset retry count per board
+
+    // Release references to board data to help GC reclaim memory between boards
+    fullBoard = null;
+    result = null;
+
     _saveBatchState(migrationId, state);
   }
 

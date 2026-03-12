@@ -1143,11 +1143,12 @@ function attachDropdownManagedColumnOnTarget(targetApiKey, boardId, managedColum
   if (title) { variables.title = title; args += ', $title: String'; params += ', title: $title'; }
   if (description) { variables.description = description; args += ', $description: String'; params += ', description: $description'; }
 
+  // Use activate_managed_column (replaces deprecated attach_dropdown_managed_column)
   var data = _targetAPI(targetApiKey,
-    'mutation (' + args + ') { attach_dropdown_managed_column (' + params + ') { id title type } }',
+    'mutation (' + args + ') { activate_managed_column (' + params + ') { id title type } }',
     variables
   );
-  return data.attach_dropdown_managed_column;
+  return data.activate_managed_column;
 }
 
 function createDocOnTarget(targetApiKey, workspaceId, name, kind, folderId) {
@@ -2235,6 +2236,22 @@ function prepareTemplatesOnTarget(params) {
 
         if (regularColumns.length > 0) {
           var colRequests = regularColumns.map(function(col) {
+            // Include defaults (settings) for status/dropdown columns to preserve labels
+            var defaults = null;
+            if (col.settings_str && col.settings_str !== '{}') {
+              try {
+                var colSettings = JSON.parse(col.settings_str);
+                if ((col.type === 'status' || col.type === 'dropdown') && colSettings.labels) {
+                  defaults = colSettings;
+                }
+              } catch (pe) {}
+            }
+            if (defaults) {
+              return {
+                query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
+                variables: { boardId: Number(targetBoard.id), title: col.title, type: col.type, defaults: typeof defaults === 'string' ? defaults : JSON.stringify(defaults) }
+              };
+            }
             return {
               query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }',
               variables: { boardId: Number(targetBoard.id), title: col.title, type: col.type }
@@ -2717,6 +2734,65 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
     }
   }
 
+  // Build dropdown label remapping: source label IDs may differ from target label IDs.
+  // Fetch target column settings and build a name-based mapping for dropdown/status columns.
+  var dropdownLabelRemap = {}; // sourceColumnId → { sourceLabelId → targetLabelId }
+  var dropdownSourceColumns = (structure.columns || []).filter(function(col) {
+    return col.type === 'dropdown' && col.settings_str && columnMapping[col.id];
+  });
+  if (dropdownSourceColumns.length > 0) {
+    try {
+      var targetColsData = _targetAPI(targetApiKey,
+        'query ($boardId: [ID!]!) { boards (ids: $boardId) { columns { id title type settings_str } } }',
+        { boardId: [Number(targetBoard.id)] }
+      );
+      var targetCols = targetColsData.boards && targetColsData.boards[0] ? targetColsData.boards[0].columns : [];
+      var targetColById = {};
+      targetCols.forEach(function(tc) { targetColById[tc.id] = tc; });
+
+      dropdownSourceColumns.forEach(function(srcCol) {
+        var mapped = columnMapping[srcCol.id];
+        if (!mapped) return;
+        var targetCol = targetColById[mapped.targetId];
+        if (!targetCol || !targetCol.settings_str) return;
+
+        try {
+          var srcSettings = JSON.parse(srcCol.settings_str);
+          var tgtSettings = JSON.parse(targetCol.settings_str);
+          var srcLabels = srcSettings.labels;
+          var tgtLabels = tgtSettings.labels;
+          if (!srcLabels || !tgtLabels) return;
+
+          // Dropdown labels are arrays: [{id: 1, name: "Opt A"}, ...]
+          if (Array.isArray(srcLabels) && Array.isArray(tgtLabels)) {
+            var tgtByName = {};
+            tgtLabels.forEach(function(lbl) { tgtByName[lbl.name] = lbl.id; });
+
+            var remap = {};
+            var needsRemap = false;
+            srcLabels.forEach(function(lbl) {
+              var tgtId = tgtByName[lbl.name];
+              if (tgtId !== undefined && tgtId !== lbl.id) {
+                remap[lbl.id] = tgtId;
+                needsRemap = true;
+              } else if (tgtId !== undefined) {
+                remap[lbl.id] = tgtId; // Same ID — no change needed but include for completeness
+              }
+            });
+            if (needsRemap) {
+              dropdownLabelRemap[srcCol.id] = remap;
+              console.log('Migration: Dropdown label remap for "' + srcCol.title + '": ' + JSON.stringify(remap));
+            }
+          }
+        } catch (parseErr) {
+          console.warn('Migration: Could not parse dropdown settings for "' + srcCol.title + '": ' + parseErr);
+        }
+      });
+    } catch (fetchErr) {
+      console.warn('Migration: Could not fetch target column settings for dropdown remap: ' + fetchErr);
+    }
+  }
+
   // Create groups (BATCHED via fetchAll)
   var groupMapping = {};
   if (components.groups !== false && (structure.groups || []).length > 0) {
@@ -2807,6 +2883,13 @@ function migrateBoardManual(sourceBoard, targetWorkspaceId, components, migratio
           if (skipTypes.indexOf(cv.type) < 0) {
             if (targetApiKey && cv.type === 'people') {
               // Skip people columns for cross-account — populated post-migration
+            } else if (cv.type === 'dropdown' && dropdownLabelRemap[cv.id] && parsed.ids) {
+              // Remap dropdown label IDs from source → target
+              var remap = dropdownLabelRemap[cv.id];
+              parsed.ids = parsed.ids.map(function(srcId) {
+                return remap[srcId] !== undefined ? remap[srcId] : srcId;
+              });
+              columnValues[mapped.targetId] = parsed;
             } else {
               columnValues[mapped.targetId] = parsed;
             }
@@ -3035,24 +3118,28 @@ function migrateFileColumns(itemIdMap, fileColumns, columnMapping, sourceApiKey,
       }
 
       try {
-        // Download the file
+        // Check file size from asset metadata before downloading (avoids OOM on large files)
+        var fileSizeBytes = asset.file_size ? Number(asset.file_size) : 0;
         var fileName = asset.name || ('file_' + asset.id + (asset.file_extension ? '.' + asset.file_extension : ''));
-        var blob = downloadMondayAsset(asset.public_url, fileName);
 
-        // Check file size (GAS UrlFetchApp payload limit ~50MB, Monday limit 500MB)
-        var sizeBytes = blob.getBytes().length;
-        if (sizeBytes > 50 * 1024 * 1024) {
+        if (fileSizeBytes > 50 * 1024 * 1024) {
           console.warn('Migration: Skipping file "' + fileName + '" — too large (' +
-            Math.round(sizeBytes / 1024 / 1024) + 'MB) for GAS transfer');
-          errors.push({ item: srcItemId, file: fileName, error: 'File too large for GAS transfer' });
+            Math.round(fileSizeBytes / 1024 / 1024) + 'MB) for GAS transfer');
+          errors.push({ item: srcItemId, file: fileName, error: 'File too large for GAS transfer (' + Math.round(fileSizeBytes / 1024 / 1024) + 'MB)' });
           filesErrored++;
           continue;
         }
+
+        // Download the file
+        var blob = downloadMondayAsset(asset.public_url, fileName);
 
         // Upload to target
         uploadFileToMondayItem(targetItemId, primaryTargetColId, blob, targetApiKey || null);
         filesMigrated++;
         console.log('Migration: Uploaded file "' + fileName + '" to target item ' + targetItemId);
+
+        // Release blob reference immediately to free memory
+        blob = null;
 
         // Brief pause between file uploads (multipart, can't batch via fetchAll)
         Utilities.sleep(200);

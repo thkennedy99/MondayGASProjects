@@ -1362,11 +1362,12 @@ function attachDropdownManagedColumn(boardId, managedColumnId, title, descriptio
     params += ', description: $description';
   }
 
+  // Use activate_managed_column (replaces deprecated attach_dropdown_managed_column)
   var data = callMondayAPI(
-    'mutation (' + args + ') { attach_dropdown_managed_column (' + params + ') { id title type } }',
+    'mutation (' + args + ') { activate_managed_column (' + params + ') { id title type } }',
     variables
   );
-  return data.attach_dropdown_managed_column;
+  return data.activate_managed_column;
 }
 
 /**
@@ -1750,15 +1751,16 @@ function uploadFileToMondayItem(itemId, columnId, fileBlob, apiKey) {
 
   var partEnd = '\r\n--' + boundary + '--\r\n';
 
-  // Combine into single byte array
-  var payload = [];
+  // Combine into single byte array using concat instead of push loop (memory-efficient)
   var textBytes = Utilities.newBlob(partQuery + partMap + partFileHeader).getBytes();
   var fileBytes = fileBlob.getBytes();
   var endBytes = Utilities.newBlob(partEnd).getBytes();
+  var payload = textBytes.concat(fileBytes).concat(endBytes);
 
-  for (var t = 0; t < textBytes.length; t++) payload.push(textBytes[t]);
-  for (var f = 0; f < fileBytes.length; f++) payload.push(fileBytes[f]);
-  for (var e = 0; e < endBytes.length; e++) payload.push(endBytes[e]);
+  // Release intermediate arrays to free memory
+  textBytes = null;
+  fileBytes = null;
+  endBytes = null;
 
   var options = {
     method: 'POST',
