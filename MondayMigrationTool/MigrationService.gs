@@ -1401,25 +1401,32 @@ function _executeMigration(migrationId, params) {
       console.log('Migration: Step 3b - Fetching source workspace folder structure...');
       updateMigrationProgress(migrationId, { message: 'Scanning workspace folder structure...' });
       var sourceFolders = getWorkspaceFolders(sourceWsId);
-      if (sourceFolders.length > 0) {
-        console.log('Migration: Found ' + sourceFolders.length + ' top-level folders');
+      // Monday.com folders query returns ALL folders flat (including subfolders at root level
+      // with parent set). Filter to only root folders to avoid duplicates.
+      var rootFolders = sourceFolders.filter(function(f) { return !f.parent; });
+      if (rootFolders.length > 0) {
+        console.log('Migration: Found ' + rootFolders.length + ' top-level folders (' + sourceFolders.length + ' total from API)');
 
         // Flatten the folder tree into a list with parent references for ordered creation
         folderList = [];
+        var seenFolderIds = {};
         var flattenFolders = function(folders, parentSourceId) {
           folders.forEach(function(folder) {
+            var fId = String(folder.id);
+            if (seenFolderIds[fId]) return; // Skip duplicates
+            seenFolderIds[fId] = true;
             folderList.push({
-              id: String(folder.id),
+              id: fId,
               name: folder.name,
               color: folder.color || null,
               parentSourceId: parentSourceId
             });
             if (folder.sub_folders && folder.sub_folders.length > 0) {
-              flattenFolders(folder.sub_folders, String(folder.id));
+              flattenFolders(folder.sub_folders, fId);
             }
           });
         };
-        flattenFolders(sourceFolders, null);
+        flattenFolders(rootFolders, null);
 
         console.log('Migration: Total folders (including nested): ' + folderList.length);
         updateMigrationProgress(migrationId, {

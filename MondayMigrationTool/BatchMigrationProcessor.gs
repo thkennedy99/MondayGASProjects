@@ -656,21 +656,29 @@ function _phaseInit(migrationId, state) {
   } else {
     try {
       var sourceFolders = getWorkspaceFolders(sourceWsId);
-      if (sourceFolders.length > 0) {
+      // Monday.com folders query returns ALL folders flat (including subfolders at root level
+      // with parent set). Filter to only root folders, then walk sub_folders recursively
+      // to avoid creating duplicates.
+      var rootFolders = sourceFolders.filter(function(f) { return !f.parent; });
+      if (rootFolders.length > 0) {
+        var seenFolderIds = {};
         var flattenFolders = function(folders, parentSourceId) {
           folders.forEach(function(folder) {
+            var fId = String(folder.id);
+            if (seenFolderIds[fId]) return; // Skip duplicates
+            seenFolderIds[fId] = true;
             folderList.push({
-              id: String(folder.id),
+              id: fId,
               name: folder.name,
               color: folder.color || null,
               parentSourceId: parentSourceId
             });
             if (folder.sub_folders && folder.sub_folders.length > 0) {
-              flattenFolders(folder.sub_folders, String(folder.id));
+              flattenFolders(folder.sub_folders, fId);
             }
           });
         };
-        flattenFolders(sourceFolders, null);
+        flattenFolders(rootFolders, null);
 
         updateMigrationProgress(migrationId, {
           message: 'Recreating ' + folderList.length + ' folder(s)...'
@@ -707,9 +715,9 @@ function _phaseInit(migrationId, state) {
   state.boardFolderLookup = boardFolderLookup;
 
   // Detect managed templates if enabled
-  if (components.useManagedTemplates) {
+  if (state.components && state.components.useManagedTemplates) {
     console.log('Migration: Detecting managed templates for source boards...');
-    var templateSetId = components._templateSetId || null;
+    var templateSetId = state.components._templateSetId || null;
     var tplResult = detectManagedTemplatesForBoards(state.sourceBoards, targetApiKey, templateSetId);
     state.templateMapping = tplResult.templateMapping;
 
