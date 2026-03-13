@@ -2751,14 +2751,15 @@ function syncPartnerBoardById(boardId) {
 
 /**
  * Fetch with automatic retry for rate limiting (429) and server errors (5xx).
- * Uses exponential backoff between retries.
+ * For 429 responses, parses retry_in_seconds from Monday.com's error body
+ * to wait the exact amount of time needed. Falls back to exponential backoff.
  * @param {string} url - The URL to fetch
  * @param {Object} options - UrlFetchApp options
- * @param {number} [maxAttempts=3] - Maximum number of attempts
+ * @param {number} [maxAttempts=5] - Maximum number of attempts
  * @returns {HTTPResponse} The successful response
  */
 function retryableFetch_(url, options, maxAttempts) {
-  maxAttempts = maxAttempts || 3;
+  maxAttempts = maxAttempts || 5;
   let lastError;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -2771,9 +2772,18 @@ function retryableFetch_(url, options, maxAttempts) {
       }
 
       if (code === 429 || code >= 500) {
-        lastError = new Error(`HTTP ${code}: ${response.getContentText().substring(0, 200)}`);
+        const responseText = response.getContentText();
+        lastError = new Error(`HTTP ${code}: ${responseText.substring(0, 500)}`);
+
         if (attempt < maxAttempts) {
-          const delay = Math.pow(2, attempt) * 1000;
+          let delay;
+          if (code === 429) {
+            // Parse retry_in_seconds from Monday.com's complexity budget response
+            delay = parseRetryDelay_(responseText);
+          } else {
+            // Server errors: exponential backoff
+            delay = Math.pow(2, attempt) * 1000;
+          }
           console.log(`Retryable error (${code}). Waiting ${delay / 1000}s before retry ${attempt + 1}/${maxAttempts}...`);
           Utilities.sleep(delay);
           continue;
@@ -2795,11 +2805,43 @@ function retryableFetch_(url, options, maxAttempts) {
   throw new Error(`Failed after ${maxAttempts} attempts: ${lastError}`);
 }
 
+/**
+ * Parse the retry delay from a Monday.com 429 response body.
+ * Monday.com returns retry_in_seconds in the error extensions.
+ * @param {string} responseText - The raw response body
+ * @returns {number} Delay in milliseconds (minimum 5s, adds 2s buffer)
+ */
+function parseRetryDelay_(responseText) {
+  const DEFAULT_DELAY = 10000; // 10 seconds default
+
+  try {
+    const parsed = JSON.parse(responseText);
+
+    // Check errors[0].extensions.retry_in_seconds (standard Monday.com format)
+    if (parsed.errors && parsed.errors[0] && parsed.errors[0].extensions) {
+      const retrySeconds = parsed.errors[0].extensions.retry_in_seconds;
+      if (retrySeconds && retrySeconds > 0) {
+        // Add 2-second buffer to ensure budget has replenished
+        return (retrySeconds + 2) * 1000;
+      }
+    }
+
+    // Check error_data.retry_in_seconds (older format)
+    if (parsed.error_data && parsed.error_data.retry_in_seconds) {
+      return (parsed.error_data.retry_in_seconds + 2) * 1000;
+    }
+  } catch (e) {
+    // Parsing failed, use default
+  }
+
+  return DEFAULT_DELAY;
+}
+
 // ── Batch API Query Functions ────────────────────────────────────────────────
 
 /**
- * Fetch board structures for multiple boards in a single API call.
- * Instead of making N separate calls for N boards, this batches them into one.
+ * Fetch board structures for multiple boards using chunked API calls.
+ * Chunks board IDs into groups of 10 to stay within complexity limits.
  * @param {string[]} boardIds - Array of Monday.com board IDs
  * @returns {Object} Map of boardId -> board structure (columns, groups, name)
  */
@@ -2807,40 +2849,55 @@ function getBatchBoardStructures(boardIds) {
   if (!boardIds || boardIds.length === 0) return {};
 
   const monday = new MondayAPI();
+  const CHUNK_SIZE = 10;
+  const structureMap = {};
 
-  // Monday.com GraphQL supports querying multiple boards in a single call
-  const query = `
-    query GetMultipleBoardStructures($boardIds: [ID!]!) {
-      boards(ids: $boardIds) {
-        id
-        name
-        columns {
+  console.log(`Batch fetching board structures for ${boardIds.length} boards in chunks of ${CHUNK_SIZE}...`);
+
+  for (let i = 0; i < boardIds.length; i += CHUNK_SIZE) {
+    const chunk = boardIds.slice(i, i + CHUNK_SIZE);
+    const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
+    const totalChunks = Math.ceil(boardIds.length / CHUNK_SIZE);
+
+    console.log(`Fetching board structure chunk ${chunkNum}/${totalChunks} (${chunk.length} boards)...`);
+
+    const query = `
+      query GetMultipleBoardStructures($boardIds: [ID!]!) {
+        boards(ids: $boardIds) {
           id
-          title
-          type
-          settings_str
-        }
-        groups {
-          id
-          title
+          name
+          columns {
+            id
+            title
+            type
+            settings_str
+          }
+          groups {
+            id
+            title
+          }
         }
       }
+    `;
+
+    try {
+      const data = monday.query(query, { boardIds: chunk.map(id => String(id)) });
+      if (data.boards) {
+        data.boards.forEach(board => {
+          structureMap[board.id] = board;
+        });
+      }
+    } catch (error) {
+      console.error(`Error fetching board structure chunk ${chunkNum}:`, error);
     }
-  `;
 
-  console.log(`Batch fetching board structures for ${boardIds.length} boards: [${boardIds.join(', ')}]`);
-
-  const data = monday.query(query, { boardIds: boardIds.map(id => String(id)) });
-
-  // Build a map of boardId -> structure for easy lookup
-  const structureMap = {};
-  if (data.boards) {
-    data.boards.forEach(board => {
-      structureMap[board.id] = board;
-    });
+    // Small delay between chunks
+    if (i + CHUNK_SIZE < boardIds.length) {
+      Utilities.sleep(500);
+    }
   }
 
-  console.log(`Batch board structures retrieved: ${Object.keys(structureMap).length} boards`);
+  console.log(`Batch board structures retrieved: ${Object.keys(structureMap).length}/${boardIds.length} boards`);
   return structureMap;
 }
 
@@ -2855,7 +2912,7 @@ function getBatchBoardStructures(boardIds) {
 function getBatchBoardItems(boardIds, options) {
   if (!boardIds || boardIds.length === 0) return {};
 
-  const pageSize = (options && options.pageSize) || 500;
+  const pageSize = (options && options.pageSize) || 200;
   const maxItems = (options && options.maxItemsPerBoard) || 10000;
   const itemsMap = {};
 

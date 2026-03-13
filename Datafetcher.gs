@@ -40,45 +40,66 @@ function getBoardStructure(boardId = BOARD_ID) {
 }
 
 /**
- * Get board structures for multiple boards in a single API call.
- * Reduces N API calls to 1 when syncing multiple boards.
+ * Get board structures for multiple boards using batched API calls.
+ * Chunks board IDs into groups of 10 to stay within complexity limits,
+ * then fetches each chunk in a single API call. Reduces N calls to N/10.
  * @param {string[]} boardIds - Array of Monday.com board IDs
  * @returns {Object} Map of boardId -> board structure
  */
 function getBatchBoardStructuresViaApi(boardIds) {
   if (!boardIds || boardIds.length === 0) return {};
 
-  const idList = boardIds.join(', ');
-  const query = `
-    query {
-      boards(ids: [${idList}]) {
-        id
-        name
-        columns {
+  const CHUNK_SIZE = 10; // Monday.com complexity limits: ~10 boards per call is safe
+  const structureMap = {};
+
+  console.log(`Batch fetching board structures for ${boardIds.length} boards in chunks of ${CHUNK_SIZE}...`);
+
+  for (let i = 0; i < boardIds.length; i += CHUNK_SIZE) {
+    const chunk = boardIds.slice(i, i + CHUNK_SIZE);
+    const idList = chunk.join(', ');
+    const chunkNum = Math.floor(i / CHUNK_SIZE) + 1;
+    const totalChunks = Math.ceil(boardIds.length / CHUNK_SIZE);
+
+    console.log(`Fetching board structure chunk ${chunkNum}/${totalChunks} (${chunk.length} boards)...`);
+
+    const query = `
+      query {
+        boards(ids: [${idList}]) {
           id
-          title
-          type
-          settings_str
-        }
-        groups {
-          id
-          title
+          name
+          columns {
+            id
+            title
+            type
+            settings_str
+          }
+          groups {
+            id
+            title
+          }
         }
       }
+    `;
+
+    try {
+      const response = makeApiRequest(query);
+      if (response.data && response.data.boards) {
+        response.data.boards.forEach(board => {
+          structureMap[board.id] = board;
+        });
+      }
+    } catch (error) {
+      console.error(`Error fetching board structure chunk ${chunkNum}:`, error);
+      // Continue with remaining chunks even if one fails
     }
-  `;
 
-  console.log(`Batch fetching board structures for ${boardIds.length} boards: [${idList}]`);
-  const response = makeApiRequest(query);
-
-  const structureMap = {};
-  if (response.data && response.data.boards) {
-    response.data.boards.forEach(board => {
-      structureMap[board.id] = board;
-    });
+    // Small delay between chunks to avoid complexity budget exhaustion
+    if (i + CHUNK_SIZE < boardIds.length) {
+      Utilities.sleep(500);
+    }
   }
 
-  console.log(`Batch board structures retrieved: ${Object.keys(structureMap).length} boards`);
+  console.log(`Batch board structures retrieved: ${Object.keys(structureMap).length}/${boardIds.length} boards`);
   return structureMap;
 }
 
@@ -93,7 +114,7 @@ function getAllBoardItems(boardId = BOARD_ID) {
   let hasMore = true;
   let pageCount = 0;
   const MAX_ITEMS = 10000; // Safety limit to prevent infinite loops
-  const PAGE_SIZE = 500; // Larger page size for fewer API calls (was 100)
+  const PAGE_SIZE = 200; // Balanced page size: lower API complexity vs fewer calls
 
   console.log(`Starting to fetch all board items for board ${boardId} (pageSize=${PAGE_SIZE})...`);
 
@@ -179,12 +200,18 @@ function getBatchBoardItemsViaApi(boardIds) {
   const itemsMap = {};
   console.log(`Batch fetching items for ${boardIds.length} boards...`);
 
-  for (const boardId of boardIds) {
+  for (let i = 0; i < boardIds.length; i++) {
+    const boardId = boardIds[i];
     try {
       itemsMap[boardId] = getAllBoardItems(boardId);
     } catch (error) {
       console.error(`Error fetching items for board ${boardId}:`, error);
       itemsMap[boardId] = [];
+    }
+
+    // Delay between boards to allow complexity budget to replenish
+    if (i < boardIds.length - 1) {
+      Utilities.sleep(1000);
     }
   }
 

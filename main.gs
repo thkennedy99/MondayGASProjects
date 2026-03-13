@@ -381,10 +381,16 @@ function syncMarketingBoards() {
 
     const marketingConfigs = getMarketingBoardConfigurations();
 
-    // Batch fetch all board structures in a single API call
+    // Batch fetch all board structures in chunked API calls
     const boardIds = marketingConfigs.map(c => c.boardId);
     console.log(`Batch fetching board structures for ${boardIds.length} marketing boards...`);
-    const structureMap = getBatchBoardStructuresViaApi(boardIds);
+    let structureMap = {};
+    try {
+      structureMap = getBatchBoardStructuresViaApi(boardIds);
+      console.log(`Pre-fetched ${Object.keys(structureMap).length}/${boardIds.length} marketing board structures`);
+    } catch (batchError) {
+      console.error('Batch marketing board structure fetch failed, will fetch individually:', batchError);
+    }
 
     for (let i = 0; i < marketingConfigs.length; i++) {
       const boardConfig = marketingConfigs[i];
@@ -430,6 +436,11 @@ function syncMarketingBoards() {
 
       } catch (boardError) {
         console.error(`Error processing marketing board ${boardConfig.boardName} (${boardConfig.boardId}):`, boardError);
+      }
+
+      // Delay between boards to allow complexity budget to replenish
+      if (i < marketingConfigs.length - 1) {
+        Utilities.sleep(1000);
       }
     }
 
@@ -1000,10 +1011,16 @@ function syncMondayData(force) {
     // Get board configurations from MondayDashboard
     const boardConfigs = getBoardConfigurations();
 
-    // Batch fetch all board structures in a single API call (instead of N calls)
+    // Batch fetch all board structures in chunked API calls (instead of N individual calls)
     const partnerBoardIds = boardConfigs.map(c => c.boardId);
     console.log(`Batch fetching board structures for ${partnerBoardIds.length} partner boards...`);
-    const structureMap = getBatchBoardStructuresViaApi(partnerBoardIds);
+    let structureMap = {};
+    try {
+      structureMap = getBatchBoardStructuresViaApi(partnerBoardIds);
+      console.log(`Pre-fetched ${Object.keys(structureMap).length}/${partnerBoardIds.length} board structures`);
+    } catch (batchError) {
+      console.error('Batch board structure fetch failed, will fetch individually:', batchError);
+    }
 
     let totalItems = 0;
     let allBoardsProcessed = false;
@@ -1023,7 +1040,7 @@ function syncMondayData(force) {
           boardStructure = getBoardStructure(boardConfig.boardId);
         }
 
-        // Get all items from the board (paginated with 500-item pages)
+        // Get all items from the board (paginated with 200-item pages)
         const items = getAllBoardItems(boardConfig.boardId);
 
         // Process and write data to TEMP sheet
@@ -1050,6 +1067,12 @@ function syncMondayData(force) {
         if (isLastBoard) {
           allBoardsProcessed = true;
         }
+      }
+
+      // Delay between boards to allow Monday.com complexity budget to replenish
+      // Budget is 10M with ~60s replenishment window; each board uses ~800K-2M
+      if (i < boardConfigs.length - 1) {
+        Utilities.sleep(1000);
       }
     }
 
@@ -1407,10 +1430,16 @@ function syncGuidewireBoards() {
 
     console.log(`Found ${boardSheets.length} internal boards to sync from InternalBoards sheet`);
 
-    // Batch fetch all GW board structures in a single API call (instead of N calls)
+    // Batch fetch all GW board structures in chunked API calls (instead of N calls)
     const gwBoardIds = boardSheets.map(b => b.boardId);
     console.log(`Batch fetching board structures for ${gwBoardIds.length} GW boards...`);
-    const gwStructureMap = getBatchBoardStructuresViaApi(gwBoardIds);
+    let gwStructureMap = {};
+    try {
+      gwStructureMap = getBatchBoardStructuresViaApi(gwBoardIds);
+      console.log(`Pre-fetched ${Object.keys(gwStructureMap).length}/${gwBoardIds.length} GW board structures`);
+    } catch (batchError) {
+      console.error('Batch GW board structure fetch failed, will fetch individually:', batchError);
+    }
 
     for (let i = 0; i < boardSheets.length; i++) {
       const { boardId, boardName, sheetName } = boardSheets[i];
