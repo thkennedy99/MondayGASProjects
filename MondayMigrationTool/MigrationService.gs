@@ -387,6 +387,8 @@ function createColumnOnTarget(targetApiKey, boardId, title, columnType, defaults
 
   // Use typed mutations for status and dropdown columns (generic create_column fails with defaults for these)
   if (defaults && normalizedType === 'status') {
+    console.log('Migration: create_status_column "' + title + '" with ' + (defaults.labels ? defaults.labels.length : 0) + ' labels: ' +
+      (defaults.labels || []).map(function(l) { return l.label + '=' + l.color; }).join(', '));
     var data = _targetAPI(targetApiKey,
       'mutation ($boardId: ID!, $title: String!, $defaults: CreateStatusColumnSettingsInput!) { create_status_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
       { boardId: Number(boardId), title: title, defaults: defaults }
@@ -1162,11 +1164,25 @@ function attachDropdownManagedColumnOnTarget(targetApiKey, boardId, managedColum
   if (title) { variables.title = title; args += ', $title: String'; params += ', title: $title'; }
   if (description) { variables.description = description; args += ', $description: String'; params += ', description: $description'; }
 
-  var data = _targetAPI(targetApiKey,
-    'mutation (' + args + ') { attach_dropdown_managed_column (' + params + ') { id title type } }',
-    variables
-  );
-  return data.attach_dropdown_managed_column;
+  // Try attach_dropdown_managed_column first (newer API), fall back to activate_managed_column
+  try {
+    var data = _targetAPI(targetApiKey,
+      'mutation (' + args + ') { attach_dropdown_managed_column (' + params + ') { id title type } }',
+      variables
+    );
+    return data.attach_dropdown_managed_column;
+  } catch (e) {
+    if (e.toString().indexOf('Cannot query field') >= 0) {
+      // Target account API doesn't support attach_dropdown_managed_column — try activate_managed_column
+      console.log('Migration: attach_dropdown_managed_column not available, trying activate_managed_column');
+      var data2 = _targetAPI(targetApiKey,
+        'mutation ($boardId: ID!, $managedColumnId: ID!) { activate_managed_column (board_id: $boardId, managed_column_id: $managedColumnId) { id title type } }',
+        { boardId: Number(boardId), managedColumnId: managedColumnId }
+      );
+      return data2.activate_managed_column;
+    }
+    throw e;
+  }
 }
 
 function createDocOnTarget(targetApiKey, workspaceId, name, kind, folderId) {
@@ -2701,7 +2717,7 @@ var VAR_NAME_TO_ENUM_COLOR = {
   'red-shadow': 'stuck_red',
   'grey': 'american_gray',
   'yellow': 'egg_yolk',
-  'mustered': 'egg_yolk',          // mustard → egg_yolk
+  'mustered': 'saladish',           // mustard gold → saladish (avoids duplicate with yellow→egg_yolk)
   'blue-links': 'dark_blue',
   'lime-green': 'saladish',
   'black': 'blackish',
@@ -2743,6 +2759,7 @@ function _buildColumnDefaults(col) {
       var statusLabels = [];
       var labelsObj = settings.labels;
       var colorsObj = settings.labels_colors || {};
+      var usedColors = {}; // Track used colors to prevent duplicates (causes API Internal server error)
 
       if (!Array.isArray(labelsObj) && typeof labelsObj === 'object') {
         var idx = 0;
@@ -2765,11 +2782,34 @@ function _buildColumnDefaults(col) {
                 colorName = normalized;
               }
             }
+            // 3. Log unmapped var_names for debugging
+            if (!colorName) {
+              console.warn('Migration: Unmapped status color var_name "' + srcVarName + '" for label "' + labelText + '" in column "' + col.title + '"');
+            }
           }
           // Fallback: assign from default palette
           if (!colorName) {
             colorName = STATUS_DEFAULT_COLORS[idx % STATUS_DEFAULT_COLORS.length];
           }
+
+          // Deduplicate: Monday.com create_status_column rejects duplicate colors
+          if (usedColors[colorName]) {
+            var origColor = colorName;
+            colorName = null;
+            // Find the first unused color from the full enum list
+            for (var ci = 0; ci < STATUS_COLOR_ENUM_VALUES.length; ci++) {
+              if (!usedColors[STATUS_COLOR_ENUM_VALUES[ci]]) {
+                colorName = STATUS_COLOR_ENUM_VALUES[ci];
+                break;
+              }
+            }
+            if (!colorName) {
+              // Extremely unlikely: all colors used. Fall back to default palette cycling
+              colorName = STATUS_DEFAULT_COLORS[idx % STATUS_DEFAULT_COLORS.length];
+            }
+            console.log('Migration: Dedup color for "' + labelText + '" in "' + col.title + '": ' + origColor + ' → ' + colorName);
+          }
+          usedColors[colorName] = true;
 
           statusLabels.push({
             label: labelText,
@@ -3519,10 +3559,11 @@ function migrateFileColumns(itemIdMap, fileColumns, columnMapping, sourceApiKey,
         // Check file size from asset metadata before downloading (avoids OOM on large files)
         var fileSizeBytes = asset.file_size ? Number(asset.file_size) : 0;
         var fileName = asset.name || ('file_' + asset.id + (asset.file_extension ? '.' + asset.file_extension : ''));
+        var FILE_SIZE_LIMIT = 25 * 1024 * 1024; // 25MB per file (GAS memory limit safety)
 
-        if (fileSizeBytes > 50 * 1024 * 1024) {
+        if (fileSizeBytes > FILE_SIZE_LIMIT) {
           console.warn('Migration: Skipping file "' + fileName + '" — too large (' +
-            Math.round(fileSizeBytes / 1024 / 1024) + 'MB) for GAS transfer');
+            Math.round(fileSizeBytes / 1024 / 1024) + 'MB, limit ' + Math.round(FILE_SIZE_LIMIT / 1024 / 1024) + 'MB) for GAS transfer');
           errors.push({ item: srcItemId, file: fileName, error: 'File too large for GAS transfer (' + Math.round(fileSizeBytes / 1024 / 1024) + 'MB)' });
           filesErrored++;
           continue;
