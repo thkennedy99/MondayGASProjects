@@ -1914,27 +1914,62 @@ function detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSet
       });
     }
   } else {
-    // Same-account: try created_from_board_id to detect the managed template each board was created from.
-    // Boards created via use_template have this field set to the template board ID.
-    // Falls back gracefully if created_from_board_id is not available on this account.
+    // Try created_from_board_id first to detect managed template linkage.
+    // Falls back to column fingerprint grouping if the field is unavailable.
     var boardIds = sourceBoards.map(function(b) { return String(b.id); });
-    var createdFromMap = _tryGetCreatedFromBoardIds(null, boardIds);
+    var createdFromMap = _tryGetCreatedFromBoardIds(targetApiKey, boardIds);
     var hasCreatedFrom = Object.keys(createdFromMap).length > 0;
 
-    sourceBoards.forEach(function(b) {
-      var bId = String(b.id);
-      var tplId = createdFromMap[bId] || null;
-      if (tplId) {
-        templateMapping[bId] = tplId;
-        console.log('Migration: Board "' + b.name + '" linked to template ' + tplId);
-      } else {
-        unmappedBoards.push({ id: bId, name: b.name });
-      }
-    });
+    if (hasCreatedFrom) {
+      // created_from_board_id available — use direct template linkage
+      sourceBoards.forEach(function(b) {
+        var bId = String(b.id);
+        var tplId = createdFromMap[bId] || null;
+        if (tplId) {
+          templateMapping[bId] = tplId;
+          console.log('Migration: Board "' + b.name + '" linked to template ' + tplId);
+        } else {
+          unmappedBoards.push({ id: bId, name: b.name });
+        }
+      });
+    } else {
+      // Fallback: group boards by column structure fingerprint.
+      // Boards sharing identical column IDs (excluding 'name') were created from the same template.
+      // The first board in each group is used as the "template reference" for use_template.
+      console.log('Migration: created_from_board_id unavailable — using column fingerprint grouping');
 
-    if (!hasCreatedFrom) {
-      console.warn('Migration: created_from_board_id not available — all boards are unmapped. ' +
-        'Template linkage will need to be detected by column fingerprint or manual template set.');
+      var fpGroups = {}; // fingerprint → [board, ...]
+      sourceBoards.forEach(function(b) {
+        if (!b.columns || b.columns.length === 0) {
+          unmappedBoards.push({ id: String(b.id), name: b.name });
+          return;
+        }
+        var cols = b.columns
+          .filter(function(c) { return c.type !== 'name'; })
+          .map(function(c) { return c.id; })
+          .sort();
+        var fp = cols.join('|');
+        if (!fpGroups[fp]) fpGroups[fp] = [];
+        fpGroups[fp].push(b);
+      });
+
+      // Groups with 2+ boards share a template; use first board's ID as synthetic template ID
+      for (var fp in fpGroups) {
+        var group = fpGroups[fp];
+        if (group.length >= 2) {
+          // Use the first board as the template reference
+          var refBoardId = String(group[0].id);
+          console.log('Migration: Fingerprint group (' + group.length + ' boards) — ref board: "' +
+            group[0].name + '" (' + refBoardId + ')');
+          group.forEach(function(b) {
+            templateMapping[String(b.id)] = refBoardId;
+            console.log('Migration:   Board "' + b.name + '" → template ref ' + refBoardId);
+          });
+        } else {
+          // Single board with unique structure — standalone
+          unmappedBoards.push({ id: String(group[0].id), name: group[0].name });
+        }
+      }
     }
   }
 
