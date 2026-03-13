@@ -3485,7 +3485,10 @@ function migrateFileColumns(itemIdMap, fileColumns, columnMapping, sourceApiKey,
   var sourceItemIds = Object.keys(itemIdMap);
   var filesMigrated = 0;
   var filesErrored = 0;
+  var filesSkippedMemory = 0;
   var errors = [];
+  var cumulativeBytes = 0;
+  var CUMULATIVE_BYTE_LIMIT = 100 * 1024 * 1024; // 100MB cumulative download limit per execution (GAS ~256MB heap)
 
   if (fileColumns.length === 0 || sourceItemIds.length === 0) {
     return { filesMigrated: 0, filesErrored: 0, errors: [] };
@@ -3569,13 +3572,27 @@ function migrateFileColumns(itemIdMap, fileColumns, columnMapping, sourceApiKey,
           continue;
         }
 
+        // Check cumulative memory budget before downloading
+        if (cumulativeBytes + fileSizeBytes > CUMULATIVE_BYTE_LIMIT) {
+          console.warn('Migration: Cumulative file download limit reached (' + Math.round(cumulativeBytes / 1024 / 1024) +
+            'MB) — skipping remaining files to prevent OOM. File: "' + fileName + '"');
+          filesSkippedMemory++;
+          errors.push({ item: srcItemId, file: fileName, error: 'Skipped — cumulative memory limit (' + Math.round(CUMULATIVE_BYTE_LIMIT / 1024 / 1024) + 'MB)' });
+          continue;
+        }
+
         // Download the file
         var blob = downloadMondayAsset(asset.public_url, fileName);
+
+        // Track cumulative bytes for memory budgeting
+        var blobSize = blob.getBytes().length;
+        cumulativeBytes += blobSize;
 
         // Upload to target
         uploadFileToMondayItem(targetItemId, primaryTargetColId, blob, targetApiKey || null);
         filesMigrated++;
-        console.log('Migration: Uploaded file "' + fileName + '" to target item ' + targetItemId);
+        console.log('Migration: Uploaded file "' + fileName + '" (' + Math.round(blobSize / 1024) + 'KB) to target item ' + targetItemId +
+          ' [cumulative: ' + Math.round(cumulativeBytes / 1024 / 1024) + 'MB]');
 
         // Release blob reference immediately to free memory
         blob = null;
@@ -3591,7 +3608,9 @@ function migrateFileColumns(itemIdMap, fileColumns, columnMapping, sourceApiKey,
     }
   }
 
-  console.log('Migration: File migration complete — ' + filesMigrated + ' uploaded, ' + filesErrored + ' errors');
+  console.log('Migration: File migration complete — ' + filesMigrated + ' uploaded, ' + filesErrored + ' errors' +
+    (filesSkippedMemory > 0 ? ', ' + filesSkippedMemory + ' skipped (memory limit)' : '') +
+    ' [' + Math.round(cumulativeBytes / 1024 / 1024) + 'MB downloaded]');
   return { filesMigrated: filesMigrated, filesErrored: filesErrored, errors: errors };
 }
 

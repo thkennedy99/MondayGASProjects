@@ -19,6 +19,7 @@
 
 var BATCH_MIGRATION_CONFIG = {
   MAX_EXECUTION_MS: 330000,     // 5.5 minutes — closer to GAS 6-min limit for fewer yields
+  MAX_BOARDS_PER_EXECUTION: 20, // Force yield after N boards to prevent OOM from cumulative memory
   TRIGGER_DELAY_MS: 5000,       // 5 seconds between phases (was 30s — unnecessary)
   STATE_TTL: 21600,             // 6 hours cache TTL
   CACHE_CHUNK_SIZE: 50000,      // 50KB per cache chunk (CacheService limit: 100KB/value)
@@ -760,17 +761,22 @@ function _phaseBoards(migrationId, state) {
   // Re-attach boardMapping from chunked cache
   state.boardMapping = _getBoardMapping(migrationId) || [];
 
+  var boardsThisExecution = 0;
   console.log('Migration: BOARDS phase — starting at board ' + (state.boardIndex + 1) + '/' + sourceBoards.length);
 
   while (state.boardIndex < sourceBoards.length) {
-    // Check execution time before starting next board
+    // Check execution time AND board count before starting next board
+    // Board count guard prevents OOM from cumulative memory (file downloads, API responses)
     var elapsed = Date.now() - phaseStart;
-    if (elapsed > BATCH_MIGRATION_CONFIG.MAX_EXECUTION_MS) {
-      console.log('Migration: Yielding after ' + Math.round(elapsed / 1000) + 's — processed boards ' +
+    if (elapsed > BATCH_MIGRATION_CONFIG.MAX_EXECUTION_MS ||
+        boardsThisExecution >= BATCH_MIGRATION_CONFIG.MAX_BOARDS_PER_EXECUTION) {
+      var reason = boardsThisExecution >= BATCH_MIGRATION_CONFIG.MAX_BOARDS_PER_EXECUTION
+        ? 'board count limit (' + boardsThisExecution + ')' : Math.round(elapsed / 1000) + 's elapsed';
+      console.log('Migration: Yielding (' + reason + ') — processed boards ' +
         (state.boardIndex) + '/' + sourceBoards.length);
       _saveBatchState(migrationId, state);
       _scheduleMigrationContinuation(migrationId);
-      return; // Yield — trigger will resume
+      return; // Yield — trigger will resume in fresh execution with clean memory
     }
 
     // Check for cancellation mid-loop
@@ -893,6 +899,7 @@ function _phaseBoards(migrationId, state) {
 
     state.boardIndex = i + 1;
     state.retryCount = 0; // Reset retry count per board
+    boardsThisExecution++;
 
     // Release references to board data to help GC reclaim memory between boards
     fullBoard = null;
