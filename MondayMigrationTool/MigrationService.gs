@@ -1708,17 +1708,18 @@ function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId, t
   var result;
 
   // Route 1: Managed templates — use_template creates linked board instances
-  // For same-account: uses created_from_board_id to find the source template
-  // For cross-account: uses pre-configured template set mapping
+  // Only when we have ACTUAL template IDs (from created_from_board_id or template set),
+  // NOT fingerprint-based ref board IDs (which are regular boards, not templates).
   var tplBoardId = null;
-  if (components.useManagedTemplates && components._templateMapping) {
+  if (components.useManagedTemplates && components._templateMapping && !components._isFingerprintBased) {
     tplBoardId = components._templateMapping[String(sourceBoard.id)] || null;
   }
 
   if (tplBoardId) {
     result = migrateBoardFromManagedTemplate(sourceBoard, tplBoardId, targetWorkspaceId, components, migrationId, targetApiKey, boardContext);
   }
-  // Route 2: Same-account template clone via duplicate_board (boards without a managed template)
+  // Route 2: Same-account template clone via duplicate_board
+  // Also used for fingerprint-based groups (we know they share structure, so duplicate preserves it)
   else if (components.useTemplates && !targetApiKey) {
     if (tplBoardId === null && components.useManagedTemplates) {
       console.log('Migration: Board "' + sourceBoard.name + '" has no managed template — falling back to duplicate_board');
@@ -1896,11 +1897,12 @@ function deleteTemplateSet(setId) {
  * @param {Array} sourceBoards - Array of { id, name } source boards
  * @param {string|null} targetApiKey - Target API key (null = same account)
  * @param {string|null} templateSetId - If cross-account, the template set to use
- * @returns {Object} { templateMapping: { sourceBoardId: templateBoardId }, unmappedBoards: [{ id, name }] }
+ * @returns {Object} { templateMapping: { sourceBoardId: templateBoardId }, unmappedBoards: [{ id, name }], isFingerprintBased: boolean }
  */
 function detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSetId) {
   var templateMapping = {};
   var unmappedBoards = [];
+  var isFingerprintBased = false;
 
   if (templateSetId) {
     // Cross-account: use stored template set (manually configured template mapping)
@@ -1937,7 +1939,9 @@ function detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSet
     } else {
       // Fallback: group boards by column structure fingerprint.
       // Boards sharing identical column IDs (excluding 'name') were created from the same template.
-      // The first board in each group is used as the "template reference" for use_template.
+      // NOTE: fingerprint-based mapping uses regular board IDs, NOT template IDs.
+      // use_template won't work with these — boards must use duplicate_board instead.
+      isFingerprintBased = true;
       console.log('Migration: created_from_board_id unavailable — using column fingerprint grouping');
 
       var fpGroups = {}; // fingerprint → [board, ...]
@@ -1975,7 +1979,7 @@ function detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSet
     }
   }
 
-  return { templateMapping: templateMapping, unmappedBoards: unmappedBoards };
+  return { templateMapping: templateMapping, unmappedBoards: unmappedBoards, isFingerprintBased: isFingerprintBased };
 }
 
 /**

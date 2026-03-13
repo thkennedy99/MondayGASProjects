@@ -725,6 +725,7 @@ function _phaseInit(migrationId, state) {
     var templateSetId = state.components._templateSetId || null;
     var tplResult = detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSetId);
     state.templateMapping = tplResult.templateMapping;
+    state.isFingerprintBased = tplResult.isFingerprintBased || false;
 
     var mappedCount = Object.keys(tplResult.templateMapping).length;
     var unmappedCount = tplResult.unmappedBoards.length;
@@ -835,6 +836,7 @@ function _phaseBoards(migrationId, state) {
         // Attach template mapping and folder lookup to components for the board migration
         if (state.templateMapping) {
           components._templateMapping = state.templateMapping;
+          components._isFingerprintBased = state.isFingerprintBased || false;
         }
         // Derive target folder lookup on the fly from boardFolderLookup + folderMapping
         // to avoid storing duplicate data in state
