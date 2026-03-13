@@ -2782,7 +2782,7 @@ function migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, mig
   var dupResult = duplicateBoardStructure(
     sourceBoard.id,
     targetWorkspaceId,
-    null, // keep original name
+    sourceBoard.name, // preserve original name (without board_name, Monday prepends "Duplicate of")
     false // subscribers handled separately in Users & Guests tab
   );
 
