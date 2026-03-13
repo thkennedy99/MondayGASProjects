@@ -378,33 +378,47 @@ function syncMondayDashboard() {
 function syncMarketingBoards() {
   try {
     console.log('Starting Marketing boards sync...');
-    
+
     const marketingConfigs = getMarketingBoardConfigurations();
-    
+
+    // Batch fetch all board structures in chunked API calls
+    const boardIds = marketingConfigs.map(c => c.boardId);
+    console.log(`Batch fetching board structures for ${boardIds.length} marketing boards...`);
+    let structureMap = {};
+    try {
+      structureMap = getBatchBoardStructuresViaApi(boardIds);
+      console.log(`Pre-fetched ${Object.keys(structureMap).length}/${boardIds.length} marketing board structures`);
+    } catch (batchError) {
+      console.error('Batch marketing board structure fetch failed, will fetch individually:', batchError);
+    }
+
     for (let i = 0; i < marketingConfigs.length; i++) {
       const boardConfig = marketingConfigs[i];
       console.log(`\n=== Processing Marketing Board ${i + 1}/${marketingConfigs.length}: ${boardConfig.boardName} ===`);
       console.log('Board ID:', boardConfig.boardId);
       console.log('Target Sheet:', boardConfig.targetSheetName);
-      
+
       try {
         // Get or create the target sheet
         const targetSheet = getOrCreateSheet(boardConfig.targetSheetName);
-        
+
         // Clear existing data from row 2 onwards
         clearSheetData(targetSheet);
-        
-        // Get board structure (columns)
-        console.log('Fetching board structure...');
-        const boardStructure = getBoardStructure(boardConfig.boardId);
+
+        // Use pre-fetched board structure (falls back to individual fetch if missing)
+        let boardStructure = structureMap[boardConfig.boardId];
+        if (!boardStructure) {
+          console.log('Board not found in batch result, fetching individually...');
+          boardStructure = getBoardStructure(boardConfig.boardId);
+        }
         console.log('Board name:', boardStructure.name);
         console.log('Number of columns:', boardStructure.columns.length);
         console.log('Number of groups:', boardStructure.groups.length);
-        
-        // Get all items from the board
+
+        // Get all items from the board (paginated with 500-item pages)
         const items = getAllBoardItems(boardConfig.boardId);
         console.log(`Items retrieved for ${boardConfig.boardName}: ${items.length}`);
-        
+
         // Process and write data to sheet
         if (items.length > 0) {
           // Add board info to each item for identification
@@ -413,15 +427,20 @@ function syncMarketingBoards() {
             item.boardName = boardConfig.boardName;
             item.boardId = boardConfig.boardId;
           });
-          
+
           writeDataToSheet(targetSheet, boardStructure, items, true, boardConfig);
           console.log(`Data successfully written to ${boardConfig.targetSheetName}`);
         } else {
           console.log(`No items found on board: ${boardConfig.boardName}`);
         }
-        
+
       } catch (boardError) {
         console.error(`Error processing marketing board ${boardConfig.boardName} (${boardConfig.boardId}):`, boardError);
+      }
+
+      // Delay between boards to allow complexity budget to replenish
+      if (i < marketingConfigs.length - 1) {
+        Utilities.sleep(1000);
       }
     }
 
@@ -992,6 +1011,17 @@ function syncMondayData(force) {
     // Get board configurations from MondayDashboard
     const boardConfigs = getBoardConfigurations();
 
+    // Batch fetch all board structures in chunked API calls (instead of N individual calls)
+    const partnerBoardIds = boardConfigs.map(c => c.boardId);
+    console.log(`Batch fetching board structures for ${partnerBoardIds.length} partner boards...`);
+    let structureMap = {};
+    try {
+      structureMap = getBatchBoardStructuresViaApi(partnerBoardIds);
+      console.log(`Pre-fetched ${Object.keys(structureMap).length}/${partnerBoardIds.length} board structures`);
+    } catch (batchError) {
+      console.error('Batch board structure fetch failed, will fetch individually:', batchError);
+    }
+
     let totalItems = 0;
     let allBoardsProcessed = false;
 
@@ -1003,10 +1033,14 @@ function syncMondayData(force) {
       console.log(`Processing ${i + 1}/${boardConfigs.length}: ${boardConfig.boardName}`);
 
       try {
-        // Get board structure (columns)
-        const boardStructure = getBoardStructure(boardConfig.boardId);
+        // Use pre-fetched board structure (falls back to individual fetch if missing)
+        let boardStructure = structureMap[boardConfig.boardId];
+        if (!boardStructure) {
+          console.log(`Board ${boardConfig.boardId} not in batch result, fetching individually...`);
+          boardStructure = getBoardStructure(boardConfig.boardId);
+        }
 
-        // Get all items from the board
+        // Get all items from the board (paginated with 200-item pages)
         const items = getAllBoardItems(boardConfig.boardId);
 
         // Process and write data to TEMP sheet
@@ -1033,6 +1067,12 @@ function syncMondayData(force) {
         if (isLastBoard) {
           allBoardsProcessed = true;
         }
+      }
+
+      // Delay between boards to allow Monday.com complexity budget to replenish
+      // Budget is 10M with ~60s replenishment window; each board uses ~800K-2M
+      if (i < boardConfigs.length - 1) {
+        Utilities.sleep(1000);
       }
     }
 
@@ -1193,57 +1233,24 @@ function clearSheetData(sheet) {
 
 /**
  * Make API request to Monday.com
- * Includes automatic retry for rate limiting (429) errors
+ * Uses retryable fetch with exponential backoff for rate limiting (429)
+ * and server errors (5xx). Updated to API version 2026-01.
  */
-function makeApiRequest(query, retryCount = 0) {
-  const MAX_RETRIES = 3;
-
+function makeApiRequest(query) {
   const options = {
     method: 'post',
     headers: {
       'Authorization': MONDAY_API_KEY,
       'Content-Type': 'application/json',
-      'API-Version': '2024-01'
+      'API-Version': '2026-01'
     },
     payload: JSON.stringify({ query: query }),
     muteHttpExceptions: true
   };
 
- // console.log('Making API request...');
-  const response = UrlFetchApp.fetch(MONDAY_API_URL, options);
-  const responseCode = response.getResponseCode();
+  // Use retryable fetch with exponential backoff (handles 429 and 5xx)
+  const response = retryableFetch_(MONDAY_API_URL, options);
   const responseText = response.getContentText();
-
- // console.log('Response code:', responseCode);
-
-  // Handle rate limiting (429) with automatic retry
-  if (responseCode === 429) {
-    if (retryCount >= MAX_RETRIES) {
-      console.error('Max retries exceeded for rate limiting');
-      throw new Error(`HTTP Error ${responseCode}: ${responseText}`);
-    }
-
-    // Try to parse the retry delay from response
-    let retryDelay = 3000; // Default 3 seconds
-    try {
-      const errorResponse = JSON.parse(responseText);
-      if (errorResponse.error_data && errorResponse.error_data.retry_in_seconds) {
-        retryDelay = (errorResponse.error_data.retry_in_seconds + 1) * 1000; // Add 1 second buffer
-      }
-    } catch (e) {
-      // Use default delay if can't parse
-    }
-
-    console.log(`Rate limited (429). Waiting ${retryDelay/1000} seconds before retry ${retryCount + 1}/${MAX_RETRIES}...`);
-    Utilities.sleep(retryDelay);
-    return makeApiRequest(query, retryCount + 1);
-  }
-
-  if (responseCode !== 200) {
-    console.error('HTTP Error:', responseCode);
-    console.error('Response:', responseText);
-    throw new Error(`HTTP Error ${responseCode}: ${responseText}`);
-  }
 
   let result;
   try {
@@ -1423,13 +1430,26 @@ function syncGuidewireBoards() {
 
     console.log(`Found ${boardSheets.length} internal boards to sync from InternalBoards sheet`);
 
+    // Batch fetch all GW board structures in chunked API calls (instead of N calls)
+    const gwBoardIds = boardSheets.map(b => b.boardId);
+    console.log(`Batch fetching board structures for ${gwBoardIds.length} GW boards...`);
+    let gwStructureMap = {};
+    try {
+      gwStructureMap = getBatchBoardStructuresViaApi(gwBoardIds);
+      console.log(`Pre-fetched ${Object.keys(gwStructureMap).length}/${gwBoardIds.length} GW board structures`);
+    } catch (batchError) {
+      console.error('Batch GW board structure fetch failed, will fetch individually:', batchError);
+    }
+
     for (let i = 0; i < boardSheets.length; i++) {
       const { boardId, boardName, sheetName } = boardSheets[i];
       console.log(`\n=== Syncing GW Board ${i + 1}/${boardSheets.length}: ${boardName} -> ${sheetName} (${boardId}) ===`);
 
       try {
-        // Sync this board to its individual sheet, passing board name and sheet name
-        const result = syncSingleGWBoard(boardId, boardName, sheetName);
+        // Sync this board to its individual sheet, passing board name, sheet name,
+        // and the pre-fetched board structure to avoid redundant API calls
+        const preFetchedStructure = gwStructureMap[boardId] || null;
+        const result = syncSingleGWBoard(boardId, boardName, sheetName, preFetchedStructure);
         const itemCount = result.itemCount || 0;
         totalItems += itemCount;
 
