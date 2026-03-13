@@ -415,7 +415,10 @@ function _executeMigrationBatched(migrationId, params) {
   var targetName = params.targetWorkspaceName || null;
   var components = params.components || {};
   var targetApiKey = params.targetApiKey || (params.targetAccountId ? getTargetApiKeyForAccount(params.targetAccountId) : null) || null;
-  var isCrossAccount = !!targetApiKey;
+  // Same-account: if target API key matches the source key, treat as same-account (no cross-account overhead)
+  // Null out targetApiKey so all API calls go through the normal source path
+  var isCrossAccount = !!targetApiKey && targetApiKey !== CONFIG.MONDAY_API_KEY;
+  if (!isCrossAccount) targetApiKey = null;
 
   // Mandatory components are always on
   components.boards = true;

@@ -1319,7 +1319,9 @@ function _executeMigration(migrationId, params) {
     var targetName = params.targetWorkspaceName || null;
     var components = params.components || {};
     var targetApiKey = params.targetApiKey || (params.targetAccountId ? getTargetApiKeyForAccount(params.targetAccountId) : null) || null;
-    var isCrossAccount = !!targetApiKey;
+    // Same-account: if target API key matches the source key, treat as same-account
+    var isCrossAccount = !!targetApiKey && targetApiKey !== CONFIG.MONDAY_API_KEY;
+    if (!isCrossAccount) targetApiKey = null;
 
     console.log('Migration: ═══════════════════════════════════════════════════════');
     console.log('Migration: STARTING MIGRATION ' + migrationId);
