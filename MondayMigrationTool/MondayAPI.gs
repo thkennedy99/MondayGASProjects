@@ -752,7 +752,7 @@ function getWorkspaceDetails(workspaceId) {
 function getBoardsInWorkspace(workspaceId) {
   console.log('Migration: Fetching boards for workspace ID: ' + workspaceId);
   var data = callMondayAPI(
-    'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind board_folder_id state created_from_board_id columns { id title type settings_str } groups { id title color } } }',
+    'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind board_folder_id state columns { id title type settings_str } groups { id title color } } }',
     { wsId: [Number(workspaceId)] }
   );
   var allBoards = data.boards || [];
@@ -1837,54 +1837,151 @@ function useTemplateOnTarget(apiKey, templateId, destinationName, destinationWor
 }
 
 /**
+ * Try to query created_from_board_id for a set of boards.
+ * This field is not available on all Monday.com accounts/API versions.
+ * Returns a map of boardId → created_from_board_id, or empty object if unsupported.
+ *
+ * @param {string|null} apiKey - API key (null = source account)
+ * @param {Array} boardIds - Array of board ID strings
+ * @returns {Object} { boardId: createdFromBoardId, ... } — empty if field unavailable
+ */
+function _tryGetCreatedFromBoardIds(apiKey, boardIds) {
+  if (!boardIds || boardIds.length === 0) return {};
+
+  var result = {};
+  // Query in batches of 50 to stay within limits
+  var BATCH = 50;
+  for (var i = 0; i < boardIds.length; i += BATCH) {
+    var batch = boardIds.slice(i, i + BATCH).map(Number);
+    var query = 'query ($ids: [ID!]!) { boards (ids: $ids) { id created_from_board_id } }';
+    try {
+      var data;
+      if (apiKey) {
+        data = callMondayAPIWithKey(apiKey, query, { ids: batch });
+      } else {
+        data = callMondayAPI(query, { ids: batch });
+      }
+      (data.boards || []).forEach(function(b) {
+        if (b.created_from_board_id) {
+          result[String(b.id)] = String(b.created_from_board_id);
+        }
+      });
+    } catch (e) {
+      // Field not available on this account — return empty
+      console.warn('Migration: created_from_board_id not available: ' + e);
+      return {};
+    }
+  }
+  return result;
+}
+
+/**
  * Detect boards created from templates in a workspace.
- * Uses created_from_board_id to identify which boards were created from managed templates.
+ * Tries created_from_board_id first; if unavailable, falls back to column-structure
+ * fingerprinting to group boards that share the same template origin.
  *
  * @param {string|null} apiKey - API key (null = source account)
  * @param {string} workspaceId - Workspace to scan
+ * @param {Array} [preloadedBoards] - Optional pre-loaded boards array (avoids extra API call)
  * @returns {Object} { templateBoards: { templateId: [boardId, ...] }, boardTemplateMap: { boardId: templateId } }
  */
-function detectTemplateBoardsInWorkspace(apiKey, workspaceId) {
-  var query = 'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name created_from_board_id } }';
-  var data;
-  if (apiKey) {
-    data = callMondayAPIWithKey(apiKey, query, { wsId: [Number(workspaceId)] });
-  } else {
-    data = callMondayAPI(query, { wsId: [Number(workspaceId)] });
+function detectTemplateBoardsInWorkspace(apiKey, workspaceId, preloadedBoards) {
+  // Get boards if not provided
+  var boards = preloadedBoards;
+  if (!boards) {
+    var query = 'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name columns { id title type } } }';
+    var data;
+    if (apiKey) {
+      data = callMondayAPIWithKey(apiKey, query, { wsId: [Number(workspaceId)] });
+    } else {
+      data = callMondayAPI(query, { wsId: [Number(workspaceId)] });
+    }
+    boards = data.boards || [];
   }
 
-  var boards = data.boards || [];
   var templateBoards = {};  // templateId → [boardId, ...]
   var boardTemplateMap = {}; // boardId → templateId
 
-  boards.forEach(function(b) {
-    if (b.created_from_board_id) {
-      var tplId = String(b.created_from_board_id);
-      var bId = String(b.id);
+  // Try created_from_board_id first
+  var boardIds = boards.map(function(b) { return String(b.id); });
+  var createdFromMap = _tryGetCreatedFromBoardIds(apiKey, boardIds);
+
+  if (Object.keys(createdFromMap).length > 0) {
+    console.log('Migration: Template detection via created_from_board_id — found ' + Object.keys(createdFromMap).length + ' linked boards');
+    for (var bId in createdFromMap) {
+      var tplId = createdFromMap[bId];
       boardTemplateMap[bId] = tplId;
       if (!templateBoards[tplId]) templateBoards[tplId] = [];
       templateBoards[tplId].push(bId);
     }
-  });
+  } else {
+    // Fallback: group boards by column fingerprint (same column IDs = same template origin)
+    console.log('Migration: Template detection fallback — grouping by column structure fingerprint');
+    var fingerprintGroups = {}; // fingerprint → [board, ...]
+    boards.forEach(function(b) {
+      if (b.board_kind === 'sub_items_board') return;
+      var cols = (b.columns || [])
+        .filter(function(c) { return c.type !== 'name'; })
+        .map(function(c) { return c.id; })
+        .sort();
+      var fp = cols.join('|');
+      if (!fingerprintGroups[fp]) fingerprintGroups[fp] = [];
+      fingerprintGroups[fp].push(b);
+    });
+
+    // Groups with 2+ boards sharing identical column IDs likely share a template
+    for (var fp in fingerprintGroups) {
+      var group = fingerprintGroups[fp];
+      if (group.length >= 2) {
+        // Use a synthetic template ID based on the fingerprint hash
+        var syntheticTplId = 'fp_' + Utilities.computeDigest(Utilities.DigestAlgorithm.MD5,
+          fp, Utilities.Charset.UTF_8).map(function(b) {
+            return (b < 0 ? b + 256 : b).toString(16).padStart(2, '0');
+          }).join('').substring(0, 12);
+
+        group.forEach(function(b) {
+          var bId = String(b.id);
+          boardTemplateMap[bId] = syntheticTplId;
+          if (!templateBoards[syntheticTplId]) templateBoards[syntheticTplId] = [];
+          templateBoards[syntheticTplId].push(bId);
+        });
+      }
+    }
+    console.log('Migration: Fingerprint detection found ' + Object.keys(templateBoards).length + ' template groups');
+  }
 
   return { templateBoards: templateBoards, boardTemplateMap: boardTemplateMap };
 }
 
 /**
  * Get board details including template linkage info.
+ * Tries to include created_from_board_id; falls back gracefully if unavailable.
  * @param {string|null} apiKey - API key (null = source account)
  * @param {string} boardId - Board ID
- * @returns {Object} Board with columns, groups, created_from_board_id
+ * @returns {Object} Board with columns, groups, and optionally created_from_board_id
  */
 function getBoardWithTemplateInfo(apiKey, boardId) {
+  // Try with created_from_board_id first
   var query = 'query ($boardId: [ID!]!) { boards (ids: $boardId) { id name board_folder_id created_from_board_id columns { id title type settings_str } groups { id title } } }';
   var data;
-  if (apiKey) {
-    data = callMondayAPIWithKey(apiKey, query, { boardId: [Number(boardId)] });
-  } else {
-    data = callMondayAPI(query, { boardId: [Number(boardId)] });
+  try {
+    if (apiKey) {
+      data = callMondayAPIWithKey(apiKey, query, { boardId: [Number(boardId)] });
+    } else {
+      data = callMondayAPI(query, { boardId: [Number(boardId)] });
+    }
+    var boards = data.boards || [];
+    return boards.length > 0 ? boards[0] : null;
+  } catch (e) {
+    // Fallback without created_from_board_id
+    console.warn('Migration: getBoardWithTemplateInfo fallback (created_from_board_id unavailable): ' + e);
+    var fallbackQuery = 'query ($boardId: [ID!]!) { boards (ids: $boardId) { id name board_folder_id columns { id title type settings_str } groups { id title } } }';
+    if (apiKey) {
+      data = callMondayAPIWithKey(apiKey, fallbackQuery, { boardId: [Number(boardId)] });
+    } else {
+      data = callMondayAPI(fallbackQuery, { boardId: [Number(boardId)] });
+    }
+    var fallbackBoards = data.boards || [];
+    return fallbackBoards.length > 0 ? fallbackBoards[0] : null;
   }
-
-  var boards = data.boards || [];
-  return boards.length > 0 ? boards[0] : null;
 }

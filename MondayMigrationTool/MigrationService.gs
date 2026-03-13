@@ -1914,18 +1914,28 @@ function detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSet
       });
     }
   } else {
-    // Same-account: use created_from_board_id to detect the managed template each board was created from.
+    // Same-account: try created_from_board_id to detect the managed template each board was created from.
     // Boards created via use_template have this field set to the template board ID.
-    // The new board will be created from the same template, preserving the managed link,
-    // automations, webhooks, and managed columns.
+    // Falls back gracefully if created_from_board_id is not available on this account.
+    var boardIds = sourceBoards.map(function(b) { return String(b.id); });
+    var createdFromMap = _tryGetCreatedFromBoardIds(null, boardIds);
+    var hasCreatedFrom = Object.keys(createdFromMap).length > 0;
+
     sourceBoards.forEach(function(b) {
-      if (b.created_from_board_id) {
-        templateMapping[String(b.id)] = String(b.created_from_board_id);
-        console.log('Migration: Board "' + b.name + '" linked to template ' + b.created_from_board_id);
+      var bId = String(b.id);
+      var tplId = createdFromMap[bId] || null;
+      if (tplId) {
+        templateMapping[bId] = tplId;
+        console.log('Migration: Board "' + b.name + '" linked to template ' + tplId);
       } else {
-        unmappedBoards.push({ id: String(b.id), name: b.name });
+        unmappedBoards.push({ id: bId, name: b.name });
       }
     });
+
+    if (!hasCreatedFrom) {
+      console.warn('Migration: created_from_board_id not available — all boards are unmapped. ' +
+        'Template linkage will need to be detected by column fingerprint or manual template set.');
+    }
   }
 
   return { templateMapping: templateMapping, unmappedBoards: unmappedBoards };
@@ -1986,9 +1996,8 @@ function migrateBoardFromManagedTemplate(sourceBoard, templateBoardId, targetWor
   for (var attempt = 0; attempt < 15; attempt++) {
     Utilities.sleep(2000);
 
-    // Search for the newly created board in the target workspace.
-    // Match by created_from_board_id (most reliable) or by name as fallback.
-    var query = 'query ($wsId: [ID!]!) { boards (workspace_ids: $wsId, limit: 200, order_by: created_at) { id name created_from_board_id columns { id title type settings_str } groups { id title } } }';
+    // Search for the newly created board in the target workspace by name.
+    var query = 'query ($wsId: [ID!]!) { boards (workspace_ids: $wsId, limit: 200, order_by: created_at) { id name columns { id title type settings_str } groups { id title } } }';
     var data;
     if (targetApiKey) {
       data = callMondayAPIWithKey(targetApiKey, query, { wsId: [Number(targetWorkspaceId)] });
@@ -1998,20 +2007,10 @@ function migrateBoardFromManagedTemplate(sourceBoard, templateBoardId, targetWor
 
     var boards = data.boards || [];
     // Check from the end since order_by: created_at puts newest last
-    for (var bi = boards.length - 1; bi >= 0; bi--) {
-      // Primary match: created_from_board_id matches the template we just used
-      if (boards[bi].created_from_board_id === String(templateBoardId) && boards[bi].name === sourceBoard.name) {
-        targetBoard = boards[bi];
+    for (var bi2 = boards.length - 1; bi2 >= 0; bi2--) {
+      if (boards[bi2].name === sourceBoard.name) {
+        targetBoard = boards[bi2];
         break;
-      }
-    }
-    // Fallback: match by name only (cross-account where created_from_board_id might differ)
-    if (!targetBoard) {
-      for (var bi2 = boards.length - 1; bi2 >= 0; bi2--) {
-        if (boards[bi2].name === sourceBoard.name) {
-          targetBoard = boards[bi2];
-          break;
-        }
       }
     }
     if (targetBoard) break;
@@ -2342,18 +2341,51 @@ function prepareTemplatesOnTarget(params) {
     // Filter out subitem boards
     sourceBoards = sourceBoards.filter(function(b) { return b.board_kind !== 'sub_items_board'; });
 
-    // Group boards by created_from_board_id to find unique templates
+    // Group boards by template origin (created_from_board_id or column fingerprint fallback)
+    var boardIds = sourceBoards.map(function(b) { return String(b.id); });
+    var createdFromMap = _tryGetCreatedFromBoardIds(null, boardIds);
+    var hasCreatedFrom = Object.keys(createdFromMap).length > 0;
+
     var templateGroups = {}; // templateId → [board, board, ...]
     var standaloneBoards = []; // boards without a template
-    sourceBoards.forEach(function(b) {
-      if (b.created_from_board_id) {
-        var tplId = String(b.created_from_board_id);
-        if (!templateGroups[tplId]) templateGroups[tplId] = [];
-        templateGroups[tplId].push(b);
-      } else {
-        standaloneBoards.push(b);
+
+    if (hasCreatedFrom) {
+      console.log('Template Prep: Using created_from_board_id for template grouping');
+      sourceBoards.forEach(function(b) {
+        var tplId = createdFromMap[String(b.id)];
+        if (tplId) {
+          if (!templateGroups[tplId]) templateGroups[tplId] = [];
+          templateGroups[tplId].push(b);
+        } else {
+          standaloneBoards.push(b);
+        }
+      });
+    } else {
+      // Fallback: group by column structure fingerprint
+      console.log('Template Prep: Fallback — grouping boards by column fingerprint');
+      var fpGroups = {};
+      sourceBoards.forEach(function(b) {
+        var cols = (b.columns || [])
+          .filter(function(c) { return c.type !== 'name'; })
+          .map(function(c) { return c.id; })
+          .sort();
+        var fp = cols.join('|');
+        if (!fpGroups[fp]) fpGroups[fp] = [];
+        fpGroups[fp].push(b);
+      });
+      for (var fp in fpGroups) {
+        var group = fpGroups[fp];
+        if (group.length >= 2) {
+          var synTplId = 'fp_' + Utilities.computeDigest(Utilities.DigestAlgorithm.MD5,
+            fp, Utilities.Charset.UTF_8).map(function(b) {
+              return (b < 0 ? b + 256 : b).toString(16).padStart(2, '0');
+            }).join('').substring(0, 12);
+          templateGroups[synTplId] = group;
+        } else {
+          standaloneBoards.push(group[0]);
+        }
       }
-    });
+    }
 
     var uniqueTemplateIds = Object.keys(templateGroups);
     console.log('Template Prep: Found ' + uniqueTemplateIds.length + ' unique templates and ' +
