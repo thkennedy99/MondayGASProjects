@@ -752,7 +752,7 @@ function getWorkspaceDetails(workspaceId) {
 function getBoardsInWorkspace(workspaceId) {
   console.log('Migration: Fetching boards for workspace ID: ' + workspaceId);
   var data = callMondayAPI(
-    'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind board_folder_id state columns { id title type settings_str } groups { id title color } } }',
+    'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name board_kind board_folder_id state created_from_board_id columns { id title type settings_str } groups { id title color } } }',
     { wsId: [Number(workspaceId)] }
   );
   var allBoards = data.boards || [];
@@ -1840,30 +1840,47 @@ function useTemplateOnTarget(apiKey, templateId, destinationName, destinationWor
 }
 
 /**
- * Detect boards created from templates.
- * Note: created_from_board_id was removed from the Monday.com API.
- * Template linkage is now tracked via managed template sets stored in Script Properties.
- * This function returns empty mappings — callers should use template sets instead.
+ * Detect boards created from templates in a workspace.
+ * Uses created_from_board_id to identify which boards were created from managed templates.
  *
  * @param {string|null} apiKey - API key (null = source account)
  * @param {string} workspaceId - Workspace to scan
- * @returns {Object} { templateBoards: {}, boardTemplateMap: {} }
+ * @returns {Object} { templateBoards: { templateId: [boardId, ...] }, boardTemplateMap: { boardId: templateId } }
  */
 function detectTemplateBoardsInWorkspace(apiKey, workspaceId) {
-  // created_from_board_id no longer available in Monday.com API
-  // Template detection now relies on managed template sets in Script Properties
-  return { templateBoards: {}, boardTemplateMap: {} };
+  var query = 'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name created_from_board_id } }';
+  var data;
+  if (apiKey) {
+    data = callMondayAPIWithKey(apiKey, query, { wsId: [Number(workspaceId)] });
+  } else {
+    data = callMondayAPI(query, { wsId: [Number(workspaceId)] });
+  }
+
+  var boards = data.boards || [];
+  var templateBoards = {};  // templateId → [boardId, ...]
+  var boardTemplateMap = {}; // boardId → templateId
+
+  boards.forEach(function(b) {
+    if (b.created_from_board_id) {
+      var tplId = String(b.created_from_board_id);
+      var bId = String(b.id);
+      boardTemplateMap[bId] = tplId;
+      if (!templateBoards[tplId]) templateBoards[tplId] = [];
+      templateBoards[tplId].push(bId);
+    }
+  });
+
+  return { templateBoards: templateBoards, boardTemplateMap: boardTemplateMap };
 }
 
 /**
- * Get board details (columns, groups, folder).
- * Note: created_from_board_id was removed from Monday.com API.
+ * Get board details including template linkage info.
  * @param {string|null} apiKey - API key (null = source account)
  * @param {string} boardId - Board ID
- * @returns {Object} Board with columns, groups
+ * @returns {Object} Board with columns, groups, created_from_board_id
  */
 function getBoardWithTemplateInfo(apiKey, boardId) {
-  var query = 'query ($boardId: [ID!]!) { boards (ids: $boardId) { id name board_folder_id columns { id title type settings_str } groups { id title } } }';
+  var query = 'query ($boardId: [ID!]!) { boards (ids: $boardId) { id name board_folder_id created_from_board_id columns { id title type settings_str } groups { id title } } }';
   var data;
   if (apiKey) {
     data = callMondayAPIWithKey(apiKey, query, { boardId: [Number(boardId)] });

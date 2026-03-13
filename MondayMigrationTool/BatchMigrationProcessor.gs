@@ -638,7 +638,8 @@ function _phaseInit(migrationId, state) {
       id: String(b.id),
       name: b.name,
       board_kind: b.board_kind || 'public',
-      board_folder_id: b.board_folder_id || null
+      board_folder_id: b.board_folder_id || null,
+      created_from_board_id: b.created_from_board_id || null
     };
   });
 

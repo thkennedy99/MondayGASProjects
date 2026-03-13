@@ -1705,23 +1705,29 @@ function _executeMigration(migrationId, params) {
 function migrateBoard(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey, boardContext) {
   var result;
 
-  // Route 1: Managed templates — use_template creates linked instances (same or cross-account)
+  // Route 1: Managed templates — use_template creates linked board instances
+  // For same-account: uses created_from_board_id to find the source template
+  // For cross-account: uses pre-configured template set mapping
+  var tplBoardId = null;
   if (components.useManagedTemplates && components._templateMapping) {
-    var tplBoardId = components._templateMapping[String(sourceBoard.id)];
-    if (tplBoardId) {
-      result = migrateBoardFromManagedTemplate(sourceBoard, tplBoardId, targetWorkspaceId, components, migrationId, targetApiKey, boardContext);
-    } else {
-      // No template for this board — fall back to manual
-      console.log('Migration: No managed template mapping for board "' + sourceBoard.name + '" — using manual mode');
-      result = migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey, boardContext);
-    }
+    tplBoardId = components._templateMapping[String(sourceBoard.id)] || null;
   }
-  // Route 2: Same-account template clone (duplicate_board)
+
+  if (tplBoardId) {
+    result = migrateBoardFromManagedTemplate(sourceBoard, tplBoardId, targetWorkspaceId, components, migrationId, targetApiKey, boardContext);
+  }
+  // Route 2: Same-account template clone via duplicate_board (boards without a managed template)
   else if (components.useTemplates && !targetApiKey) {
+    if (tplBoardId === null && components.useManagedTemplates) {
+      console.log('Migration: Board "' + sourceBoard.name + '" has no managed template — falling back to duplicate_board');
+    }
     result = migrateBoardViaTemplate(sourceBoard, targetWorkspaceId, components, migrationId, boardContext);
   }
-  // Route 3: Manual board creation (cross-account without templates, or templates disabled)
+  // Route 3: Manual board creation (cross-account without templates, or all templates disabled)
   else {
+    if (components.useManagedTemplates) {
+      console.log('Migration: Board "' + sourceBoard.name + '" has no managed template — using manual mode');
+    }
     result = migrateBoardManual(sourceBoard, targetWorkspaceId, components, migrationId, targetApiKey, boardContext);
   }
 
@@ -1895,7 +1901,7 @@ function detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSet
   var unmappedBoards = [];
 
   if (templateSetId) {
-    // Cross-account: use stored template set
+    // Cross-account: use stored template set (manually configured template mapping)
     var tplSet = getTemplateSet(templateSetId);
     if (tplSet && tplSet.boards) {
       sourceBoards.forEach(function(b) {
@@ -1908,11 +1914,17 @@ function detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSet
       });
     }
   } else {
-    // Same-account: created_from_board_id no longer available in Monday.com API.
-    // For same-account managed templates, rely on template sets stored in Script Properties.
-    // Without a template set, all boards are unmapped and will use manual migration.
+    // Same-account: use created_from_board_id to detect the managed template each board was created from.
+    // Boards created via use_template have this field set to the template board ID.
+    // The new board will be created from the same template, preserving the managed link,
+    // automations, webhooks, and managed columns.
     sourceBoards.forEach(function(b) {
-      unmappedBoards.push({ id: String(b.id), name: b.name });
+      if (b.created_from_board_id) {
+        templateMapping[String(b.id)] = String(b.created_from_board_id);
+        console.log('Migration: Board "' + b.name + '" linked to template ' + b.created_from_board_id);
+      } else {
+        unmappedBoards.push({ id: String(b.id), name: b.name });
+      }
     });
   }
 
@@ -1968,15 +1980,15 @@ function migrateBoardFromManagedTemplate(sourceBoard, templateBoardId, targetWor
 
   console.log('Migration: use_template started (processId=' + processId + '), waiting for board creation...');
 
-  // Poll for the new board. use_template creates a board with the same name.
+  // Poll for the new board. use_template creates a board linked to the template.
   // We wait up to 30 seconds, checking every 2 seconds.
   var targetBoard = null;
   for (var attempt = 0; attempt < 15; attempt++) {
     Utilities.sleep(2000);
 
-    // Search for the newly created board by name in the target workspace
-    // (created_from_board_id no longer available — match by name instead)
-    var query = 'query ($wsId: [ID!]!) { boards (workspace_ids: $wsId, limit: 200, order_by: created_at) { id name columns { id title type settings_str } groups { id title } } }';
+    // Search for the newly created board in the target workspace.
+    // Match by created_from_board_id (most reliable) or by name as fallback.
+    var query = 'query ($wsId: [ID!]!) { boards (workspace_ids: $wsId, limit: 200, order_by: created_at) { id name created_from_board_id columns { id title type settings_str } groups { id title } } }';
     var data;
     if (targetApiKey) {
       data = callMondayAPIWithKey(targetApiKey, query, { wsId: [Number(targetWorkspaceId)] });
@@ -1985,12 +1997,21 @@ function migrateBoardFromManagedTemplate(sourceBoard, templateBoardId, targetWor
     }
 
     var boards = data.boards || [];
-    // Find the board with the expected name (use_template creates with same name)
     // Check from the end since order_by: created_at puts newest last
     for (var bi = boards.length - 1; bi >= 0; bi--) {
-      if (boards[bi].name === sourceBoard.name) {
+      // Primary match: created_from_board_id matches the template we just used
+      if (boards[bi].created_from_board_id === String(templateBoardId) && boards[bi].name === sourceBoard.name) {
         targetBoard = boards[bi];
         break;
+      }
+    }
+    // Fallback: match by name only (cross-account where created_from_board_id might differ)
+    if (!targetBoard) {
+      for (var bi2 = boards.length - 1; bi2 >= 0; bi2--) {
+        if (boards[bi2].name === sourceBoard.name) {
+          targetBoard = boards[bi2];
+          break;
+        }
       }
     }
     if (targetBoard) break;
