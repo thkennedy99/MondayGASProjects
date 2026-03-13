@@ -22,7 +22,8 @@ class MondayAPI {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': this.apiKey
+        'Authorization': this.apiKey,
+        'API-Version': '2026-01'
       },
       payload: JSON.stringify({
         query: graphqlQuery,
@@ -30,9 +31,9 @@ class MondayAPI {
       }),
       muteHttpExceptions: true
     };
-    
+
     try {
-      const response = UrlFetchApp.fetch(this.apiUrl, options);
+      const response = retryableFetch_(this.apiUrl, options);
       const responseText = response.getContentText();
       const responseCode = response.getResponseCode();
 
@@ -607,63 +608,96 @@ const BOARD_CONFIGS = {
 
 /**
  * Sync board to sheet
+ * Uses a single API call to fetch both columns and items (instead of 2 separate calls)
  */
 function syncBoardToSheet(boardId, sheetName) {
   try {
     const monday = new MondayAPI();
     const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    
+
     // Get or create sheet
     let sheet = spreadsheet.getSheetByName(sheetName);
     if (!sheet) {
       sheet = spreadsheet.insertSheet(sheetName);
     }
-    
-    // Get board data
-    const boardData = monday.getBoardData(boardId);
-    const columns = monday.getBoardColumns(boardId);
-    
+
+    // Fetch columns and items in a single API call (was 2 separate calls)
+    const graphqlQuery = `
+      query GetBoardWithColumns($boardId: ID!) {
+        boards(ids: [$boardId]) {
+          name
+          columns {
+            id
+            title
+            type
+            settings_str
+          }
+          items_page(limit: 500) {
+            items {
+              id
+              name
+              created_at
+              updated_at
+              column_values {
+                id
+                text
+                value
+              }
+              group {
+                id
+                title
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const result = monday.query(graphqlQuery, { boardId: String(boardId) });
+    const boardData = result.boards[0];
+    const columns = boardData.columns;
+
     // Build header row
     const headers = ['Item ID', 'Name', 'Group'];
     const columnMap = {};
-    
+
     columns.forEach(col => {
       headers.push(col.title);
       columnMap[col.id] = col.title;
     });
-    
+
     // Clear sheet and set headers
     sheet.clear();
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    
+
     // Process items
     const rows = [];
     boardData.items_page.items.forEach(item => {
       const row = [item.id, item.name, item.group.title];
-      
+
       columns.forEach(col => {
         const columnValue = item.column_values.find(cv => cv.id === col.id);
         row.push(columnValue ? columnValue.text : '');
       });
-      
+
       rows.push(row);
     });
-    
+
     // Write data
     if (rows.length > 0) {
       sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
     }
-    
+
     // Format sheet
     sheet.autoResizeColumns(1, headers.length);
     sheet.setFrozenRows(1);
-    
+
     return {
       success: true,
       rowsImported: rows.length,
       columns: headers.length
     };
-    
+
   } catch (error) {
     console.error('Sync error:', error);
     throw error;
@@ -672,28 +706,33 @@ function syncBoardToSheet(boardId, sheetName) {
 
 /**
  * Update Monday.com item
+ * Uses change_multiple_column_values to batch all column updates into a single API call
+ * (instead of N separate calls for N columns)
  */
 function updateMondayItem(itemId, boardId, updates) {
   try {
     const monday = new MondayAPI();
     const config = Object.values(BOARD_CONFIGS).find(c => c.boardId === boardId);
-    
+
     if (!config) {
       throw new Error(`Board configuration not found for board ${boardId}`);
     }
-    
-    // Update each column
-    const results = [];
+
+    // Build column values map for batch update (single API call instead of N calls)
+    const columnValues = {};
     for (const [field, value] of Object.entries(updates)) {
       const columnId = config.columns[field];
       if (columnId) {
-        const result = monday.updateItemColumnValue(boardId, itemId, columnId, value);
-        results.push(result);
+        columnValues[columnId] = value;
       }
     }
-    
-    return { success: true, updates: results.length };
-    
+
+    if (Object.keys(columnValues).length > 0) {
+      monday.updateMultipleColumns(boardId, itemId, columnValues);
+    }
+
+    return { success: true, updates: Object.keys(columnValues).length };
+
   } catch (error) {
     console.error('Update error:', error);
     throw error;
@@ -2231,7 +2270,7 @@ function syncInternalActivitiesData() {
  * @param {string} [overrideSheetName] - Optional sheet name to use instead of hardcoded map
  * @returns {Object} Result with success status
  */
-function syncSingleGWBoard(boardId, overrideBoardName, overrideSheetName) {
+function syncSingleGWBoard(boardId, overrideBoardName, overrideSheetName, preFetchedStructure) {
   try {
     // Use override values if provided, otherwise fall back to hardcoded maps
     const sheetName = overrideSheetName || GW_BOARD_SHEET_MAP[boardId];
@@ -2249,8 +2288,8 @@ function syncSingleGWBoard(boardId, overrideBoardName, overrideSheetName) {
     // Clear existing data from row 2 onwards
     clearSheetData(targetSheet);
 
-    // Get board structure (columns)
-    const boardStructure = getBoardStructure(boardId);
+    // Use pre-fetched board structure if available, otherwise fetch individually
+    const boardStructure = preFetchedStructure || getBoardStructure(boardId);
     console.log(`Board: ${boardStructure.name}, Columns: ${boardStructure.columns.length}`);
 
     // Get all items from the board
@@ -2706,4 +2745,239 @@ function syncPartnerBoardById(boardId) {
       error: error.message
     };
   }
+}
+
+// ── Retryable Fetch Utility ──────────────────────────────────────────────────
+
+/**
+ * Fetch with automatic retry for rate limiting (429) and server errors (5xx).
+ * Uses exponential backoff between retries.
+ * @param {string} url - The URL to fetch
+ * @param {Object} options - UrlFetchApp options
+ * @param {number} [maxAttempts=3] - Maximum number of attempts
+ * @returns {HTTPResponse} The successful response
+ */
+function retryableFetch_(url, options, maxAttempts) {
+  maxAttempts = maxAttempts || 3;
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = UrlFetchApp.fetch(url, options);
+      const code = response.getResponseCode();
+
+      if (code >= 200 && code < 300) {
+        return response;
+      }
+
+      if (code === 429 || code >= 500) {
+        lastError = new Error(`HTTP ${code}: ${response.getContentText().substring(0, 200)}`);
+        if (attempt < maxAttempts) {
+          const delay = Math.pow(2, attempt) * 1000;
+          console.log(`Retryable error (${code}). Waiting ${delay / 1000}s before retry ${attempt + 1}/${maxAttempts}...`);
+          Utilities.sleep(delay);
+          continue;
+        }
+      }
+
+      // Non-retryable error
+      throw new Error(`HTTP ${code}: ${response.getContentText().substring(0, 500)}`);
+    } catch (e) {
+      lastError = e;
+      if (attempt < maxAttempts) {
+        const delay = Math.pow(2, attempt) * 1000;
+        console.log(`Fetch error: ${e.message}. Waiting ${delay / 1000}s before retry ${attempt + 1}/${maxAttempts}...`);
+        Utilities.sleep(delay);
+      }
+    }
+  }
+
+  throw new Error(`Failed after ${maxAttempts} attempts: ${lastError}`);
+}
+
+// ── Batch API Query Functions ────────────────────────────────────────────────
+
+/**
+ * Fetch board structures for multiple boards in a single API call.
+ * Instead of making N separate calls for N boards, this batches them into one.
+ * @param {string[]} boardIds - Array of Monday.com board IDs
+ * @returns {Object} Map of boardId -> board structure (columns, groups, name)
+ */
+function getBatchBoardStructures(boardIds) {
+  if (!boardIds || boardIds.length === 0) return {};
+
+  const monday = new MondayAPI();
+
+  // Monday.com GraphQL supports querying multiple boards in a single call
+  const query = `
+    query GetMultipleBoardStructures($boardIds: [ID!]!) {
+      boards(ids: $boardIds) {
+        id
+        name
+        columns {
+          id
+          title
+          type
+          settings_str
+        }
+        groups {
+          id
+          title
+        }
+      }
+    }
+  `;
+
+  console.log(`Batch fetching board structures for ${boardIds.length} boards: [${boardIds.join(', ')}]`);
+
+  const data = monday.query(query, { boardIds: boardIds.map(id => String(id)) });
+
+  // Build a map of boardId -> structure for easy lookup
+  const structureMap = {};
+  if (data.boards) {
+    data.boards.forEach(board => {
+      structureMap[board.id] = board;
+    });
+  }
+
+  console.log(`Batch board structures retrieved: ${Object.keys(structureMap).length} boards`);
+  return structureMap;
+}
+
+/**
+ * Fetch all items from multiple boards using cursor-based pagination.
+ * Each board is paginated independently but uses a larger page size (500)
+ * matching the MondayMigrationTool approach for efficiency.
+ * @param {string[]} boardIds - Array of Monday.com board IDs
+ * @param {Object} [options] - Options: { pageSize: 500, maxItemsPerBoard: 10000 }
+ * @returns {Object} Map of boardId -> items array
+ */
+function getBatchBoardItems(boardIds, options) {
+  if (!boardIds || boardIds.length === 0) return {};
+
+  const pageSize = (options && options.pageSize) || 500;
+  const maxItems = (options && options.maxItemsPerBoard) || 10000;
+  const itemsMap = {};
+
+  console.log(`Batch fetching items for ${boardIds.length} boards (pageSize=${pageSize})...`);
+
+  for (const boardId of boardIds) {
+    try {
+      itemsMap[boardId] = getAllBoardItemsPaginated_(boardId, pageSize, maxItems);
+      console.log(`Board ${boardId}: ${itemsMap[boardId].length} items retrieved`);
+    } catch (error) {
+      console.error(`Error fetching items for board ${boardId}:`, error);
+      itemsMap[boardId] = [];
+    }
+  }
+
+  const totalItems = Object.values(itemsMap).reduce((sum, items) => sum + items.length, 0);
+  console.log(`Batch items fetch complete: ${totalItems} total items across ${boardIds.length} boards`);
+  return itemsMap;
+}
+
+/**
+ * Internal: Fetch all items from a single board using cursor-based pagination.
+ * Uses the larger page size (500) from the MondayMigrationTool approach.
+ * @param {string} boardId - Monday.com board ID
+ * @param {number} pageSize - Items per page (default 500)
+ * @param {number} maxItems - Safety limit (default 10000)
+ * @returns {Array} All items from the board
+ */
+function getAllBoardItemsPaginated_(boardId, pageSize, maxItems) {
+  const monday = new MondayAPI();
+  let allItems = [];
+  let cursor = null;
+  let pageCount = 0;
+
+  while (allItems.length < maxItems) {
+    pageCount++;
+
+    let query, variables;
+    if (cursor) {
+      query = `
+        query ($cursor: String!, $limit: Int!) {
+          next_items_page(cursor: $cursor, limit: $limit) {
+            cursor
+            items {
+              id
+              name
+              group { id title }
+              column_values { id type text value }
+              assets { id name url public_url }
+            }
+          }
+        }
+      `;
+      variables = { cursor: cursor, limit: pageSize };
+    } else {
+      query = `
+        query ($boardId: [ID!]!, $limit: Int!) {
+          boards(ids: $boardId) {
+            items_page(limit: $limit) {
+              cursor
+              items {
+                id
+                name
+                group { id title }
+                column_values { id type text value }
+                assets { id name url public_url }
+              }
+            }
+          }
+        }
+      `;
+      variables = { boardId: [String(boardId)], limit: pageSize };
+    }
+
+    const data = monday.query(query, variables);
+
+    let pageData;
+    if (cursor) {
+      if (!data.next_items_page) break;
+      pageData = data.next_items_page;
+    } else {
+      if (!data.boards || data.boards.length === 0) break;
+      pageData = data.boards[0].items_page;
+    }
+
+    if (!pageData || !pageData.items || pageData.items.length === 0) break;
+
+    allItems = allItems.concat(pageData.items);
+    cursor = pageData.cursor || null;
+
+    console.log(`Board ${boardId} page ${pageCount}: ${pageData.items.length} items (total: ${allItems.length})`);
+
+    if (!cursor) break;
+
+    // Rate limit delay between pagination calls
+    Utilities.sleep(200);
+  }
+
+  return allItems;
+}
+
+/**
+ * Combined batch fetch: get both board structures and items for multiple boards
+ * in the most efficient way possible. Board structures are fetched in a single
+ * API call, then items are fetched per-board with large page sizes.
+ * @param {string[]} boardIds - Array of Monday.com board IDs
+ * @param {Object} [options] - Options: { pageSize: 500, maxItemsPerBoard: 10000 }
+ * @returns {Object} { structures: { boardId: structure }, items: { boardId: items[] } }
+ */
+function getBatchBoardData(boardIds, options) {
+  if (!boardIds || boardIds.length === 0) {
+    return { structures: {}, items: {} };
+  }
+
+  console.log(`\n=== Batch fetching data for ${boardIds.length} boards ===`);
+
+  // Step 1: Fetch all board structures in a single API call
+  const structures = getBatchBoardStructures(boardIds);
+
+  // Step 2: Fetch items for all boards (paginated per-board)
+  const items = getBatchBoardItems(boardIds, options);
+
+  console.log(`=== Batch fetch complete ===\n`);
+  return { structures, items };
 }

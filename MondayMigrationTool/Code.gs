@@ -178,7 +178,7 @@ function _validateApiKey(apiKey) {
     headers: {
       'Content-Type': 'application/json',
       'Authorization': apiKey.trim(),
-      'API-Version': '2025-07'
+      'API-Version': '2026-01'
     },
     payload: JSON.stringify({
       query: '{ me { id name email account { id name } } }'
