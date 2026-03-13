@@ -719,10 +719,11 @@ function _phaseInit(migrationId, state) {
   state.boardFolderLookup = boardFolderLookup;
 
   // Detect managed templates if enabled
+  // NOTE: pass full sourceBoards (with columns) for fingerprint fallback, not state.sourceBoards (minimal)
   if (state.components && state.components.useManagedTemplates) {
     console.log('Migration: Detecting managed templates for source boards...');
     var templateSetId = state.components._templateSetId || null;
-    var tplResult = detectManagedTemplatesForBoards(state.sourceBoards, targetApiKey, templateSetId);
+    var tplResult = detectManagedTemplatesForBoards(sourceBoards, targetApiKey, templateSetId);
     state.templateMapping = tplResult.templateMapping;
 
     var mappedCount = Object.keys(tplResult.templateMapping).length;
