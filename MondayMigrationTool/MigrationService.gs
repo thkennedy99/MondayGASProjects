@@ -2230,12 +2230,18 @@ function migrateBoardFromManagedTemplate(sourceBoard, templateBoardId, targetWor
 }
 
 /**
- * Create skeleton template boards on the target platform for cross-account migration.
- * These template boards have the correct columns and groups but no items.
- * The user then manually adds automations/webhooks before running the actual migration.
+ * Prepare cross-account migration by replicating managed columns and creating
+ * unique template boards on the target account. Template boards use managed
+ * columns where the source does, ensuring consistency.
+ *
+ * Process:
+ *   Phase 1a: Replicate managed columns (skip existing matches on target)
+ *   Phase 1b: Create unique template boards (one per source template, not per board)
+ *             with managed columns attached where applicable
+ *   Then STOP — user manually adds automations/webhooks to templates
  *
  * @param {Object} params - { sourceWorkspaceId, targetAccountId, targetWorkspaceName, selectedBoardIds, setName }
- * @returns {Object} { success, setId, templateCount, boards }
+ * @returns {Object} { success, setId, templateCount, managedColumnsCreated, managedColumnsReused, uniqueTemplates, boards }
  */
 function prepareTemplatesOnTarget(params) {
   try {
@@ -2245,18 +2251,129 @@ function prepareTemplatesOnTarget(params) {
 
     var setId = Utilities.getUuid().replace(/-/g, '').substring(0, 12);
     var wsName = (params.targetWorkspaceName || 'Templates') + ' [Templates]';
-
-    // Create target workspace for templates
     var sourceWs = getWorkspaceDetails(sourceWsId);
-    var targetWs = createWorkspaceOnTarget(targetApiKey, wsName, 'open', 'Template workspace for managed board templates');
 
-    // Get source boards
+    console.log('Template Prep: ═══════════════════════════════════════════════════');
+    console.log('Template Prep: Source workspace: ' + sourceWs.name + ' (' + sourceWsId + ')');
+
+    // ── Phase 1a: Replicate managed columns ──────────────────────────────
+    console.log('Template Prep: Phase 1a — Replicating managed columns...');
+
+    var sourceManagedCols = getActiveManagedColumns();
+    var targetManagedCols = getActiveManagedColumns(targetApiKey);
+    var managedColMapping = {}; // source MC id → target MC id
+    var mcCreated = 0;
+    var mcReused = 0;
+
+    for (var mi = 0; mi < sourceManagedCols.length; mi++) {
+      var srcMC = sourceManagedCols[mi];
+      var srcSettings = srcMC.settings_json;
+      if (!srcSettings) continue;
+
+      var srcType = srcSettings.type; // 'color' (status) or 'dropdown'
+
+      // Check if matching managed column already exists on target (by title + type)
+      var existingMatch = null;
+      for (var ti = 0; ti < targetManagedCols.length; ti++) {
+        var tgtMC = targetManagedCols[ti];
+        var tgtSettings = tgtMC.settings_json;
+        if (!tgtSettings) continue;
+        if (tgtMC.title.toLowerCase() === srcMC.title.toLowerCase() && tgtSettings.type === srcType) {
+          existingMatch = tgtMC;
+          break;
+        }
+      }
+
+      if (existingMatch) {
+        managedColMapping[srcMC.id] = existingMatch.id;
+        mcReused++;
+        console.log('Template Prep:   Managed column "' + srcMC.title + '" (' + srcType + ') — reusing existing: ' + existingMatch.id);
+      } else {
+        // Create on target
+        try {
+          var newMC;
+          if (srcType === 'color') {
+            // Convert labels to CreateStatusLabelInput format
+            var statusLabels = _convertManagedStatusLabels(srcSettings.labels || []);
+            newMC = createStatusManagedColumn(srcMC.title, srcMC.description || '', statusLabels, targetApiKey);
+          } else if (srcType === 'dropdown') {
+            var dropdownLabels = (srcSettings.labels || [])
+              .filter(function(l) { return l.label; })
+              .map(function(l) { return { label: l.label }; });
+            newMC = createDropdownManagedColumn(srcMC.title, srcMC.description || '', dropdownLabels, targetApiKey);
+          }
+          if (newMC && newMC.id) {
+            managedColMapping[srcMC.id] = newMC.id;
+            mcCreated++;
+            console.log('Template Prep:   Managed column "' + srcMC.title + '" (' + srcType + ') — created: ' + newMC.id);
+          } else {
+            console.warn('Template Prep:   Managed column "' + srcMC.title + '" — creation returned no ID');
+          }
+        } catch (mcErr) {
+          console.warn('Template Prep:   Failed to create managed column "' + srcMC.title + '": ' + mcErr);
+        }
+      }
+    }
+
+    console.log('Template Prep: Phase 1a complete — ' + mcCreated + ' created, ' + mcReused + ' reused');
+
+    // Build reverse lookup: source managed column title+type → source MC id
+    // (used later to match board columns to managed columns)
+    var sourceMCByTitleType = {};
+    sourceManagedCols.forEach(function(mc) {
+      if (mc.settings_json) {
+        var key = mc.title.toLowerCase() + '|' + mc.settings_json.type;
+        sourceMCByTitleType[key] = mc.id;
+      }
+    });
+
+    // ── Phase 1b: Find unique templates and create on target ─────────────
+    console.log('Template Prep: Phase 1b — Finding unique templates...');
+
     var sourceBoards = getBoardsInWorkspace(sourceWsId);
+
     // Filter to selected boards if specified
     if (params.selectedBoardIds && params.selectedBoardIds.length > 0) {
       var selectedSet = {};
       params.selectedBoardIds.forEach(function(id) { selectedSet[String(id)] = true; });
       sourceBoards = sourceBoards.filter(function(b) { return selectedSet[String(b.id)]; });
+    }
+
+    // Filter out subitem boards
+    sourceBoards = sourceBoards.filter(function(b) { return b.board_kind !== 'sub_items_board'; });
+
+    // Group boards by created_from_board_id to find unique templates
+    var templateGroups = {}; // templateId → [board, board, ...]
+    var standaloneBoards = []; // boards without a template
+    sourceBoards.forEach(function(b) {
+      if (b.created_from_board_id) {
+        var tplId = String(b.created_from_board_id);
+        if (!templateGroups[tplId]) templateGroups[tplId] = [];
+        templateGroups[tplId].push(b);
+      } else {
+        standaloneBoards.push(b);
+      }
+    });
+
+    var uniqueTemplateIds = Object.keys(templateGroups);
+    console.log('Template Prep: Found ' + uniqueTemplateIds.length + ' unique templates and ' +
+      standaloneBoards.length + ' standalone boards');
+
+    // Create target workspace for templates
+    var targetWs = createWorkspaceOnTarget(targetApiKey, wsName, 'open',
+      'Template workspace for managed board templates from ' + sourceWs.name);
+
+    // Check for existing boards in target workspace (idempotency for re-runs)
+    var existingTargetBoards = {};
+    try {
+      var existingData = callMondayAPIWithKey(targetApiKey,
+        'query ($wsId: [ID!]) { boards (workspace_ids: $wsId, limit: 200) { id name } }',
+        { wsId: [Number(targetWs.id)] });
+      (existingData.boards || []).forEach(function(b) {
+        existingTargetBoards[b.name] = String(b.id);
+      });
+    } catch (e) {
+      console.warn('Template Prep: Could not check existing target boards: ' + e);
     }
 
     var templateSetData = {
@@ -2269,67 +2386,96 @@ function prepareTemplatesOnTarget(params) {
       targetAccountId: params.targetAccountId,
       targetAccountLabel: params.targetAccountLabel || '',
       createdAt: new Date().toISOString(),
+      managedColumnMapping: managedColMapping,
       boards: {}
     };
 
-    // For each source board, create a skeleton on target
     var results = [];
-    for (var i = 0; i < sourceBoards.length; i++) {
-      var board = sourceBoards[i];
+    var templateBoardMapping = {}; // source template ID → target template board ID
+
+    // Create one template board per unique source template
+    for (var ui = 0; ui < uniqueTemplateIds.length; ui++) {
+      var srcTemplateId = uniqueTemplateIds[ui];
+      var boardsFromTemplate = templateGroups[srcTemplateId];
+      // Use the first board as reference for column/group structure
+      var refBoard = boardsFromTemplate[0];
+      var templateName = refBoard.name.replace(/\s+\(.*\)$/, '').replace(/\s+$/, '') + ' [Template]';
+
       try {
-        // Fetch full structure
-        var fullBoard = _fetchFullBoard(board.id);
-        if (!fullBoard) throw new Error('Could not fetch board: ' + board.name);
+        // Check if template already exists on target
+        if (existingTargetBoards[templateName]) {
+          var existingId = existingTargetBoards[templateName];
+          templateBoardMapping[srcTemplateId] = existingId;
+          console.log('Template Prep: Template "' + templateName + '" already exists on target: ' + existingId);
 
-        var structure = fullBoard;
+          // Map all source boards using this template
+          boardsFromTemplate.forEach(function(b) {
+            templateSetData.boards[String(b.id)] = {
+              templateBoardId: existingId,
+              templateBoardName: templateName,
+              sourceBoardName: b.name,
+              sourceTemplateId: srcTemplateId,
+              status: 'reused'
+            };
+            results.push({ boardId: String(b.id), boardName: b.name, templateBoardId: existingId, sourceTemplateId: srcTemplateId, status: 'reused' });
+          });
+          continue;
+        }
 
-        // Create empty board on target
-        var targetBoard = createBoardOnTarget(targetApiKey, board.name + ' [Template]', structure.board_kind || 'public', targetWs.id);
+        // Fetch full structure from reference board
+        var fullRef = _fetchFullBoard(refBoard.id);
+        if (!fullRef) throw new Error('Could not fetch reference board: ' + refBoard.name);
 
-        // Batch create columns (skip non-creatable types)
-        var regularColumns = [];
-        (structure.columns || []).forEach(function(col) {
-          var skipTypes = ['name', 'subtasks', 'board_relation', 'mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'button', 'dependency'];
-          if (skipTypes.indexOf(col.type) < 0) {
-            regularColumns.push(col);
+        // Detect which columns on this board are managed
+        var managedMatches = detectManagedColumnsOnBoard(refBoard.id, fullRef.columns);
+        var managedColIds = {}; // source column ID → source managed column ID
+        managedMatches.forEach(function(m) {
+          managedColIds[m.columnId] = m.managedColumnId;
+        });
+
+        // Create empty template board on target
+        var targetBoard = createBoardOnTarget(targetApiKey, templateName, fullRef.board_kind || 'public', targetWs.id);
+        console.log('Template Prep: Created template board "' + templateName + '" → ' + targetBoard.id);
+
+        // Create columns: managed columns via attach, regular via create
+        var skipTypes = ['name', 'subtasks', 'board_relation', 'mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
+        var managedAttached = 0;
+        var regularColRequests = [];
+
+        (fullRef.columns || []).forEach(function(col) {
+          if (skipTypes.indexOf(col.type) >= 0) return;
+
+          var srcMCId = managedColIds[col.id];
+          if (srcMCId && managedColMapping[srcMCId]) {
+            // This column is managed — attach the target managed column
+            var targetMCId = managedColMapping[srcMCId];
+            try {
+              var colType = _normalizeColumnType(col.type);
+              if (colType === 'status') {
+                attachStatusManagedColumnOnTarget(targetApiKey, targetBoard.id, targetMCId, col.title);
+              } else {
+                attachDropdownManagedColumnOnTarget(targetApiKey, targetBoard.id, targetMCId, col.title);
+              }
+              managedAttached++;
+              console.log('Template Prep:   Attached managed column "' + col.title + '" → MC ' + targetMCId);
+            } catch (attachErr) {
+              console.warn('Template Prep:   Failed to attach managed column "' + col.title + '": ' + attachErr + ' — creating as regular');
+              regularColRequests.push(_buildColumnCreateRequest(targetBoard.id, col));
+            }
+          } else {
+            // Regular column
+            regularColRequests.push(_buildColumnCreateRequest(targetBoard.id, col));
           }
         });
 
-        if (regularColumns.length > 0) {
-          var colRequests = regularColumns.map(function(col) {
-            var defaults = _buildColumnDefaults(col);
-            var normalizedType = _normalizeColumnType(col.type);
-
-            if (defaults && normalizedType === 'status') {
-              return {
-                query: 'mutation ($boardId: ID!, $title: String!, $defaults: CreateStatusColumnSettingsInput!) { create_status_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
-                variables: { boardId: Number(targetBoard.id), title: col.title, defaults: defaults }
-              };
-            }
-            if (defaults && normalizedType === 'dropdown') {
-              return {
-                query: 'mutation ($boardId: ID!, $title: String!, $defaults: CreateDropdownColumnSettingsInput!) { create_dropdown_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
-                variables: { boardId: Number(targetBoard.id), title: col.title, defaults: defaults }
-              };
-            }
-
-            if (defaults) {
-              return {
-                query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
-                variables: { boardId: Number(targetBoard.id), title: col.title, type: normalizedType, defaults: JSON.stringify(defaults) }
-              };
-            }
-            return {
-              query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }',
-              variables: { boardId: Number(targetBoard.id), title: col.title, type: normalizedType }
-            };
-          });
-          batchMondayAPICalls(targetApiKey, colRequests, 6);
+        // Batch create regular columns
+        if (regularColRequests.length > 0) {
+          batchMondayAPICalls(targetApiKey, regularColRequests, 6);
         }
 
         // Batch create groups
-        if (structure.groups && structure.groups.length > 0) {
-          var groupRequests = structure.groups.map(function(grp) {
+        if (fullRef.groups && fullRef.groups.length > 0) {
+          var groupRequests = fullRef.groups.map(function(grp) {
             return {
               query: 'mutation ($boardId: ID!, $name: String!) { create_group (board_id: $boardId, group_name: $name) { id title } }',
               variables: { boardId: Number(targetBoard.id), name: grp.title }
@@ -2338,44 +2484,156 @@ function prepareTemplatesOnTarget(params) {
           batchMondayAPICalls(targetApiKey, groupRequests, 6);
         }
 
-        // Delete default group/item
-        try {
-          _cleanDefaultGroupOnTarget(targetApiKey, targetBoard.id);
-        } catch (cleanErr) {
-          console.warn('Template prep: Could not clean default group for "' + board.name + '": ' + cleanErr);
+        // Clean default group/item
+        try { _cleanDefaultGroupOnTarget(targetApiKey, targetBoard.id); } catch (e) {}
+
+        templateBoardMapping[srcTemplateId] = String(targetBoard.id);
+
+        // Map ALL source boards that use this template
+        boardsFromTemplate.forEach(function(b) {
+          templateSetData.boards[String(b.id)] = {
+            templateBoardId: String(targetBoard.id),
+            templateBoardName: templateName,
+            sourceBoardName: b.name,
+            sourceTemplateId: srcTemplateId,
+            status: 'ready',
+            managedColumnsAttached: managedAttached
+          };
+          results.push({
+            boardId: String(b.id), boardName: b.name,
+            templateBoardId: String(targetBoard.id), sourceTemplateId: srcTemplateId,
+            status: 'ready'
+          });
+        });
+
+        console.log('Template Prep: Template "' + templateName + '" ready — ' + managedAttached + ' managed cols, ' +
+          regularColRequests.length + ' regular cols, ' + (fullRef.groups || []).length + ' groups → serves ' +
+          boardsFromTemplate.length + ' boards');
+
+      } catch (tplErr) {
+        console.error('Template Prep: Failed template for source template ' + srcTemplateId + ': ' + tplErr);
+        boardsFromTemplate.forEach(function(b) {
+          templateSetData.boards[String(b.id)] = {
+            templateBoardId: null,
+            sourceBoardName: b.name,
+            sourceTemplateId: srcTemplateId,
+            status: 'error',
+            error: tplErr.toString()
+          };
+          results.push({ boardId: String(b.id), boardName: b.name, status: 'error', error: tplErr.toString() });
+        });
+      }
+    }
+
+    // Handle standalone boards (no template) — create individual skeleton boards
+    for (var si = 0; si < standaloneBoards.length; si++) {
+      var sBoard = standaloneBoards[si];
+      try {
+        var fullStandalone = _fetchFullBoard(sBoard.id);
+        if (!fullStandalone) throw new Error('Could not fetch board: ' + sBoard.name);
+
+        var standaloneName = sBoard.name + ' [Template]';
+
+        // Check if already exists
+        if (existingTargetBoards[standaloneName]) {
+          var existId = existingTargetBoards[standaloneName];
+          templateSetData.boards[String(sBoard.id)] = {
+            templateBoardId: existId,
+            templateBoardName: standaloneName,
+            sourceBoardName: sBoard.name,
+            sourceTemplateId: null,
+            status: 'reused'
+          };
+          results.push({ boardId: String(sBoard.id), boardName: sBoard.name, templateBoardId: existId, status: 'reused' });
+          continue;
         }
 
-        templateSetData.boards[String(board.id)] = {
-          templateBoardId: String(targetBoard.id),
-          templateBoardName: targetBoard.name,
-          sourceBoardName: board.name,
-          status: 'ready',
-          columnsCreated: regularColumns.length,
-          groupsCreated: (structure.groups || []).length
-        };
+        var stTargetBoard = createBoardOnTarget(targetApiKey, standaloneName, fullStandalone.board_kind || 'public', targetWs.id);
 
-        results.push({ boardId: String(board.id), boardName: board.name, templateBoardId: String(targetBoard.id), status: 'ready' });
-      } catch (boardErr) {
-        console.error('Template prep failed for "' + board.name + '": ' + boardErr);
-        templateSetData.boards[String(board.id)] = {
-          templateBoardId: null,
-          sourceBoardName: board.name,
-          status: 'error',
-          error: boardErr.toString()
+        // Detect managed columns for standalone board too
+        var stManagedMatches = detectManagedColumnsOnBoard(sBoard.id, fullStandalone.columns);
+        var stManagedColIds = {};
+        stManagedMatches.forEach(function(m) { stManagedColIds[m.columnId] = m.managedColumnId; });
+
+        var stSkipTypes = ['name', 'subtasks', 'board_relation', 'mirror', 'formula', 'auto_number', 'creation_log', 'last_updated', 'button', 'dependency', 'item_id'];
+        var stRegularCols = [];
+        var stManagedAttached = 0;
+
+        (fullStandalone.columns || []).forEach(function(col) {
+          if (stSkipTypes.indexOf(col.type) >= 0) return;
+          var srcMCId = stManagedColIds[col.id];
+          if (srcMCId && managedColMapping[srcMCId]) {
+            try {
+              var colType = _normalizeColumnType(col.type);
+              if (colType === 'status') {
+                attachStatusManagedColumnOnTarget(targetApiKey, stTargetBoard.id, managedColMapping[srcMCId], col.title);
+              } else {
+                attachDropdownManagedColumnOnTarget(targetApiKey, stTargetBoard.id, managedColMapping[srcMCId], col.title);
+              }
+              stManagedAttached++;
+            } catch (attachErr) {
+              stRegularCols.push(_buildColumnCreateRequest(stTargetBoard.id, col));
+            }
+          } else {
+            stRegularCols.push(_buildColumnCreateRequest(stTargetBoard.id, col));
+          }
+        });
+
+        if (stRegularCols.length > 0) batchMondayAPICalls(targetApiKey, stRegularCols, 6);
+
+        if (fullStandalone.groups && fullStandalone.groups.length > 0) {
+          var stGroupReqs = fullStandalone.groups.map(function(grp) {
+            return {
+              query: 'mutation ($boardId: ID!, $name: String!) { create_group (board_id: $boardId, group_name: $name) { id title } }',
+              variables: { boardId: Number(stTargetBoard.id), name: grp.title }
+            };
+          });
+          batchMondayAPICalls(targetApiKey, stGroupReqs, 6);
+        }
+
+        try { _cleanDefaultGroupOnTarget(targetApiKey, stTargetBoard.id); } catch (e) {}
+
+        templateSetData.boards[String(sBoard.id)] = {
+          templateBoardId: String(stTargetBoard.id),
+          templateBoardName: standaloneName,
+          sourceBoardName: sBoard.name,
+          sourceTemplateId: null,
+          status: 'ready',
+          managedColumnsAttached: stManagedAttached
         };
-        results.push({ boardId: String(board.id), boardName: board.name, status: 'error', error: boardErr.toString() });
+        results.push({ boardId: String(sBoard.id), boardName: sBoard.name, templateBoardId: String(stTargetBoard.id), status: 'ready' });
+      } catch (stErr) {
+        console.error('Template Prep: Failed standalone board "' + sBoard.name + '": ' + stErr);
+        templateSetData.boards[String(sBoard.id)] = {
+          templateBoardId: null, sourceBoardName: sBoard.name, sourceTemplateId: null,
+          status: 'error', error: stErr.toString()
+        };
+        results.push({ boardId: String(sBoard.id), boardName: sBoard.name, status: 'error', error: stErr.toString() });
       }
     }
 
     // Save template set
     saveTemplateSet(setId, templateSetData);
 
+    var readyCount = results.filter(function(r) { return r.status === 'ready' || r.status === 'reused'; }).length;
+    console.log('Template Prep: ═══════════════════════════════════════════════════');
+    console.log('Template Prep: COMPLETE — ' + readyCount + ' boards mapped to templates');
+    console.log('Template Prep:   Managed columns: ' + mcCreated + ' created, ' + mcReused + ' reused');
+    console.log('Template Prep:   Unique templates: ' + uniqueTemplateIds.length);
+    console.log('Template Prep:   Standalone boards: ' + standaloneBoards.length);
+    console.log('Template Prep: ═══════════════════════════════════════════════════');
+    console.log('Template Prep: WAITING for manual step — add automations/webhooks to template boards');
+
     return safeReturn({
       success: true,
       setId: setId,
       targetWorkspaceId: String(targetWs.id),
       targetWorkspaceName: wsName,
-      templateCount: results.filter(function(r) { return r.status === 'ready'; }).length,
+      templateCount: readyCount,
+      managedColumnsCreated: mcCreated,
+      managedColumnsReused: mcReused,
+      uniqueTemplates: uniqueTemplateIds.length,
+      standaloneBoards: standaloneBoards.length,
       boards: results
     });
   } catch (error) {
@@ -2846,6 +3104,187 @@ function _buildColumnDefaults(col) {
     console.warn('Migration: Failed to parse settings for column "' + col.title + '": ' + e);
   }
   return null;
+}
+
+/**
+ * Map from Monday.com hex color codes (as used in managed column settings_json.labels[].hex)
+ * to StatusColumnColors enum values. Used by _convertManagedStatusLabels for cross-account
+ * managed column replication where source labels have hex codes instead of var_names.
+ */
+var HEX_TO_ENUM_COLOR = {
+  '#fdab3d': 'working_orange',
+  '#00c875': 'done_green',
+  '#e2445c': 'stuck_red',
+  '#579bfc': 'bright_blue',
+  '#a25ddc': 'purple',
+  '#ff5ac4': 'explosive',
+  '#037f4c': 'grass_green',
+  '#9cd326': 'bright_green',
+  '#cab641': 'saladish',
+  '#ffcb00': 'egg_yolk',
+  '#333333': 'blackish',
+  '#bb3354': 'dark_red',
+  '#ff158a': 'sofia_pink',
+  '#ff642e': 'dark_orange',
+  '#784bd1': 'dark_purple',
+  '#66ccff': 'chili_blue',
+  '#808080': 'american_gray',
+  '#7f5347': 'brown',
+  '#ff7575': 'sunset',
+  '#faa1f1': 'bubble',
+  '#ffadad': 'peach',
+  '#e8697d': 'berry',
+  '#9aadbd': 'winter',
+  '#68a1bd': 'river',
+  '#225091': 'navy',
+  '#4eccc6': 'aquamarine',
+  '#5559df': 'indigo',
+  '#401694': 'dark_indigo',
+  '#bd816e': 'pecan',
+  '#bda8f9': 'lavender',
+  '#2b76e5': 'royal',
+  '#c4c4c4': 'steel',
+  '#7e3b8a': 'orchid',
+  '#d974b0': 'lilac',
+  '#ad967a': 'tan',
+  '#a9bee8': 'sky',
+  '#795548': 'coffee',
+  '#175a63': 'teal',
+  '#ff0000': 'lipstick'
+};
+
+/**
+ * Convert managed column settings_json.labels (status type) to CreateStatusLabelInput format.
+ * Managed column labels have: { id, color (numeric), label, index, is_done, is_deactivated, hex }
+ * CreateStatusLabelInput needs: { label: String!, color: StatusColumnColors!, index: Int! }
+ *
+ * Uses hex→enum mapping with deduplication to prevent API internal server errors.
+ *
+ * @param {Array} labels - Managed column settings_json.labels array
+ * @returns {Array} Array of { label, color, index } for CreateStatusColumnSettingsInput
+ */
+function _convertManagedStatusLabels(labels) {
+  if (!labels || !Array.isArray(labels) || labels.length === 0) return [];
+
+  var result = [];
+  var usedColors = {};
+
+  for (var i = 0; i < labels.length; i++) {
+    var lbl = labels[i];
+    if (!lbl.label || lbl.is_deactivated) continue;
+
+    var colorName = null;
+
+    // 1. Try hex → enum mapping
+    if (lbl.hex) {
+      var hexLower = lbl.hex.toLowerCase().trim();
+      // Ensure # prefix for lookup
+      if (hexLower.charAt(0) !== '#') hexLower = '#' + hexLower;
+      colorName = HEX_TO_ENUM_COLOR[hexLower] || null;
+    }
+
+    // 2. If hex didn't match, try the numeric color as a var_name lookup
+    //    (some managed columns may use string color names)
+    if (!colorName && lbl.color !== undefined && lbl.color !== null) {
+      var colorStr = String(lbl.color).toLowerCase().trim();
+      // Check if it's already a valid enum value
+      if (STATUS_COLOR_ENUM_VALUES.indexOf(colorStr) >= 0) {
+        colorName = colorStr;
+      }
+      // Check var_name mapping (handles hyphenated/legacy names)
+      if (!colorName) {
+        colorName = VAR_NAME_TO_ENUM_COLOR[colorStr] || null;
+      }
+      // Try underscore normalization
+      if (!colorName) {
+        var normalized = colorStr.replace(/-/g, '_');
+        if (STATUS_COLOR_ENUM_VALUES.indexOf(normalized) >= 0) {
+          colorName = normalized;
+        }
+      }
+    }
+
+    // 3. Fallback: assign from default palette
+    if (!colorName) {
+      colorName = STATUS_DEFAULT_COLORS[i % STATUS_DEFAULT_COLORS.length];
+      console.warn('Template Prep: Unmapped managed status color for label "' + lbl.label +
+        '" (hex=' + (lbl.hex || '?') + ', color=' + lbl.color + ') — using fallback: ' + colorName);
+    }
+
+    // 4. Deduplicate: Monday.com rejects duplicate colors in create_status_managed_column
+    if (usedColors[colorName]) {
+      var origColor = colorName;
+      colorName = null;
+      for (var ci = 0; ci < STATUS_COLOR_ENUM_VALUES.length; ci++) {
+        if (!usedColors[STATUS_COLOR_ENUM_VALUES[ci]]) {
+          colorName = STATUS_COLOR_ENUM_VALUES[ci];
+          break;
+        }
+      }
+      if (!colorName) {
+        colorName = STATUS_DEFAULT_COLORS[i % STATUS_DEFAULT_COLORS.length];
+      }
+      console.log('Template Prep: Dedup managed color for "' + lbl.label + '": ' + origColor + ' → ' + colorName);
+    }
+    usedColors[colorName] = true;
+
+    result.push({
+      label: lbl.label,
+      color: colorName,
+      index: lbl.index !== undefined ? lbl.index : i
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Build a column creation request object for batchMondayAPICalls.
+ * Handles typed mutations for status and dropdown columns, generic create_column for others.
+ * Encapsulates the logic that was previously duplicated across template preparation code.
+ *
+ * @param {string} targetBoardId - Target board ID
+ * @param {Object} col - Column definition from source board { id, title, type, settings_str }
+ * @returns {Object} { query, variables } for batchMondayAPICalls
+ */
+function _buildColumnCreateRequest(targetBoardId, col) {
+  var normalizedType = _normalizeColumnType(col.type);
+  var defaults = _buildColumnDefaults(col);
+
+  // Status column with typed mutation
+  if (defaults && normalizedType === 'status') {
+    return {
+      query: 'mutation ($boardId: ID!, $title: String!, $defaults: CreateStatusColumnSettingsInput!) { create_status_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+      variables: { boardId: Number(targetBoardId), title: col.title, defaults: defaults }
+    };
+  }
+
+  // Dropdown column with typed mutation
+  if (defaults && normalizedType === 'dropdown') {
+    return {
+      query: 'mutation ($boardId: ID!, $title: String!, $defaults: CreateDropdownColumnSettingsInput!) { create_dropdown_column (board_id: $boardId, title: $title, defaults: $defaults) { id title type } }',
+      variables: { boardId: Number(targetBoardId), title: col.title, defaults: defaults }
+    };
+  }
+
+  // Generic create_column for all other types
+  var variables = {
+    boardId: Number(targetBoardId),
+    title: col.title,
+    type: normalizedType
+  };
+
+  if (defaults) {
+    return {
+      query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!, $defaults: JSON!) { create_column (board_id: $boardId, title: $title, column_type: $type, defaults: $defaults) { id title type } }',
+      variables: Object.assign({}, variables, { defaults: JSON.stringify(defaults) })
+    };
+  }
+
+  return {
+    query: 'mutation ($boardId: ID!, $title: String!, $type: ColumnType!) { create_column (board_id: $boardId, title: $title, column_type: $type) { id title type } }',
+    variables: variables
+  };
 }
 
 /**

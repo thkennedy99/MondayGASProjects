@@ -1244,10 +1244,9 @@ function duplicateBoard(boardId, duplicateType, workspaceId) {
  * Returns array of managed column objects with id, title, description, state,
  * revision, settings_json (contains type + labels).
  */
-function getManagedColumns() {
-  var data = callMondayAPI(
-    'query { managed_column { id title description state revision settings_json } }'
-  );
+function getManagedColumns(apiKey) {
+  var query = 'query { managed_column { id title description state created_by revision settings_json } }';
+  var data = apiKey ? callMondayAPIWithKey(apiKey, query) : callMondayAPI(query);
   return data.managed_column || [];
 }
 
@@ -1255,11 +1254,19 @@ function getManagedColumns() {
  * Get only active managed columns.
  */
 var _managedColumnsCache = null;
-function getActiveManagedColumns() {
-  if (_managedColumnsCache) return _managedColumnsCache;
-  var all = getManagedColumns();
-  _managedColumnsCache = all.filter(function(mc) { return mc.state === 'active'; });
-  return _managedColumnsCache;
+var _managedColumnsCacheTarget = null;
+function getActiveManagedColumns(apiKey) {
+  if (!apiKey) {
+    if (_managedColumnsCache) return _managedColumnsCache;
+    var all = getManagedColumns();
+    _managedColumnsCache = all.filter(function(mc) { return mc.state === 'active'; });
+    return _managedColumnsCache;
+  }
+  // Target account — separate cache
+  if (_managedColumnsCacheTarget) return _managedColumnsCacheTarget;
+  var allTarget = getManagedColumns(apiKey);
+  _managedColumnsCacheTarget = allTarget.filter(function(mc) { return mc.state === 'active'; });
+  return _managedColumnsCacheTarget;
 }
 
 /**
@@ -1269,15 +1276,10 @@ function getActiveManagedColumns() {
  * @param {Array} labels - Array of { label, color, index, description?, is_done? }
  * @returns {Object} Created managed column
  */
-function createStatusManagedColumn(title, description, labels) {
-  var data = callMondayAPI(
-    'mutation ($title: String!, $description: String, $settings: CreateStatusColumnSettingsInput!) { create_status_managed_column (title: $title, description: $description, settings: $settings) { id title state } }',
-    {
-      title: title,
-      description: description || '',
-      settings: { labels: labels }
-    }
-  );
+function createStatusManagedColumn(title, description, labels, apiKey) {
+  var query = 'mutation ($title: String!, $description: String, $settings: CreateStatusColumnSettingsInput!) { create_status_managed_column (title: $title, description: $description, settings: $settings) { id title state } }';
+  var variables = { title: title, description: description || '', settings: { labels: labels } };
+  var data = apiKey ? callMondayAPIWithKey(apiKey, query, variables) : callMondayAPI(query, variables);
   return data.create_status_managed_column;
 }
 
@@ -1288,15 +1290,10 @@ function createStatusManagedColumn(title, description, labels) {
  * @param {Array} labels - Array of { label }
  * @returns {Object} Created managed column
  */
-function createDropdownManagedColumn(title, description, labels) {
-  var data = callMondayAPI(
-    'mutation ($title: String!, $description: String, $settings: CreateDropdownColumnSettingsInput!) { create_dropdown_managed_column (title: $title, description: $description, settings: $settings) { id title state } }',
-    {
-      title: title,
-      description: description || '',
-      settings: { labels: labels }
-    }
-  );
+function createDropdownManagedColumn(title, description, labels, apiKey) {
+  var query = 'mutation ($title: String!, $description: String, $settings: CreateDropdownColumnSettingsInput!) { create_dropdown_managed_column (title: $title, description: $description, settings: $settings) { id title state } }';
+  var variables = { title: title, description: description || '', settings: { labels: labels } };
+  var data = apiKey ? callMondayAPIWithKey(apiKey, query, variables) : callMondayAPI(query, variables);
   return data.create_dropdown_managed_column;
 }
 
