@@ -1,2 +1,25 @@
+# Dependencies
+node_modules/
+
+# MCP configuration (contains API tokens - NEVER commit)
+.mcp.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
 # MCP configuration (contains API tokens)
 .mcp.json
