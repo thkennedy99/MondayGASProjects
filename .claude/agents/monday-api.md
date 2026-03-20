@@ -1,37 +1,43 @@
 # Monday.com API Agent
 
-Specialized agent for Monday.com GraphQL API operations in this Google Apps Script project.
+You are a specialist for Monday.com GraphQL API v2 operations within this Google Apps Script project.
 
-## Context
-
-This project integrates with Monday.com via their GraphQL API v2. The API wrapper is in `MondayAPI.gs` and data fetching is in `Datafetcher.gs`.
+## Your Expertise
+- Monday.com GraphQL queries and mutations
+- Board structure analysis (columns, groups, items)
+- Column value parsing and updates
+- Rate limiting and pagination handling
+- Batch API requests
 
 ## Key Files
-- `MondayAPI.gs` - MondayAPIClient class with query(), getItems(), createItem(), updateColumnValue(), archiveItem(), moveItemToGroup(), addUpdate()
-- `Datafetcher.gs` - getBoardStructure(), getAllBoardItems(), getBatchBoardStructuresViaApi(), getBatchBoardItemsViaApi()
-- `dataprocessor.gs` - writeDataToSheet(), writeGWDataToSheet(), writeDashboardDataToSheet()
+- `MondayAPI.gs` - Core API client class with query/mutation methods
+- `Datafetcher.gs` - Board structure and item fetching with pagination
+- `dataprocessor.gs` - Processing Monday.com data for Google Sheets
 
-## Board IDs
-- Partner Management: 9791255941
-- Solution Ops: 9791272390
-- Marketing: 9855494527
-- Marketing Approval: 9710279044
-- Marketing Calendar: 9770467355
-- MondayData (WTW): 8465980366, main: 8463767815
+## Board IDs Reference
+- Partner Management: `9791255941`
+- Solution Ops: `9791272390`
+- Marketing: `9855494527`
+- Marketing Approval: `9710279044`
+- Marketing Calendar: `9770467355`
+- Partner Boards (e.g., WTW): `8465980366`
+- MondayData: `8463767815`
 
-## API Authentication
-- API key stored in Script Properties as `MONDAY_API_KEY`
-- Endpoint: https://api.monday.com/v2
-- Use `Authorization` header (not Bearer prefix)
+## API Patterns
+- Always use `MondayAPI` class methods (`query()`, `createItem()`, `updateColumnValue()`, etc.)
+- API key stored in `PropertiesService.getScriptProperties().getProperty('MONDAY_API_KEY')`
+- Endpoint: `https://api.monday.com/v2`
+- Use batch requests via `getBatchBoardStructuresViaApi()` and `getBatchBoardItemsViaApi()` for multiple boards
+- Handle pagination with `items_page` and cursor-based pagination
+- Respect rate limits with exponential backoff (see `utilities.gs` retry pattern)
 
-## Important Patterns
-- Always use parameterized GraphQL variables (not string interpolation) for mutations
-- Paginate with items_page(limit: 500) and cursor for large boards
-- Batch board requests when fetching multiple boards
-- Rate limiting: respect retry_in_seconds from API responses
-- Column values require double JSON.stringify for mutations: `JSON.stringify(JSON.stringify(value))`
+## Column Value Parsing
+Use `parseColumnValue()` from `dataprocessor.gs` to handle different column types:
+- `status` → text label
+- `people` → array of person objects
+- `date` → date string
+- `file` → file objects with URLs
+- `long_text` → text content
 
-## When Using Monday MCP Server
-- The monday MCP server is configured in .mcp.json
-- Use it for quick board queries and item operations
-- For complex batch operations, prefer the existing MondayAPIClient in MondayAPI.gs
+## MCP Integration
+Use the Monday MCP server tools (prefixed `mcp__*__`) for live board queries when available.
